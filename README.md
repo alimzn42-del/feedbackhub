@@ -5,9 +5,10 @@ feedback, everyone browses and upvotes, and admins triage. The point is to stop
 the same suggestion arriving five times by email, and to make visible what is
 actually being worked on.
 
-**Status: slice 1.** A feedback request can be created and listed. Voting,
-comments, search, filters, pinning, admin screens and authentication are not
-built yet — see [Scope](#what-is-and-is-not-built) below.
+**Status: slice 2.** A feedback request can be created, listed and voted on,
+with the board ordered by vote count. Comments, search, filters, pinning, admin
+screens and authentication are not built yet — see
+[Scope](#what-is-and-is-not-built) below.
 
 ## Requirements
 
@@ -105,17 +106,21 @@ a single envelope; see [DECISIONS.md](DECISIONS.md#error-shape).
 | | |
 |---|---|
 | `GET /health` | liveness, no identity required |
-| `GET /api/requests?page=&pageSize=` | paginated, sorted pinned-first then newest-first |
+| `GET /api/requests?page=&pageSize=` | paginated; pinned first, then most votes, then newest |
 | `POST /api/requests` | `{ title, description, categoryId }` |
+| `POST /api/requests/:id/vote` | vote as the current user; `409` if already voted |
+| `DELETE /api/requests/:id/vote` | withdraw your vote; safe to repeat |
 | `GET /api/categories` | the active categories, for the create form |
 
 ## What is and is not built
 
-**Built:** the four base tables and their seed data, request creation and
-listing with server-side pagination, the identity seam, the policy module with
-the full set of request rules, one error shape with one middleware producing it,
-and the two screens with real loading, empty and error states.
+**Built:** the five tables and their seed data; request creation and listing
+with server-side pagination; voting, with the board ordered by vote count and
+counts derived rather than stored; the identity seam; the policy module with the
+request and vote rules; one error shape with one middleware producing it; and
+two screens with real loading, empty and error states.
 
-**Not built, by design:** votes, comments, search, filters, pinning, admin
-screens, settings, Keycloak, and deployment beyond the database container. The
-schema carries `is_pinned` because it belongs to the entity; no endpoint sets it.
+**Not built, by design:** comments, search, filters, sort switching, pinning,
+admin screens, settings, Keycloak, and deployment beyond the database container.
+The schema carries `is_pinned` and the sort honours it, but no endpoint sets it
+yet. Sorting by newest arrives with the filters slice.

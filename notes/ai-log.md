@@ -376,3 +376,113 @@ rather than `24.19.0`. Rewritten without it.
 The BOM is the more interesting one: nothing had failed. `node -v` still
 reported the right version because the correct Node was already on PATH from the
 install, so the pin had never actually been exercised.
+
+---
+
+## 2026-08-21 — Slice 2: voting
+
+### The requirement that could not be built as literally stated
+
+"The count should be at the API, not on the DB."
+
+Two readings, and they are not close. Either *no counter column exists and the
+API returns a count derived from the vote rows* — which is what slice 1 already
+committed to — or *Node loads the rows and counts them in JavaScript*.
+
+The second breaks two locked rules at once. To order the whole board by votes
+the API would need every request and every vote in memory before it could pick
+page one, so sorting and pagination stop being server-side, and the cost grows
+with every vote ever cast.
+
+Rather than pick the convenient reading and move on, or refuse and stall, the
+two options were put back with the actual SQL and the actual JavaScript side by
+side, so the difference was visible rather than described. Confirmed as the
+first reading — no counter column. Worth noting that the phrasing was not wrong,
+it was ambiguous, and the ambiguity was only visible to someone who knew what
+the second reading would cost.
+
+### The first rule in this codebase that refuses anybody
+
+"Can an author vote on their own request?" — answered no, it does not make
+sense. That is a bigger deal than it looks.
+
+Every rule reachable by a route until now allowed any authenticated user. The
+reviewer had asked, two rounds ago, for authorization tested through the route
+rather than only in the policy — a real request refused with a real 403 — and it
+could not be written, because nothing could be refused. The route-level tests
+had to deny artificially by stubbing the policy, and the test file said so.
+
+Self-voting is refused by the real policy, on a real request, with nothing
+stubbed to make it happen:
+
+    POST /api/requests/4/vote      (as the author)
+    403  {"code":"FORBIDDEN","message":"You cannot vote on your own request."}
+
+The test asserts both the refusal and that no write occurred. Still unreachable:
+a regular user refused an *admin-only* action. Change status and pin have rules
+but no routes.
+
+### canVote is computed on the server, and that was not the first design
+
+The card needs to disable its vote control on your own request. The obvious
+route is for the browser to compare the author id it already has against the
+current user id — except the browser is never told who it is. There is no /me
+endpoint, deliberately: identity is the deferred half of the auth decision.
+
+The first instinct was to add one. The better answer was to notice that the
+client does not need identity at all, it needs an answer: every list row now
+carries `canVote`, computed per row by the policy module. The rule stays in one
+place, the browser cannot drift out of step with it, and no new endpoint had to
+exist to support a checkbox.
+
+### Measuring the sort instead of asserting it
+
+Slice 1's log recorded a claim caught by the reviewer: reasoning that sounded
+right attached to an artefact that was right, which survived review only because
+somebody read the *why*. The sort here was the same risk — "no index can serve
+it" is easy to say and easy to be wrong about.
+
+So it was measured. `EXPLAIN` on the real query against the real data:
+
+    table  type    key                            rows  Extra
+    c      index   idx_categories_display_order   4     Using index; Using filesort
+    r      ref     idx_requests_category          7
+    u      eq_ref  PRIMARY                        1     Using index
+    s      eq_ref  PRIMARY                        1     Using index
+    <cte>  ref     <auto_key0>                    2
+
+Filesort confirmed, over the full matching set rather than the page — `LIMIT`
+cannot help, because which twenty rows to return is not known until all of them
+are sorted. Every join is an index lookup and the CTE is materialised with an
+auto-generated key. The claim held, but it is now recorded as a measurement
+rather than as a confident sentence.
+
+### Verified by exercising, again
+
+Each of these was run against the live API or the live database rather than
+inferred from the code:
+
+- Self-vote refused 403; unknown request 404; non-numeric id 422 naming `id`.
+- Duplicate cast 409; withdraw twice 200 both times; counts correct after each.
+- Sort order 2,2,1,1,1,1,1,0 with ties broken consistently.
+- A pinned request with **zero** votes still sorts above two-vote requests —
+  the point of "pinning is absolute" is exactly that it survives the vote sort.
+- `canVote:false` on a request the caller authored, confirmed on a row created
+  during the check rather than a seeded one.
+- Deleting a request with two votes removed both (CASCADE); deleting a user with
+  votes was refused by `fk_votes_user` (RESTRICT). Both behaviours were asserted
+  by pointing at the database, not by trusting the DDL to have applied.
+
+### Shell friction worth recording
+
+Two separate rounds were lost to backticks. Generating TypeScript containing
+template literals through `node -e "..."` inside bash means the string passes
+through two layers that both treat backticks as command substitution, and the
+result is silently corrupted code — `this.http.post(, {})` — that only fails at
+compile time. Twice. The fix both times was to stop generating code through the
+shell and write the file directly.
+
+Also: `ng serve` had written an analytics UUID into `web/angular.json` during
+manual testing. Pinned to `false` explicitly rather than committing a generated
+identifier, and rather than leaving it to reappear next time somebody runs the
+CLI on a fresh machine.

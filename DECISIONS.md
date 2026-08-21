@@ -38,16 +38,58 @@ is application logic in the statuses slice; until then, request creation fails
 loudly with `SERVER_MISCONFIGURED` and says what to fix, rather than inventing a
 status.
 
-**Default sort: `is_pinned DESC, created_at DESC, id DESC`,** backed by
-`idx_requests_feed`. `id` is the tiebreaker that makes the ordering a total
-order — without it two rows sharing a millisecond can swap between page 1 and
-page 2 under offset pagination.
+**Vote counts are derived, never stored.** There is no counter column anywhere
+in this schema. The total is produced by counting the vote rows when the board
+is read, so nothing can claim a number the rows disagree with. A counter would
+have to be incremented on cast, decremented on withdraw, and repaired after
+every crash, every cascade and every manual fix — three chances to drift in
+exchange for a saving this board will never need.
 
-> This index serves the *current* sort only. The brief also requires sorting by
-> vote count, which becomes the primary key once voting lands; that count is
-> derived rather than stored, so `idx_requests_feed` cannot serve it and that
-> slice will need its own treatment. An earlier draft of this reasoning claimed
-> the index made the sort future-proof. It does not.
+**The votes primary key IS the "one user, one request, at most once" rule.**
+`PRIMARY KEY (request_id, user_id)` — enforced by the database rather than by
+an application check a future code path could forget. `request_id` leads
+because InnoDB clusters on the primary key and the board aggregates by request
+on every page load; the reverse lookup is served by `idx_votes_user`.
+
+**Casting a vote is `INSERT IGNORE`, not check-then-insert.** Reading first
+leaves a window where two concurrent requests both see "no vote" and both try
+to write. Letting the primary key refuse the duplicate is the only version
+without a race; `affectedRows` then says whether anything happened.
+
+**`ON DELETE CASCADE` on `votes.request_id`** — the one place this schema does
+not use RESTRICT. A vote has no meaning without its request, and deleting a
+request is already permitted for its author and for admins; refusing that
+because somebody voted would be the wrong answer. `votes.user_id` stays
+RESTRICT, so account deletion still has to decide for itself in its own slice.
+
+**Default sort: `is_pinned DESC, vote_count DESC, created_at DESC, id DESC`.**
+
+Pinning is absolute — admin curation outranks the crowd and no number of votes
+pushes a pinned request down. Then the vote count, which is the priority signal
+the board exists to surface. Then newest, then id.
+
+The last two keys are not decoration. Most of the board sits on zero votes, so
+requests tie constantly, and without a total order two rows on equal votes are
+free to swap between page 1 and page 2 while somebody is paging through.
+
+**No index can serve this ordering, and that is accepted rather than
+overlooked.** The vote count is derived, so MySQL has to aggregate every row
+before it can order any of them — `LIMIT` cannot help, because the twenty rows
+to return are not known until all of them are sorted. The measured plan on the
+development data is a filesort over the full set, with the vote-count CTE
+materialised and joined on an auto-generated key, and every other join an index
+lookup. Cost therefore grows with the size of the board rather than with the
+page.
+
+That is the price of not storing a counter, and at this size it is not worth
+paying anything to avoid: an internal feedback board is thousands of rows, not
+millions. The escape hatch, if it is ever needed, is a summary table refreshed
+on write — which is a counter by another name and should be resisted until
+there is a measurement saying otherwise, not a suspicion.
+
+`idx_requests_feed` no longer serves the default sort. It stays because it
+still serves the `is_pinned, created_at` prefix, which the "newest first"
+option will use when the filters slice adds it.
 
 **Migrations are plain `.sql` run by [postgrator](https://github.com/rickbergfalk/postgrator).**
 A reviewer should read real DDL, not a builder's approximation, and CTEs and
@@ -92,6 +134,25 @@ every field and its constraints. The controller asks the policy first; the
 service asks again, because the service rather than the controller is the
 boundary any future caller crosses. The duplication is deliberate and costs a
 comparison.
+
+**You cannot vote on your own request.** The vote count is the signal that
+replaces the same suggestion arriving five times by email. An author voting for
+their own request tells nobody anything — they filed it, so of course they want
+it — and every request would start at one. This is the first rule in the
+application that refuses anybody, and it is refused end to end in the tests
+rather than by making the policy deny artificially.
+
+**"Vote for yourself only" is structural, not checked.** The vote resource is
+`/requests/:id/vote`, singular and scoped to the caller. There is no
+`/votes/:voteId`, and no user field in the URL or the payload, so there is
+nowhere to name a different voter. The user id comes from the identity seam,
+the same way authorship does. A rule that cannot be expressed cannot be
+violated, which beats a rule that has to be remembered.
+
+**The server decides whether you may vote, per row.** Every list item carries
+`canVote`, computed by the policy module. The browser is never told who it is
+and never reimplements the rule, so there is no second copy of it to disagree
+with the first.
 
 **Unauthorized actions return `403`, never a disguised `404`.** The board is
 internal and every request on it is visible to everyone, so pretending a
@@ -144,6 +205,13 @@ differently: one is a bug in the caller, the other renders next to an input.
 **Unknown fields are rejected, not ignored.** `status` and `author` are not the
 client's to set, and silently dropping them would hide the attempt.
 
+**A second vote is `409`; a second withdrawal is not.** Casting twice conflicts
+with a state that already exists, and reporting success would be a lie. But
+withdrawing a vote that is not there achieved exactly what the caller wanted,
+so it returns the current state rather than an error. The UI toggles between
+`POST` and `DELETE` based on what it is showing, so neither case arises in
+normal use — they are for two tabs, a retry, or a stale page.
+
 ### Responses
 
 **Every success response has a `data` key.** Collections add `page` with
@@ -193,6 +261,16 @@ browser.
 list also distinguishes "nothing has been filed" from "this page number is past
 the end", because they need different offers to the user. Skeletons mirror the
 real card geometry so the layout does not jump.
+
+**Voting is optimistic, and the board does not re-sort under the pointer.**
+The count moves on click and rolls back if the server refuses. The response is
+then applied verbatim rather than assumed to match the guess, so a vote cast in
+another tab corrects the number instead of compounding it.
+
+What deliberately does not happen is re-ordering. The board is sorted by vote
+count, so a vote can change a card position — moving it out from under the
+cursor mid-click would be hostile, and would make voting for several things in
+a row a game of chase. The new order arrives on the next load.
 
 **Server field errors attach to the control they name.** A rule the browser
 cannot check — "that category no longer exists" — lands next to the input. Only

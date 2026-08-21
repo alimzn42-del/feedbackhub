@@ -11,19 +11,16 @@ argued out, parked until they are true.
 
 ---
 
-## Vote and comment counts are derived, never stored
+## Comment counts are derived, never stored
 
-No counter columns, so nothing can drift out of sync with the rows it counts.
-When voting lands the count comes from a join, not from an integer somebody
+The vote half of this shipped in slice 2 and has moved to `DECISIONS.md`. The
+comment half stays here: there is no comments table yet.
+
+No counter column, so nothing can drift out of sync with the rows it counts.
+When comments land the count comes from a join, not from an integer somebody
 remembered to increment.
 
-*Moves to `DECISIONS.md` with the voting slice.*
-
-Related, and already visible in the schema: `idx_requests_feed` cannot serve a
-sort by vote count, because that count is derived rather than stored. The
-migration comment on `feedback_requests` says so. Sorting by votes needs its own
-treatment in that slice — this is the known limit of what shipped, not a promise
-about how it will be solved.
+*Moves to `DECISIONS.md` with the comments slice.*
 
 ## Role changes
 
