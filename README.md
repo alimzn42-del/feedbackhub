@@ -5,10 +5,10 @@ feedback, everyone browses and upvotes, and admins triage. The point is to stop
 the same suggestion arriving five times by email, and to make visible what is
 actually being worked on.
 
-**Status: slice 2.** A feedback request can be created, listed and voted on,
-with the board ordered by vote count. Comments, search, filters, pinning, admin
-screens and authentication are not built yet — see
-[Scope](#what-is-and-is-not-built) below.
+**Status: slice 3.** A feedback request can be created, listed, voted on and
+pinned by an admin. The board is ordered by vote count, with pinned requests on
+their own shelf above it. Comments, search, filters, status changes and
+authentication are not built yet — see [Scope](#what-is-and-is-not-built) below.
 
 ## Requirements
 
@@ -66,7 +66,8 @@ enforces permissions from this slice onward, against an identity supplied by a
 single replaceable function — [`api/src/auth/current-user.ts`](api/src/auth/current-user.ts).
 
 To act as somebody else, change `DEV_CURRENT_USER_EMAIL` in `.env` and restart
-the API. The seeded users are:
+the API — worth doing, since admins and regular users now see different
+controls. The seeded users are:
 
 | Email | Name | Role |
 |---|---|---|
@@ -106,21 +107,24 @@ a single envelope; see [DECISIONS.md](DECISIONS.md#error-shape).
 | | |
 |---|---|
 | `GET /health` | liveness, no identity required |
-| `GET /api/requests?page=&pageSize=` | paginated; pinned first, then most votes, then newest |
+| `GET /api/requests?page=&pageSize=` | paginated, unpinned only; most votes first, then newest |
+| `GET /api/requests/pinned` | the pinned shelf; not paginated, capped at 100 |
 | `POST /api/requests` | `{ title, description, categoryId }` |
 | `POST /api/requests/:id/vote` | vote as the current user; `409` if already voted |
 | `DELETE /api/requests/:id/vote` | withdraw your vote; safe to repeat |
+| `PUT /api/requests/:id/pin` | **admin only**; records who pinned it and when |
+| `DELETE /api/requests/:id/pin` | **admin only** |
 | `GET /api/categories` | the active categories, for the create form |
 
 ## What is and is not built
 
 **Built:** the five tables and their seed data; request creation and listing
 with server-side pagination; voting, with the board ordered by vote count and
-counts derived rather than stored; the identity seam; the policy module with the
-request and vote rules; one error shape with one middleware producing it; and
-two screens with real loading, empty and error states.
+counts derived rather than stored; admin pinning, recorded with actor and time,
+shown on a shelf above the board and excluded from the list; the identity seam;
+the policy module; one error shape with one middleware producing it; and two
+screens with real loading, empty and error states.
 
-**Not built, by design:** comments, search, filters, sort switching, pinning,
-admin screens, settings, Keycloak, and deployment beyond the database container.
-The schema carries `is_pinned` and the sort honours it, but no endpoint sets it
-yet. Sorting by newest arrives with the filters slice.
+**Not built, by design:** comments, search, filters, sort switching, status
+changes, admin screens, settings, Keycloak, and deployment beyond the database
+container. Sorting by newest arrives with the filters slice.

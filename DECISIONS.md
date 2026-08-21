@@ -38,6 +38,24 @@ is application logic in the statuses slice; until then, request creation fails
 loudly with `SERVER_MISCONFIGURED` and says what to fix, rather than inventing a
 status.
 
+**Pinning records who and when, and the boolean is gone.** `is_pinned` was
+replaced by `pinned_at` and `pinned_by` rather than supplemented by them.
+Keeping all three would mean two columns describing one fact, free to disagree
+the first time something writes one and forgets the other — the same argument
+that keeps a vote counter out of this schema. Pinned is now derived:
+`pinned_at IS NOT NULL`.
+
+Rows pinned before the columns existed keep their time and report a null actor.
+Nobody recorded who pinned them, and inventing an admin would be worse than
+admitting it.
+
+**The board is split rather than sorted together.** Pinned requests live in
+their own panel and are excluded from the list below, so a request appears in
+exactly one place. The previous arrangement — pinned first inside one ordered
+list — put them at the top of page 1 only and shifted everything else along,
+which made the pagination subtly wrong. Splitting removes the interleaving and
+both queries get simpler.
+
 **Vote counts are derived, never stored.** There is no counter column anywhere
 in this schema. The total is produced by counting the vote rows when the board
 is read, so nothing can claim a number the rows disagree with. A counter would
@@ -62,11 +80,10 @@ request is already permitted for its author and for admins; refusing that
 because somebody voted would be the wrong answer. `votes.user_id` stays
 RESTRICT, so account deletion still has to decide for itself in its own slice.
 
-**Default sort: `is_pinned DESC, vote_count DESC, created_at DESC, id DESC`.**
-
-Pinning is absolute — admin curation outranks the crowd and no number of votes
-pushes a pinned request down. Then the vote count, which is the priority signal
-the board exists to surface. Then newest, then id.
+**Default sort: `vote_count DESC, created_at DESC, id DESC`,** over unpinned
+requests only. Pinned ones are a separate collection ordered by when they were
+pinned, most recent first, which is what an admin expects to see after pinning
+something.
 
 The last two keys are not decoration. Most of the board sits on zero votes, so
 requests tie constantly, and without a total order two rows on equal votes are
@@ -141,6 +158,17 @@ their own request tells nobody anything — they filed it, so of course they wan
 it — and every request would start at one. This is the first rule in the
 application that refuses anybody, and it is refused end to end in the tests
 rather than by making the policy deny artificially.
+
+**Pin and unpin are admin-only, and refuse before looking anything up.** The
+existence check runs after the permission check, so a caller who may not pin
+cannot use the endpoint to discover which ids are real — the answer is 403
+whether the request exists or not. This is the first rule in the application
+that refuses based on *who you are* rather than on what you are acting upon,
+which makes it the one that proves the admin boundary end to end.
+
+**Re-pinning is not a conflict.** It refreshes who and when, which is what
+makes the panel ordering mean anything. Unlike a duplicate vote there is no
+state to disagree with, so no 409.
 
 **"Vote for yourself only" is structural, not checked.** The vote resource is
 `/requests/:id/vote`, singular and scoped to the caller. There is no
@@ -261,6 +289,23 @@ browser.
 list also distinguishes "nothing has been filed" from "this page number is past
 the end", because they need different offers to the user. Skeletons mirror the
 real card geometry so the layout does not jump.
+
+**Pinning is deliberately NOT optimistic, unlike voting.** A vote changes a
+number in place, so guessing is cheap and reversible. A pin moves a request
+between two collections — guessing means rendering it in both or in neither
+until the server answers. The row is disabled while the call is in flight and
+both collections refetch together when it lands.
+
+**The pinned panel shows three and expands to a scrolling shelf.** Pinning is
+unlimited by decision, so the panel cannot assume the list is short: expanded,
+it scrolls within a viewport-relative height rather than pushing the board off
+the screen. The endpoint is capped for the same reason, and the panel says so
+when there are pinned requests it is not showing rather than silently
+truncating.
+
+**The panel is presentational and emits intent.** Voting and unpinning from it
+are the same operations the list performs, so they live in one place there.
+Two copies of an optimistic update are two chances for them to disagree.
 
 **Voting is optimistic, and the board does not re-sort under the pointer.**
 The count moves on click and rolls back if the server refuses. The response is

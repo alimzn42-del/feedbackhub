@@ -486,3 +486,104 @@ Also: `ng serve` had written an analytics UUID into `web/angular.json` during
 manual testing. Pinned to `false` explicitly rather than committing a generated
 identifier, and rather than leaving it to reappear next time somebody runs the
 CLI on a fresh machine.
+
+---
+
+## 2026-08-21 — Slice 3: pinning
+
+### Asked for an opinion, and gave one that partly disagreed
+
+The requested design: a pinned panel at the top, three visible, "show more"
+expanding into a scrollable list, the name of whoever pinned it, no limit on how
+many can be pinned, and no duplication between the panel and the list.
+
+Most of that is better than what it replaced, and the reason is worth writing
+down. Slice 2 ordered pinned requests first *inside* the single list. That put
+them at the top of page 1 only and shifted every other row along, so the
+pagination was subtly wrong — page 2 began one row later than it looked like it
+should. Splitting the board into two collections removes the interleaving
+entirely and makes both queries simpler.
+
+The disagreement was unlimited pinning: a board where twenty things are pinned
+has nothing pinned. That was said in one sentence and then the feature was built
+as asked, because it is the reviewer's product call and not a correctness
+question. What did change as a result: the panel shows the total so
+over-pinning is visible, the endpoint is capped at 100 so a runaway cannot blow
+up the page, and the panel says when it is not showing everything rather than
+truncating in silence.
+
+### The boolean had to go, and that was not in the request
+
+"Show who pinned it" sounds like a display change. It is a schema change: a
+boolean cannot carry an actor.
+
+The first instinct was to add `pinned_by` alongside `is_pinned`. That would have
+left two columns describing one fact, free to disagree the first time something
+set one and forgot the other — exactly the argument used twice already in this
+project to keep a vote counter out of the schema. So `is_pinned` was dropped and
+"pinned" became derived: `pinned_at IS NOT NULL`.
+
+The migration had a detail worth recording. One request was already pinned, set
+by hand during slice 2 testing. It has a time but no actor, because nobody
+recorded one. `pinned_by` stays NULL and the UI says "Pinned" rather than
+"Pinned by ...", instead of attributing it to an admin who did not do it. There
+is a test for that specific case.
+
+### The test that has been outstanding for three rounds
+
+Two rounds ago the reviewer asked for authorization tested through the route:
+a real request, refused, with a real 403. It could not be written, because
+nothing in the application refused anybody.
+
+Slice 2's no-self-voting rule got halfway there — a genuine refusal, but one
+that applies to everybody equally. Pinning is the first rule that refuses based
+on *who you are*. Verified live, not just in tests:
+
+    PUT /api/requests/12/pin        (as Dana, role 'user')
+    403  Only an admin can pin or unpin a request.
+
+One assertion in that group is worth more than the rest:
+
+    it('refuses before checking whether the request exists')
+
+A refused caller must not be able to use the endpoint as an id oracle — pinning
+id 999999 as a regular user returns 403, not 404, so nothing leaks about which
+ids are real. The test asserts `exists` was never called.
+
+### Two bugs written and caught in the same session
+
+Both came from writing code faster than thinking about it.
+
+**`affectedRows` does not mean what it looks like.** `unpin` originally returned
+`result.affectedRows === 1` and the service turned `false` into a 404. But
+MySQL's `affectedRows` counts rows *changed*, not rows *matched* — unpinning
+something already unpinned changes nothing, so a perfectly valid request would
+have 404'd. Existence is now checked separately, which is also what makes the
+"refuse before looking up" ordering explicit rather than incidental.
+
+**A cache-busting query parameter would have 422'd.** The first attempt at
+keeping the two collections in step added `v: boardVersion()` to both requests
+so bumping a signal refetched them. The list query schema is `.strict()` and
+rejects unknown parameters, so every list request would have failed — and the
+same strictness that was deliberately chosen in slice 1 to make ignored fields
+visible is what would have caught it. Replaced with explicit `.reload()` calls,
+which do not touch the URL at all.
+
+Neither reached the browser. Both would have, if the code had been written and
+committed without reading it back.
+
+### Deliberately not optimistic
+
+Voting updates the count on click and rolls back on failure. Pinning does not,
+and the difference is worth stating: a vote changes a number in place, so
+guessing is cheap and reversible; a pin moves a request between two collections,
+so guessing means rendering it in both or in neither until the server answers.
+The row is disabled while the call is in flight instead.
+
+### Shell friction, third time
+
+Same lesson as slice 2, not learned quickly enough: generating code containing
+backticks or apostrophes through `node -e "..."` inside bash corrupts silently.
+This round it produced a duplicated import that only surfaced at compile time.
+Also lost two minutes to `python - <<'PY'`, which hangs waiting on stdin — the
+same mistake made earlier in the project.
