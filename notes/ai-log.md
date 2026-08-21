@@ -753,3 +753,38 @@ api/src/modules/comments` had already taken them in with the API, so the second
 commit was empty. Left as it landed rather than rewritten — the history is
 slightly less granular than intended and entirely accurate, which is the better
 of the two.
+
+### The comment box did nothing, and the tests said it worked
+
+Reported: "I write the comment but doesn't save... each time refresh".
+
+Both halves were one bug. Each composer is a single `FormControl`, not a
+`FormGroup`, so no Angular directive was attached to its `<form>` element — and
+`ngSubmit` is an output of `NgForm` or `FormGroupDirective`, not of `<form>`
+itself. Binding `(ngSubmit)` on a bare form is silent: Angular registers a
+listener for a DOM event named "ngSubmit" that nothing ever raises. The click
+fell through to the browser, which submitted the form natively and reloaded the
+page. Hence "doesn't save" and "each time refresh" — the second was a literal
+description of the page reloading, not a complaint about the refetch.
+
+Diagnosed by looking rather than guessing: the comments table held only the two
+rows from earlier testing, the API log showed no errors, and `/health` was fine.
+Nothing had left the browser.
+
+**Why twelve passing tests missed it.** Every one of them called
+`component.submitComment()` directly. The method was always correct; the path
+from the button to the method was not, and no test crossed it. A dead button
+with a working handler passes every test that starts at the handler.
+
+Two tests added that start at the DOM: one types into the real textarea and
+clicks the real button, one dispatches a native submit and asserts
+`defaultPrevented`. Both were confirmed to fail against the old template and
+pass against the new one, by reintroducing the bug and running them — a test
+that has not been seen to fail has not been shown to test anything.
+
+**And the refetch went too.** Creating and editing now patch the thread in place
+using the comment the server already returned, rather than asking for the whole
+thread again to learn something already known. Deleting still refetches, and
+that one is not laziness: the server chooses between removing the row, leaving
+a tombstone, and hiding replies alongside it, so there are three possible shapes
+and the browser holds none of the rules that pick between them.

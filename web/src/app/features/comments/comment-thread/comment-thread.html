@@ -10,7 +10,7 @@
     <p class="thread__failure" role="alert">{{ message }}</p>
   }
 
-  <form class="composer" (ngSubmit)="submitComment()" novalidate>
+  <form class="composer" (submit)="submitComment($event)" novalidate>
     <label class="visually-hidden" for="new-comment">Add a comment</label>
     <textarea
       id="new-comment"
@@ -67,7 +67,7 @@
             </p>
 
             @if (editing() === comment.id) {
-              <form class="composer composer--inline" (ngSubmit)="submitEdit(comment)" novalidate>
+              <form class="composer composer--inline" (submit)="submitEdit($event, comment)" novalidate>
                 <label class="visually-hidden" [attr.for]="'edit-' + comment.id">Edit comment</label>
                 <textarea
                   [id]="'edit-' + comment.id"
@@ -115,7 +115,7 @@
           }
 
           @if (replyingTo() === comment.id) {
-            <form class="composer composer--inline" (ngSubmit)="submitReply(comment)" novalidate>
+            <form class="composer composer--inline" (submit)="submitReply($event, comment)" novalidate>
               <label class="visually-hidden" [attr.for]="'reply-' + comment.id">
                 Reply to {{ comment.author?.displayName }}
               </label>
@@ -158,7 +158,7 @@
                     </p>
 
                     @if (editing() === reply.id) {
-                      <form class="composer composer--inline" (ngSubmit)="submitEdit(reply)" novalidate>
+                      <form class="composer composer--inline" (submit)="submitEdit($event, reply)" novalidate>
                         <label class="visually-hidden" [attr.for]="'edit-' + reply.id">Edit reply</label>
                         <textarea
                           [id]="'edit-' + reply.id"

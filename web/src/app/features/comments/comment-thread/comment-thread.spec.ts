@@ -96,50 +96,94 @@ describe('CommentThread', () => {
     expect(replyButtons).not.toContain('Reply');
   });
 
-  it('sends parentId when replying, and nothing when commenting', async () => {
+  it('posts through the actual button, not just the method', async () => {
+    // This is the test that was missing. The composer is a single control, so
+    // no Angular directive sits on its <form> and (ngSubmit) never fired —
+    // the browser submitted natively and the page reloaded, discarding the
+    // text. Calling submitComment() directly could never have caught that.
     const fixture = await render([comment({ canReply: true })]);
-    const component = fixture.componentInstance as unknown as {
-      newComment: { setValue: (v: string) => void };
-      replyBody: { setValue: (v: string) => void };
-      submitComment: () => void;
-      openReply: (c: Comment) => void;
-      submitReply: (c: Comment) => void;
-    };
 
-    component.newComment.setValue('A brand new comment');
-    component.submitComment();
+    const box = fixture.nativeElement.querySelector('#new-comment') as HTMLTextAreaElement;
+    box.value = 'Typed into the real textarea';
+    box.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector(
+      '.composer button[type=submit]',
+    ) as HTMLButtonElement;
+    button.click();
+    fixture.detectChanges();
 
     const posted = http.expectOne('/api/requests/7/comments');
-    // No parentId at all, rather than a null one: this is a top-level comment.
-    expect(posted.request.body).toEqual({ body: 'A brand new comment' });
-    posted.flush({ data: comment({ id: 9 }) });
+    expect(posted.request.method).toBe('POST');
+    expect(posted.request.body).toEqual({ body: 'Typed into the real textarea' });
+
+    posted.flush({ data: comment({ id: 9, body: 'Typed into the real textarea' }) });
     await tick();
-    http.expectOne('/api/requests/7/comments').flush({ data: [comment({ canReply: true })] });
     await fixture.whenStable();
     fixture.detectChanges();
 
+    // Appended in place: no second GET, and the comment is on screen.
+    http.expectNone('/api/requests/7/comments');
+    expect(text(fixture)).toContain('Typed into the real textarea');
+    expect(box.value).toBe('');
+  });
+
+  it('does not let the browser submit the form itself', async () => {
+    // A native submit reloads the page. If the handler ever stops calling
+    // preventDefault, this fails rather than silently losing people's words.
+    const fixture = await render([]);
+    const form = fixture.nativeElement.querySelector('.composer') as HTMLFormElement;
+
+    (fixture.componentInstance as unknown as {
+      newComment: { setValue: (v: string) => void };
+    }).newComment.setValue('anything');
+
+    const event = new Event('submit', { bubbles: true, cancelable: true });
+    form.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    http.expectOne('/api/requests/7/comments').flush({ data: comment({ id: 9 }) });
+    await tick();
+    await fixture.whenStable();
+  });
+
+  it('sends parentId when replying, and adds the reply under its parent', async () => {
+    const fixture = await render([comment({ canReply: true })]);
+    const component = fixture.componentInstance as unknown as {
+      replyBody: { setValue: (v: string) => void };
+      openReply: (c: Comment) => void;
+      submitReply: (e: Event, c: Comment) => void;
+    };
+
     component.openReply(comment({ id: 1 }));
     component.replyBody.setValue('  A reply, with padding  ');
-    component.submitReply(comment({ id: 1 }));
+    component.submitReply(new Event('submit'), comment({ id: 1 }));
 
     const replied = http.expectOne('/api/requests/7/comments');
     // Trimmed, and carrying the comment it answers.
     expect(replied.request.body).toEqual({ body: 'A reply, with padding', parentId: 1 });
-    replied.flush({ data: comment({ id: 10, parentId: 1 }) });
+
+    replied.flush({
+      data: comment({ id: 10, parentId: 1, body: 'A reply, with padding' }),
+    });
     await tick();
-    http.expectOne('/api/requests/7/comments').flush({ data: [] });
     await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelectorAll('.replies .comment--reply').length).toBe(1);
+    expect(text(fixture)).toContain('A reply, with padding');
   });
 
   it('refuses to send an empty comment', async () => {
     const fixture = await render([]);
     const component = fixture.componentInstance as unknown as {
       newComment: { setValue: (v: string) => void };
-      submitComment: () => void;
+      submitComment: (e: Event) => void;
     };
 
     component.newComment.setValue('   ');
-    component.submitComment();
+    component.submitComment(new Event('submit'));
 
     http.expectNone('/api/requests/7/comments');
     fixture.detectChanges();

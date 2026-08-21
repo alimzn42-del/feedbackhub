@@ -52,28 +52,21 @@ export class CommentThread {
   });
 
   protected readonly total = computed(() =>
-    this.comments().reduce(
-      (running, comment) => running + 1 + comment.replies.length,
-      0,
-    ),
+    this.comments().reduce((running, comment) => running + 1 + comment.replies.length, 0),
   );
 
   /* ── Composing ─────────────────────────────────────────────────────────── */
 
-  protected readonly newComment = new FormControl('', {
-    nonNullable: true,
-    validators: [Validators.required, notBlank, Validators.maxLength(BODY_MAX)],
-  });
+  private newControl(): FormControl<string> {
+    return new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, notBlank, Validators.maxLength(BODY_MAX)],
+    });
+  }
 
-  protected readonly replyBody = new FormControl('', {
-    nonNullable: true,
-    validators: [Validators.required, notBlank, Validators.maxLength(BODY_MAX)],
-  });
-
-  protected readonly editBody = new FormControl('', {
-    nonNullable: true,
-    validators: [Validators.required, notBlank, Validators.maxLength(BODY_MAX)],
-  });
+  protected readonly newComment = this.newControl();
+  protected readonly replyBody = this.newControl();
+  protected readonly editBody = this.newControl();
 
   /** At most one reply box and one edit box open at a time, by id. */
   protected readonly replyingTo = signal<number | null>(null);
@@ -113,53 +106,122 @@ export class CommentThread {
     this.editing.set(null);
   }
 
-  protected submitComment(): void {
+  /**
+   * Each composer is a single control rather than a form group, so no Angular
+   * directive is attached to its <form> element — and `ngSubmit` is an output of
+   * NgForm or FormGroupDirective, not of <form> itself.
+   *
+   * Binding `(ngSubmit)` here was silent and wrong: Angular registered a
+   * listener for a DOM event named "ngSubmit" that nothing ever raises, the
+   * browser performed its own submit, and the page reloaded with the typed text
+   * discarded. The native `submit` event is used instead, with its default
+   * prevented explicitly.
+   */
+  protected submitComment(event: Event): void {
+    event.preventDefault();
     if (!this.guard(this.newComment)) return;
 
-    this.run(this.api.create(this.requestId(), { body: this.newComment.value.trim() }), () => {
-      this.newComment.setValue('');
-      this.newComment.markAsUntouched();
-    });
+    this.send(
+      this.api.create(this.requestId(), { body: this.newComment.value.trim() }),
+      (posted) => {
+        // Inserted in place rather than refetched: the server has already sent
+        // back the comment it saved, so asking for the whole thread again would
+        // be a round trip to learn something already known.
+        this.insert(posted);
+        this.newComment.setValue('');
+        this.newComment.markAsUntouched();
+      },
+    );
   }
 
-  protected submitReply(parent: Comment): void {
+  protected submitReply(event: Event, parent: Comment): void {
+    event.preventDefault();
     if (!this.guard(this.replyBody)) return;
 
-    this.run(
+    this.send(
       this.api.create(this.requestId(), {
         body: this.replyBody.value.trim(),
         parentId: parent.id,
       }),
-      () => this.replyingTo.set(null),
+      (posted) => {
+        this.insert(posted);
+        this.replyingTo.set(null);
+      },
     );
   }
 
-  protected submitEdit(comment: Comment): void {
+  protected submitEdit(event: Event, comment: Comment): void {
+    event.preventDefault();
     if (!this.guard(this.editBody)) return;
 
-    this.run(this.api.edit(comment.id, this.editBody.value.trim()), () =>
-      this.editing.set(null),
-    );
+    this.send(this.api.edit(comment.id, this.editBody.value.trim()), (updated) => {
+      this.replace(updated);
+      this.editing.set(null);
+    });
   }
 
   /**
-   * Deleting is not optimistic. The server decides whether the row goes or
-   * becomes a tombstone, and whether replies are hidden with it — guessing
-   * would mean rendering one outcome and correcting it a moment later.
+   * Deleting is the one action that still refetches, and not for want of trying.
+   * The server decides whether the row goes, becomes a tombstone, or takes
+   * several replies down with it — three shapes, chosen by rules the browser
+   * does not hold. Guessing would mean rendering one and correcting it.
    */
   protected remove(comment: Comment): void {
     if (this.busy()) return;
 
-    this.run(this.api.remove(comment.id), () => {
-      this.replyingTo.set(null);
-      this.editing.set(null);
+    this.busy.set(true);
+    this.failure.set(null);
+
+    this.api.remove(comment.id).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.replyingTo.set(null);
+        this.editing.set(null);
+        this.thread.reload();
+        this.changed()?.();
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.failure.set(toApiError(error).message);
+      },
     });
+  }
+
+  /* ── Thread updates ────────────────────────────────────────────────────── */
+
+  private patch(update: (comments: Comment[]) => Comment[]): void {
+    this.thread.update((current) =>
+      current ? { ...current, data: update(current.data) } : current,
+    );
+  }
+
+  private insert(comment: Comment): void {
+    if (comment.parentId === null) {
+      this.patch((comments) => [...comments, comment]);
+      return;
+    }
+
+    this.patch((comments) =>
+      comments.map((root) =>
+        root.id === comment.parentId ? { ...root, replies: [...root.replies, comment] } : root,
+      ),
+    );
+  }
+
+  private replace(comment: Comment): void {
+    this.patch((comments) =>
+      comments.map((root) =>
+        root.id === comment.id
+          ? { ...comment, replies: root.replies }
+          : { ...root, replies: root.replies.map((r) => (r.id === comment.id ? comment : r)) },
+      ),
+    );
   }
 
   private guard(control: FormControl<string>): boolean {
     if (this.busy()) return false;
 
-    if (control.invalid || control.value.trim().length === 0) {
+    if (control.invalid) {
       control.markAsTouched();
       return false;
     }
@@ -167,21 +229,14 @@ export class CommentThread {
     return true;
   }
 
-  /**
-   * Every mutation ends the same way: stop being busy, reload the thread, tell
-   * the page its count moved. The thread is reloaded rather than patched because
-   * a delete can turn a comment into a tombstone, remove it entirely, or hide
-   * several replies with it — three different shapes to guess at.
-   */
-  private run(call: Observable<unknown>, onDone: () => void): void {
+  private send(call: Observable<Wrapped<Comment>>, onSuccess: (comment: Comment) => void): void {
     this.busy.set(true);
     this.failure.set(null);
 
     call.subscribe({
-      next: () => {
-        onDone();
+      next: ({ data }) => {
+        onSuccess(data);
         this.busy.set(false);
-        this.thread.reload();
         this.changed()?.();
       },
       error: (error: unknown) => {
