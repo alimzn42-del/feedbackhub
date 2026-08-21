@@ -23,9 +23,13 @@ import type { Actor } from './auth/actor.js';
  * below, with nothing stubbed to make it happen, and the write is asserted not
  * to have occurred.
  *
- * Still not reachable: a regular user refused an ADMIN-only action. Change
- * status and pin have policy rules but no routes yet. Those tests belong to
- * the slice that adds them.
+ * PINNING IS THE FIRST ROLE-BASED REFUSAL
+ * ---------------------------------------
+ * Self-voting refuses everybody equally. Pinning is the first rule that refuses
+ * based on WHO you are, so it is the one that proves the admin boundary end to
+ * end — a regular user, a real route, a real 403, nothing stubbed.
+ *
+ * Still not reachable: changing a status. It has a policy rule and no route.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /* Every repository is replaced. These tests are about the authorization path,
@@ -34,9 +38,14 @@ const usersRepository = vi.hoisted(() => ({ findByEmail: vi.fn() }));
 const requestsRepository = vi.hoisted(() => ({
   insert: vi.fn(),
   findById: vi.fn(),
+  findListItemById: vi.fn(),
   findAuthorId: vi.fn(),
+  exists: vi.fn(),
   list: vi.fn(),
+  listPinned: vi.fn(),
   count: vi.fn(),
+  pin: vi.fn(),
+  unpin: vi.fn(),
 }));
 const votesRepository = vi.hoisted(() => ({
   cast: vi.fn(),
@@ -82,6 +91,26 @@ beforeEach(() => {
   categoriesRepository.listActive.mockResolvedValue([{ id: 2, name: 'Feature', slug: 'feature' }]);
   statusesRepository.findDefaultId.mockResolvedValue(1);
   requestsRepository.findAuthorId.mockResolvedValue(99);
+  requestsRepository.exists.mockResolvedValue(true);
+  requestsRepository.listPinned.mockResolvedValue({ items: [], total: 0 });
+  requestsRepository.pin.mockResolvedValue(undefined);
+  requestsRepository.unpin.mockResolvedValue(undefined);
+  requestsRepository.findListItemById.mockResolvedValue({
+    id: 7,
+    title: VALID_BODY.title,
+    excerpt: VALID_BODY.description,
+    excerptTruncated: false,
+    category: { id: 2, name: 'Feature', slug: 'feature' },
+    status: { id: 1, name: 'New', slug: 'new' },
+    author: { id: 99, displayName: 'Someone Else' },
+    isPinned: true,
+    pinnedAt: '2026-08-21T09:00:00.000Z',
+    pinnedBy: { id: 1, displayName: 'Robin Alvarez' },
+    voteCount: 0,
+    hasVoted: false,
+    createdAt: '2026-08-21T05:00:00.000Z',
+    updatedAt: '2026-08-21T05:00:00.000Z',
+  });
   votesRepository.cast.mockResolvedValue(true);
   votesRepository.withdraw.mockResolvedValue(true);
   votesRepository.readState.mockResolvedValue({ requestId: 7, voteCount: 1, hasVoted: true });
@@ -328,5 +357,134 @@ describe('DELETE /api/requests/:id/vote', () => {
     requestsRepository.findAuthorId.mockResolvedValue(null);
 
     await request(app).delete('/api/requests/7/vote').expect(404);
+  });
+});
+
+describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
+  const ADMIN: Actor = {
+    id: 1,
+    externalId: null,
+    email: 'admin@feedbackhub.local',
+    displayName: 'Robin Alvarez',
+    role: 'admin',
+  };
+
+  it('refuses a regular user, with nothing stubbed to make it refuse', async () => {
+    // REGULAR_USER has role 'user'. The real policy, the real route, a real 403.
+    // This is the test that could not be written until an admin-only endpoint
+    // existed: every earlier refusal applied to everybody equally.
+    const response = await request(app).put('/api/requests/7/pin');
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('FORBIDDEN');
+    expect(response.body.error.message).toBe('Only an admin can pin or unpin a request.');
+    expect(requestsRepository.pin).not.toHaveBeenCalled();
+  });
+
+  it('refuses a regular user unpinning, too', async () => {
+    const response = await request(app).delete('/api/requests/7/pin');
+
+    expect(response.status).toBe(403);
+    expect(requestsRepository.unpin).not.toHaveBeenCalled();
+  });
+
+  it('refuses before checking whether the request exists', async () => {
+    // A refused caller should not be able to probe which ids are real.
+    requestsRepository.exists.mockResolvedValue(false);
+
+    const response = await request(app).put('/api/requests/999999/pin');
+
+    expect(response.status).toBe(403);
+    expect(response.status).not.toBe(404);
+    expect(requestsRepository.exists).not.toHaveBeenCalled();
+  });
+
+  it('allows an admin, and records who pinned it', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    const response = await request(app).put('/api/requests/7/pin').expect(200);
+
+    expect(requestsRepository.pin).toHaveBeenCalledWith(7, ADMIN.id);
+    expect(response.body.data.isPinned).toBe(true);
+    expect(response.body.data.pinnedBy.displayName).toBe('Robin Alvarez');
+  });
+
+  it('lets an admin unpin', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    await request(app).delete('/api/requests/7/pin').expect(200);
+
+    expect(requestsRepository.unpin).toHaveBeenCalledWith(7);
+  });
+
+  it('404s for an admin pinning something that is not there', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    requestsRepository.exists.mockResolvedValue(false);
+
+    await request(app).put('/api/requests/7/pin').expect(404);
+
+    expect(requestsRepository.pin).not.toHaveBeenCalled();
+  });
+
+  it('does not treat re-pinning as a conflict', async () => {
+    // Re-pinning refreshes who and when, which is what makes the panel's
+    // most-recent-first order mean anything. There is no state to conflict with.
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    await request(app).put('/api/requests/7/pin').expect(200);
+    await request(app).put('/api/requests/7/pin').expect(200);
+
+    expect(requestsRepository.pin).toHaveBeenCalledTimes(2);
+  });
+
+  it('tells every user which actions are open to them, per row', async () => {
+    requestsRepository.list.mockResolvedValue({
+      items: [
+        {
+          id: 7,
+          title: 't',
+          excerpt: 'e',
+          excerptTruncated: false,
+          category: { id: 2, name: 'Feature', slug: 'feature' },
+          status: { id: 1, name: 'New', slug: 'new' },
+          author: { id: 99, displayName: 'Someone Else' },
+          isPinned: false,
+          pinnedAt: null,
+          pinnedBy: null,
+          voteCount: 0,
+          hasVoted: false,
+          createdAt: '2026-08-21T05:00:00.000Z',
+          updatedAt: '2026-08-21T05:00:00.000Z',
+        },
+      ],
+      total: 1,
+    });
+
+    const asUser = await request(app).get('/api/requests').expect(200);
+    expect(asUser.body.data[0].canPin).toBe(false);
+    expect(asUser.body.data[0].canVote).toBe(true);
+
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    const asAdmin = await request(app).get('/api/requests').expect(200);
+    expect(asAdmin.body.data[0].canPin).toBe(true);
+  });
+});
+
+describe('GET /api/requests/pinned', () => {
+  it('is not paginated, and reports the true total separately', async () => {
+    requestsRepository.listPinned.mockResolvedValue({ items: [], total: 0 });
+
+    const response = await request(app).get('/api/requests/pinned').expect(200);
+
+    expect(response.body).toEqual({ data: [], total: 0 });
+    expect(response.body.page).toBeUndefined();
+  });
+
+  it('is not read as a request id', async () => {
+    // '/pinned' is mounted before ':id' routes. If that ever regresses this
+    // fails rather than 404ing mysteriously.
+    await request(app).get('/api/requests/pinned').expect(200);
+
+    expect(requestsRepository.listPinned).toHaveBeenCalled();
   });
 });
