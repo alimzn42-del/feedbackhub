@@ -1,0 +1,102 @@
+.detail__back {
+  margin-bottom: var(--space-4);
+  font-size: 0.875rem;
+}
+
+.detail__back a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.detail__back a:hover {
+  color: var(--accent);
+}
+
+.detail {
+  padding: var(--space-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.detail__title {
+  font-size: 1.5rem;
+  line-height: 1.25;
+}
+
+.detail__byline {
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.detail__pinned {
+  margin-top: var(--space-1);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.detail__description {
+  margin-top: var(--space-4);
+  /* Plain text, kept as typed and never interpreted as markup. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+/* Read-only here: voting belongs on the board, where the ordering it drives is
+   visible. Showing a control that silently does nothing would be worse. */
+.detail__actions .vote {
+  margin-left: 0;
+  cursor: default;
+}
+
+.detail__comment-count {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.detail__state {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.detail__state--error {
+  color: var(--text);
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+}
+
+.detail__state-title {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-2);
+}
+
+.detail__reference {
+  margin: var(--space-3) 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}

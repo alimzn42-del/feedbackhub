@@ -21,6 +21,7 @@ function item(overrides: Partial<FeedbackRequestListItem> = {}): FeedbackRequest
     canPin: false,
     voteCount: 3,
     hasVoted: false,
+    commentCount: 0,
     canVote: true,
     createdAt: '2026-08-21T04:59:42.237Z',
     updatedAt: '2026-08-21T04:59:42.237Z',

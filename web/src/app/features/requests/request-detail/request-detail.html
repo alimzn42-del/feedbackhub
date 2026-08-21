@@ -1,0 +1,73 @@
+<p class="detail__back">
+  <a routerLink="/requests">← Back to the board</a>
+</p>
+
+@if (request.isLoading()) {
+  <div class="detail__state">Loading the request…</div>
+} @else if (error(); as failure) {
+  <div class="detail__state detail__state--error" role="alert">
+    <h1 class="detail__state-title">
+      @if (failure.status === 404) {
+        That request does not exist
+      } @else {
+        The request could not be loaded
+      }
+    </h1>
+    <p>{{ failure.message }}</p>
+    @if (failure.requestId) {
+      <p class="detail__reference">Reference: {{ failure.requestId }}</p>
+    }
+    <a class="button button--secondary" routerLink="/requests">Back to the board</a>
+  </div>
+} @else if (item(); as request) {
+  <article class="detail">
+    <div class="detail__meta">
+      <span class="chip chip--category">{{ request.category.name }}</span>
+      <span class="chip chip--status" [attr.data-status]="request.status.slug">
+        {{ request.status.name }}
+      </span>
+      @if (request.isPinned) {
+        <span class="chip chip--pinned">Pinned</span>
+      }
+    </div>
+
+    <h1 class="detail__title">{{ request.title }}</h1>
+
+    <p class="detail__byline">
+      {{ request.author.displayName }}
+      <span aria-hidden="true">·</span>
+      <time [attr.datetime]="request.createdAt">{{ request.createdAt | date: 'medium' }}</time>
+    </p>
+
+    @if (request.pinnedBy) {
+      <p class="detail__pinned">Pinned by {{ request.pinnedBy.displayName }}</p>
+    }
+
+    <!-- The full text, which the board never sends. -->
+    <p class="detail__description">{{ request.description }}</p>
+
+    <div class="detail__actions">
+      <span
+        class="vote"
+        [class.vote--active]="request.hasVoted"
+        [attr.aria-label]="voteLabel(request)"
+        role="img"
+      >
+        <svg class="vote__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path
+            d="M7 21V9.6l4.6-6.9a1.5 1.5 0 0 1 2.7 1l-1 4.8h5a1.9 1.9 0 0 1 1.9 2.2l-1.1 7.3A2 2 0 0 1 17.2 21H7Z"
+          />
+          <path d="M3.8 9.8h3.1v11.1H3.8z" />
+        </svg>
+        <span class="vote__count">{{ request.voteCount }}</span>
+      </span>
+
+      <span class="detail__comment-count">
+        {{ request.commentCount }}
+        {{ request.commentCount === 1 ? 'comment' : 'comments' }}
+      </span>
+    </div>
+  </article>
+
+  <app-comment-thread [requestId]="request.id" [changed]="refresh" />
+}

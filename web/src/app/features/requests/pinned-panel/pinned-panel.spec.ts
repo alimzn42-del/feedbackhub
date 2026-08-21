@@ -18,6 +18,7 @@ function pinnedItem(id: number, overrides: Partial<FeedbackRequestListItem> = {}
     canPin: false,
     voteCount: id,
     hasVoted: false,
+    commentCount: 0,
     canVote: true,
     createdAt: '2026-08-21T05:00:00.000Z',
     updatedAt: '2026-08-21T05:00:00.000Z',

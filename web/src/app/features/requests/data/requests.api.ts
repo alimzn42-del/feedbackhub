@@ -22,6 +22,10 @@ export class RequestsApi {
   private readonly baseUrl = inject(API_BASE_URL);
 
   readonly requestsUrl = `${this.baseUrl}/requests`;
+  detailUrl(id: number): string {
+    return this.requestsUrl + '/' + id;
+  }
+
   readonly pinnedUrl = `${this.baseUrl}/requests/pinned`;
   readonly categoriesUrl = `${this.baseUrl}/categories`;
 

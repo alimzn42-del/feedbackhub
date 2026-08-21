@@ -1,0 +1,171 @@
+.thread {
+  margin-top: var(--space-6);
+}
+
+.thread__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 1.125rem;
+  margin-bottom: var(--space-4);
+}
+
+.thread__count {
+  padding: 0 var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.thread__failure {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+}
+
+.thread__state {
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.thread__state--error {
+  color: var(--text);
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+}
+
+.thread__state--error .button {
+  margin-top: var(--space-3);
+}
+
+/* ── Composer ─────────────────────────────────────────────────────────── */
+
+.composer {
+  margin-bottom: var(--space-5);
+}
+
+.composer--inline {
+  margin: var(--space-3) 0 0;
+}
+
+.composer__input {
+  width: 100%;
+  padding: var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+.composer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ── Comments ─────────────────────────────────────────────────────────── */
+
+.thread__list,
+.replies {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.comment {
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* Replies are indented and share the parent's left edge, so the one level of
+   nesting is legible without a connector line. */
+.replies {
+  margin-top: var(--space-3);
+  margin-left: var(--space-5);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--border);
+}
+
+.comment--reply {
+  background: var(--surface-sunken);
+}
+
+.comment__byline {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.comment__byline strong {
+  color: var(--text);
+}
+
+.comment__edited {
+  margin-left: var(--space-2);
+  font-style: italic;
+}
+
+.comment__body {
+  margin-top: var(--space-2);
+  /* Comments are plain text and are rendered as such — deliberately not HTML.
+     Line breaks the author typed are kept; nothing they typed is interpreted. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A removed comment keeps its place so its replies still hang from something,
+   but it is visibly not content. */
+.comment__tombstone {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.comment__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.link-button {
+  padding: 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.link-button--danger {
+  color: var(--danger);
+}
+
+.link-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.field__error {
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--danger);
+}

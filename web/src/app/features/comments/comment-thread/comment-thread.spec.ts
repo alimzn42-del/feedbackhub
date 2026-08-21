@@ -1,0 +1,265 @@
+import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CommentThread } from './comment-thread';
+import type { Comment } from '../../../core/api/api.types';
+
+function comment(overrides: Partial<Comment> = {}): Comment {
+  return {
+    id: 1,
+    parentId: null,
+    author: { id: 2, displayName: 'Dana Okafor' },
+    body: 'The original comment',
+    createdAt: '2026-08-21T09:00:00.000Z',
+    editedAt: null,
+    isDeleted: false,
+    deletedReason: null,
+    canEdit: false,
+    canDelete: false,
+    canReply: true,
+    replies: [],
+    ...overrides,
+  };
+}
+
+describe('CommentThread', () => {
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    try {
+      http.verify();
+    } finally {
+      TestBed.resetTestingModule();
+    }
+  });
+
+  async function render(comments: Comment[]) {
+    const fixture = TestBed.createComponent(CommentThread);
+    fixture.componentRef.setInput('requestId', 7);
+    fixture.detectChanges();
+    http.expectOne('/api/requests/7/comments').flush({ data: comments });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  /** Lets the response settle so the follow-up reload has actually been sent. */
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const text = (fixture: { nativeElement: HTMLElement }) =>
+    fixture.nativeElement.textContent?.replace(/\s+/g, ' ') ?? '';
+
+  it('invites the first comment rather than showing an empty box', async () => {
+    const fixture = await render([]);
+
+    expect(text(fixture)).toContain('No comments yet');
+  });
+
+  it('renders a comment and its reply, nested', async () => {
+    const fixture = await render([
+      comment({ replies: [comment({ id: 2, parentId: 1, body: 'A reply' })] }),
+    ]);
+
+    expect(fixture.nativeElement.querySelectorAll('.thread__list > .comment').length).toBe(1);
+    expect(fixture.nativeElement.querySelectorAll('.replies .comment--reply').length).toBe(1);
+    expect(text(fixture)).toContain('A reply');
+  });
+
+  it('counts replies in the total, not just top-level comments', async () => {
+    const fixture = await render([
+      comment({ replies: [comment({ id: 2, parentId: 1 }), comment({ id: 3, parentId: 1 })] }),
+      comment({ id: 4 }),
+    ]);
+
+    expect(fixture.nativeElement.querySelector('.thread__count')?.textContent?.trim()).toBe('4');
+  });
+
+  it('never offers Reply on a reply', async () => {
+    // Threads are one level deep. The server says canReply:false on replies;
+    // the template does not render the control for them at all.
+    const fixture = await render([
+      comment({ replies: [comment({ id: 2, parentId: 1, canReply: true })] }),
+    ]);
+
+    const replyButtons = [...fixture.nativeElement.querySelectorAll('.replies .link-button')].map(
+      (b: Element) => b.textContent?.trim(),
+    );
+
+    expect(replyButtons).not.toContain('Reply');
+  });
+
+  it('sends parentId when replying, and nothing when commenting', async () => {
+    const fixture = await render([comment({ canReply: true })]);
+    const component = fixture.componentInstance as unknown as {
+      newComment: { setValue: (v: string) => void };
+      replyBody: { setValue: (v: string) => void };
+      submitComment: () => void;
+      openReply: (c: Comment) => void;
+      submitReply: (c: Comment) => void;
+    };
+
+    component.newComment.setValue('A brand new comment');
+    component.submitComment();
+
+    const posted = http.expectOne('/api/requests/7/comments');
+    // No parentId at all, rather than a null one: this is a top-level comment.
+    expect(posted.request.body).toEqual({ body: 'A brand new comment' });
+    posted.flush({ data: comment({ id: 9 }) });
+    await tick();
+    http.expectOne('/api/requests/7/comments').flush({ data: [comment({ canReply: true })] });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    component.openReply(comment({ id: 1 }));
+    component.replyBody.setValue('  A reply, with padding  ');
+    component.submitReply(comment({ id: 1 }));
+
+    const replied = http.expectOne('/api/requests/7/comments');
+    // Trimmed, and carrying the comment it answers.
+    expect(replied.request.body).toEqual({ body: 'A reply, with padding', parentId: 1 });
+    replied.flush({ data: comment({ id: 10, parentId: 1 }) });
+    await tick();
+    http.expectOne('/api/requests/7/comments').flush({ data: [] });
+    await fixture.whenStable();
+  });
+
+  it('refuses to send an empty comment', async () => {
+    const fixture = await render([]);
+    const component = fixture.componentInstance as unknown as {
+      newComment: { setValue: (v: string) => void };
+      submitComment: () => void;
+    };
+
+    component.newComment.setValue('   ');
+    component.submitComment();
+
+    http.expectNone('/api/requests/7/comments');
+    fixture.detectChanges();
+    expect(text(fixture)).toContain('Write something first.');
+  });
+
+  it('shows who removed a comment, distinguishing the three cases', async () => {
+    const fixture = await render([
+      comment({ id: 1, isDeleted: true, deletedReason: 'author', author: null, body: null }),
+      comment({ id: 2, isDeleted: true, deletedReason: 'moderator', author: null, body: null }),
+      comment({
+        id: 3,
+        replies: [
+          comment({
+            id: 4,
+            parentId: 3,
+            isDeleted: true,
+            deletedReason: 'with-parent',
+            author: null,
+            body: null,
+          }),
+        ],
+      }),
+    ]);
+
+    const body = text(fixture);
+
+    expect(body).toContain('The author removed this comment.');
+    expect(body).toContain('An admin removed this comment.');
+    expect(body).toContain('Removed along with the comment it replied to.');
+  });
+
+  it('keeps a removed comment in place so its replies still hang from something', async () => {
+    const fixture = await render([
+      comment({
+        isDeleted: true,
+        deletedReason: 'moderator',
+        author: null,
+        body: null,
+        replies: [comment({ id: 2, parentId: 1, body: 'A reply that survived' })],
+      }),
+    ]);
+
+    expect(text(fixture)).toContain('An admin removed this comment.');
+    expect(text(fixture)).toContain('A reply that survived');
+  });
+
+  it('offers edit and delete only where the server allows them', async () => {
+    const fixture = await render([
+      comment({ id: 1, canEdit: false, canDelete: false }),
+      comment({ id: 2, canEdit: true, canDelete: true }),
+    ]);
+
+    const rows = fixture.nativeElement.querySelectorAll('.thread__list > .comment');
+    const labels = (row: Element) =>
+      [...row.querySelectorAll('.link-button')].map((b) => b.textContent?.trim());
+
+    expect(labels(rows[0])).not.toContain('Edit');
+    expect(labels(rows[0])).not.toContain('Delete');
+    expect(labels(rows[1])).toContain('Edit');
+    expect(labels(rows[1])).toContain('Delete');
+  });
+
+  it('reloads the thread after a delete rather than guessing the outcome', async () => {
+    // The server decides whether the row goes or becomes a tombstone, and
+    // whether replies are hidden with it. Three shapes; none is guessed at.
+    const fixture = await render([comment({ canDelete: true })]);
+
+    const deleteButton = [...fixture.nativeElement.querySelectorAll('.link-button')].find(
+      (b: Element) => b.textContent?.trim() === 'Delete',
+    ) as HTMLButtonElement;
+
+    deleteButton.click();
+    fixture.detectChanges();
+
+    // Do not await stability before flushing the reload: the testing backend
+    // holds that request open, so waiting first would deadlock.
+    http.expectOne('/api/comments/1').flush({ data: { kind: 'soft' } });
+    await tick();
+
+    http
+      .expectOne('/api/requests/7/comments')
+      .flush({ data: [comment({ isDeleted: true, deletedReason: 'author', body: null })] });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(text(fixture)).toContain('The author removed this comment.');
+  });
+
+  it('surfaces the server message when a mutation is refused', async () => {
+    const fixture = await render([comment({ canDelete: true })]);
+
+    const deleteButton = [...fixture.nativeElement.querySelectorAll('.link-button')].find(
+      (b: Element) => b.textContent?.trim() === 'Delete',
+    ) as HTMLButtonElement;
+
+    deleteButton.click();
+    fixture.detectChanges();
+
+    http.expectOne('/api/comments/1').flush(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Only the author or an admin can delete this comment.',
+          requestId: 'abc',
+        },
+      },
+      { status: 403, statusText: 'Forbidden' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain(
+      'Only the author or an admin',
+    );
+  });
+
+  it('marks an edited comment as edited', async () => {
+    const fixture = await render([comment({ editedAt: '2026-08-21T10:00:00.000Z' })]);
+
+    expect(text(fixture)).toContain('edited');
+  });
+});

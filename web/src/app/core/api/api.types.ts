@@ -52,6 +52,9 @@ export interface FeedbackRequestListItem {
   /** Whether the signed-in user has voted on this one. */
   hasVoted: boolean;
 
+  /** Visible comments, counted on read. Never stored. */
+  commentCount: number;
+
   /**
    * Whether the signed-in user may vote on this one. Decided by the server, so
    * the browser never reimplements the rule (and never needs to be told who it
@@ -84,6 +87,9 @@ export interface FeedbackRequestDetail {
   /** Whether the signed-in user has voted on this one. */
   hasVoted: boolean;
 
+  /** Visible comments, counted on read. Never stored. */
+  commentCount: number;
+
   /**
    * Whether the signed-in user may vote on this one. Decided by the server, so
    * the browser never reimplements the rule (and never needs to be told who it
@@ -105,10 +111,43 @@ export interface VoteState {
   requestId: number;
   voteCount: number;
   hasVoted: boolean;
+
+  /** Visible comments, counted on read. Never stored. */
+  commentCount: number;
 }
 
 /** The pinned shelf: not paginated, but capped, so the total is separate. */
 export interface PinnedResult {
   data: FeedbackRequestListItem[];
   total: number;
+}
+
+/** Why a comment shows as removed. Null when it is not. */
+export type DeletionReason = 'author' | 'moderator' | 'with-parent';
+
+export interface Comment {
+  id: number;
+  parentId: number | null;
+
+  /** Both null once removed: the words do not leave the server. */
+  author: AuthorRef | null;
+  body: string | null;
+
+  createdAt: string;
+  editedAt: string | null;
+
+  isDeleted: boolean;
+  deletedReason: DeletionReason | null;
+
+  canEdit: boolean;
+  canDelete: boolean;
+  canReply: boolean;
+
+  /** Populated on top-level comments only. */
+  replies: Comment[];
+}
+
+export interface CreateComment {
+  body: string;
+  parentId?: number;
 }

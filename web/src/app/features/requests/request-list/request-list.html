@@ -84,7 +84,9 @@
           }
         </div>
 
-        <h2 class="card__title">{{ request.title }}</h2>
+        <h2 class="card__title">
+          <a [routerLink]="['/requests', request.id]">{{ request.title }}</a>
+        </h2>
 
         <p class="card__excerpt">
           {{ request.excerpt }}@if (request.excerptTruncated) {<span aria-hidden="true">…</span>}
@@ -117,6 +119,11 @@
             </svg>
             <span class="vote__count">{{ request.voteCount }}</span>
           </button>
+
+          <a class="card__comments" [routerLink]="['/requests', request.id]">
+            {{ request.commentCount }}
+            {{ request.commentCount === 1 ? 'comment' : 'comments' }}
+          </a>
 
           @if (request.canPin) {
             <button

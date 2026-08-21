@@ -1,0 +1,208 @@
+<section class="thread" aria-labelledby="thread-heading">
+  <h2 class="thread__heading" id="thread-heading">
+    Discussion
+    @if (thread.hasValue()) {
+      <span class="thread__count">{{ total() }}</span>
+    }
+  </h2>
+
+  @if (failure(); as message) {
+    <p class="thread__failure" role="alert">{{ message }}</p>
+  }
+
+  <form class="composer" (ngSubmit)="submitComment()" novalidate>
+    <label class="visually-hidden" for="new-comment">Add a comment</label>
+    <textarea
+      id="new-comment"
+      class="composer__input"
+      rows="3"
+      placeholder="Add to the discussion…"
+      [formControl]="newComment"
+      [attr.maxlength]="limits.BODY_MAX"
+      [attr.aria-invalid]="errorFor(newComment) ? 'true' : null"
+      [attr.aria-describedby]="errorFor(newComment) ? 'new-comment-error' : null"
+    ></textarea>
+
+    @if (errorFor(newComment); as message) {
+      <p class="field__error" id="new-comment-error">{{ message }}</p>
+    }
+
+    <div class="composer__actions">
+      <button type="submit" class="button" [disabled]="busy()">
+        {{ busy() ? 'Posting…' : 'Comment' }}
+      </button>
+    </div>
+  </form>
+
+  @if (thread.isLoading()) {
+    <p class="thread__state">Loading the discussion…</p>
+  } @else if (loadFailure(); as problem) {
+    <div class="thread__state thread__state--error" role="alert">
+      <p>{{ problem.message }}</p>
+      <button type="button" class="button button--secondary" (click)="thread.reload()">
+        Try again
+      </button>
+    </div>
+  } @else if (comments().length === 0) {
+    <p class="thread__state">
+      No comments yet. If this request needs detail or a counter-argument, this is where it goes.
+    </p>
+  } @else {
+    <ul class="thread__list">
+      @for (comment of comments(); track comment.id) {
+        <li class="comment">
+          <!-- A removed comment keeps its place: its replies hang from it. -->
+          @if (comment.isDeleted) {
+            <p class="comment__tombstone">{{ tombstone(comment) }}</p>
+          } @else {
+            <p class="comment__byline">
+              <strong>{{ comment.author?.displayName }}</strong>
+              <span aria-hidden="true">·</span>
+              <time [attr.datetime]="comment.createdAt">{{
+                comment.createdAt | date: 'medium'
+              }}</time>
+              @if (comment.editedAt) {
+                <span class="comment__edited" title="This comment was edited">edited</span>
+              }
+            </p>
+
+            @if (editing() === comment.id) {
+              <form class="composer composer--inline" (ngSubmit)="submitEdit(comment)" novalidate>
+                <label class="visually-hidden" [attr.for]="'edit-' + comment.id">Edit comment</label>
+                <textarea
+                  [id]="'edit-' + comment.id"
+                  class="composer__input"
+                  rows="3"
+                  [formControl]="editBody"
+                  [attr.maxlength]="limits.BODY_MAX"
+                ></textarea>
+                @if (errorFor(editBody); as message) {
+                  <p class="field__error">{{ message }}</p>
+                }
+                <div class="composer__actions">
+                  <button type="submit" class="button" [disabled]="busy()">Save</button>
+                  <button type="button" class="button button--secondary" (click)="cancel()">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            } @else {
+              <p class="comment__body">{{ comment.body }}</p>
+
+              <div class="comment__actions">
+                @if (comment.canReply) {
+                  <button type="button" class="link-button" (click)="openReply(comment)">
+                    Reply
+                  </button>
+                }
+                @if (comment.canEdit) {
+                  <button type="button" class="link-button" (click)="openEdit(comment)">
+                    Edit
+                  </button>
+                }
+                @if (comment.canDelete) {
+                  <button
+                    type="button"
+                    class="link-button link-button--danger"
+                    [disabled]="busy()"
+                    (click)="remove(comment)"
+                  >
+                    Delete
+                  </button>
+                }
+              </div>
+            }
+          }
+
+          @if (replyingTo() === comment.id) {
+            <form class="composer composer--inline" (ngSubmit)="submitReply(comment)" novalidate>
+              <label class="visually-hidden" [attr.for]="'reply-' + comment.id">
+                Reply to {{ comment.author?.displayName }}
+              </label>
+              <textarea
+                [id]="'reply-' + comment.id"
+                class="composer__input"
+                rows="2"
+                placeholder="Write a reply…"
+                [formControl]="replyBody"
+                [attr.maxlength]="limits.BODY_MAX"
+              ></textarea>
+              @if (errorFor(replyBody); as message) {
+                <p class="field__error">{{ message }}</p>
+              }
+              <div class="composer__actions">
+                <button type="submit" class="button" [disabled]="busy()">Reply</button>
+                <button type="button" class="button button--secondary" (click)="cancel()">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          }
+
+          @if (comment.replies.length > 0) {
+            <ul class="replies">
+              @for (reply of comment.replies; track reply.id) {
+                <li class="comment comment--reply">
+                  @if (reply.isDeleted) {
+                    <p class="comment__tombstone">{{ tombstone(reply) }}</p>
+                  } @else {
+                    <p class="comment__byline">
+                      <strong>{{ reply.author?.displayName }}</strong>
+                      <span aria-hidden="true">·</span>
+                      <time [attr.datetime]="reply.createdAt">{{
+                        reply.createdAt | date: 'medium'
+                      }}</time>
+                      @if (reply.editedAt) {
+                        <span class="comment__edited" title="This reply was edited">edited</span>
+                      }
+                    </p>
+
+                    @if (editing() === reply.id) {
+                      <form class="composer composer--inline" (ngSubmit)="submitEdit(reply)" novalidate>
+                        <label class="visually-hidden" [attr.for]="'edit-' + reply.id">Edit reply</label>
+                        <textarea
+                          [id]="'edit-' + reply.id"
+                          class="composer__input"
+                          rows="2"
+                          [formControl]="editBody"
+                          [attr.maxlength]="limits.BODY_MAX"
+                        ></textarea>
+                        <div class="composer__actions">
+                          <button type="submit" class="button" [disabled]="busy()">Save</button>
+                          <button type="button" class="button button--secondary" (click)="cancel()">
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    } @else {
+                      <p class="comment__body">{{ reply.body }}</p>
+
+                      <!-- No Reply here on purpose: threads are one level deep. -->
+                      <div class="comment__actions">
+                        @if (reply.canEdit) {
+                          <button type="button" class="link-button" (click)="openEdit(reply)">
+                            Edit
+                          </button>
+                        }
+                        @if (reply.canDelete) {
+                          <button
+                            type="button"
+                            class="link-button link-button--danger"
+                            [disabled]="busy()"
+                            (click)="remove(reply)"
+                          >
+                            Delete
+                          </button>
+                        }
+                      </div>
+                    }
+                  }
+                </li>
+              }
+            </ul>
+          }
+        </li>
+      }
+    </ul>
+  }
+</section>
