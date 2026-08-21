@@ -1,0 +1,41 @@
+name: feedbackhub
+
+# Slice 1 brings up only the database. The API and web services join this file
+# in the deployment slice; nothing here is intended to be the final topology.
+services:
+  mysql:
+    image: mysql:8.4.6
+    container_name: feedbackhub-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      # Timestamps are stored and compared in UTC. See notes in the migrations.
+      - --default-time-zone=+00:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${DB_NAME:?set DB_NAME in .env}
+      MYSQL_USER: ${DB_USER:?set DB_USER in .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    ports:
+      # Host port is configurable so a locally installed MySQL on 3306 does not clash.
+      - "${DB_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "--host=127.0.0.1",
+          "--user=root",
+          "--password=${DB_ROOT_PASSWORD}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  mysql-data:

@@ -1,0 +1,26 @@
+{
+  "name": "feedbackhub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Internal product feedback board",
+  "workspaces": [
+    "api",
+    "web"
+  ],
+  "engines": {
+    "node": "^24.19.0"
+  },
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d",
+    "migrate": "npm run migrate --workspace api",
+    "migrate:down": "npm run migrate:down --workspace api",
+    "seed": "npm run seed --workspace api",
+    "dev:api": "npm run dev --workspace api",
+    "dev:web": "npm start --workspace web",
+    "test": "npm test --workspace api && npm test --workspace web",
+    "typecheck": "npm run typecheck --workspace api && npm run typecheck --workspace web",
+    "build": "npm run build --workspace api && npm run build --workspace web"
+  }
+}
