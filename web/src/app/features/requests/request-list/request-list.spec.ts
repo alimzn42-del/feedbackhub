@@ -16,6 +16,9 @@ function item(overrides: Partial<FeedbackRequestListItem> = {}): FeedbackRequest
     status: { id: 1, name: 'New', slug: 'new' },
     author: { id: 1, displayName: 'Robin Alvarez' },
     isPinned: false,
+    voteCount: 3,
+    hasVoted: false,
+    canVote: true,
     createdAt: '2026-08-21T04:59:42.237Z',
     updatedAt: '2026-08-21T04:59:42.237Z',
     ...overrides,
@@ -145,5 +148,146 @@ describe('RequestList', () => {
     await fixture.whenStable();
 
     expect(fixture.nativeElement.querySelector('[aria-label="Pagination"]')).toBeNull();
+  });
+});
+
+describe('RequestList voting', () => {
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([{ path: '**', children: [] }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    try {
+      http.verify();
+    } finally {
+      TestBed.resetTestingModule();
+    }
+  });
+
+  async function renderWith(first: FeedbackRequestListItem) {
+    const fixture = TestBed.createComponent(RequestList);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === '/api/requests').flush(page([first]));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const voteButton = (fixture: { nativeElement: HTMLElement }) =>
+    fixture.nativeElement.querySelector('.vote') as HTMLButtonElement;
+
+  it('shows the count the server reported', async () => {
+    const fixture = await renderWith(item({ voteCount: 3 }));
+
+    expect(voteButton(fixture).textContent).toContain('3');
+  });
+
+  it('casts a vote and moves the count immediately, before the server answers', async () => {
+    const fixture = await renderWith(item({ voteCount: 3, hasVoted: false }));
+
+    voteButton(fixture).click();
+    fixture.detectChanges();
+
+    // Optimistic: the number has already moved while the request is in flight.
+    expect(voteButton(fixture).textContent).toContain('4');
+
+    const posted = http.expectOne('/api/requests/1/vote');
+    expect(posted.request.method).toBe('POST');
+
+    posted.flush({ data: { requestId: 1, voteCount: 4, hasVoted: true } });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(voteButton(fixture).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('withdraws with DELETE when the vote is already yours', async () => {
+    const fixture = await renderWith(item({ voteCount: 4, hasVoted: true }));
+
+    voteButton(fixture).click();
+    fixture.detectChanges();
+
+    // A duplicate vote is never sent: the control picks the verb from state.
+    const sent = http.expectOne('/api/requests/1/vote');
+    expect(sent.request.method).toBe('DELETE');
+    expect(voteButton(fixture).textContent).toContain('3');
+
+    sent.flush({ data: { requestId: 1, voteCount: 3, hasVoted: false } });
+    await fixture.whenStable();
+  });
+
+  it('rolls the count back and explains when the server refuses', async () => {
+    const fixture = await renderWith(item({ voteCount: 3, hasVoted: false }));
+
+    voteButton(fixture).click();
+    fixture.detectChanges();
+    expect(voteButton(fixture).textContent).toContain('4');
+
+    http.expectOne('/api/requests/1/vote').flush(
+      {
+        error: {
+          code: 'CONFLICT',
+          message: 'You have already voted on this request.',
+          requestId: 'abc-1',
+        },
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(voteButton(fixture).textContent).toContain('3');
+    expect(voteButton(fixture).getAttribute('aria-pressed')).toBe('false');
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain(
+      'already voted',
+    );
+  });
+
+  it('trusts the server over its own guess', async () => {
+    // Another tab voted too. The optimistic 4 is replaced by the real 9.
+    const fixture = await renderWith(item({ voteCount: 3, hasVoted: false }));
+
+    voteButton(fixture).click();
+    fixture.detectChanges();
+
+    http
+      .expectOne('/api/requests/1/vote')
+      .flush({ data: { requestId: 1, voteCount: 9, hasVoted: true } });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(voteButton(fixture).textContent).toContain('9');
+  });
+
+  it('disables the control on your own request and says why', async () => {
+    const fixture = await renderWith(item({ canVote: false, voteCount: 0 }));
+    const button = voteButton(fixture);
+
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('title')).toContain('your own request');
+    // aria-pressed is meaningless on a control that cannot be toggled.
+    expect(button.getAttribute('aria-pressed')).toBeNull();
+
+    button.click();
+    fixture.detectChanges();
+
+    http.expectNone('/api/requests/1/vote');
+  });
+
+  it('describes the action for a screen reader, not just the number', async () => {
+    const fixture = await renderWith(item({ voteCount: 1, hasVoted: false }));
+
+    expect(voteButton(fixture).getAttribute('aria-label')).toBe(
+      'Vote for "Dark mode for the board". 1 vote so far.',
+    );
   });
 });

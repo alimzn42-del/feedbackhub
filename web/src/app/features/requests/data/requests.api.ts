@@ -8,6 +8,7 @@ import type {
   Paginated,
   FeedbackRequestListItem,
   TaxonomyRef,
+  VoteState,
   Wrapped,
 } from '../../../core/api/api.types';
 
@@ -39,5 +40,18 @@ export class RequestsApi {
 
   categories(): Observable<Wrapped<TaxonomyRef[]>> {
     return this.http.get<Wrapped<TaxonomyRef[]>>(this.categoriesUrl);
+  }
+
+  /**
+   * The vote is always the caller's own — there is nothing to send. Which verb
+   * gets used is decided by the caller's current state, so a duplicate vote is
+   * never sent in normal use.
+   */
+  castVote(requestId: number): Observable<Wrapped<VoteState>> {
+    return this.http.post<Wrapped<VoteState>>(`${this.requestsUrl}/${requestId}/vote`, {});
+  }
+
+  withdrawVote(requestId: number): Observable<Wrapped<VoteState>> {
+    return this.http.delete<Wrapped<VoteState>>(`${this.requestsUrl}/${requestId}/vote`);
   }
 }

@@ -2,8 +2,8 @@
   <div>
     <h1>Feedback requests</h1>
     <p class="list-header__subtitle">
-      Everything the team has asked for, in one place. Add to an existing request rather than
-      filing it again.
+      Most wanted first. Vote for what you need instead of filing it again — the count is how
+      priority gets decided.
     </p>
   </div>
 
@@ -21,6 +21,10 @@
     {{ page.total }} requests, showing page {{ page.page }} of {{ page.totalPages }}.
   }
 </div>
+
+@if (voteFailure(); as message) {
+  <p class="vote-failure" role="alert">{{ message }}</p>
+}
 
 @if (requests.isLoading()) {
   <ul class="cards" aria-hidden="true">
@@ -62,6 +66,21 @@
   <ul class="cards">
     @for (request of items(); track request.id) {
       <li class="card">
+        <button
+          type="button"
+          class="vote"
+          [class.vote--active]="request.hasVoted"
+          [attr.aria-pressed]="request.canVote ? request.hasVoted : null"
+          [attr.aria-label]="voteLabel(request)"
+          [attr.title]="request.canVote ? null : 'You cannot vote on your own request.'"
+          [disabled]="!request.canVote || isVoting(request.id)"
+          (click)="toggleVote(request)"
+        >
+          <span class="vote__chevron" aria-hidden="true">&#9650;</span>
+          <span class="vote__count">{{ request.voteCount }}</span>
+        </button>
+
+        <div class="card__body">
         <div class="card__meta">
           <span class="chip chip--category">{{ request.category.name }}</span>
           <span class="chip chip--status" [attr.data-status]="request.status.slug">
@@ -85,6 +104,7 @@
             request.createdAt | date: 'mediumDate'
           }}</time>
         </p>
+        </div>
       </li>
     }
   </ul>

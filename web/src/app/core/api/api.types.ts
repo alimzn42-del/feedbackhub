@@ -38,6 +38,19 @@ export interface FeedbackRequestListItem {
   status: TaxonomyRef;
   author: AuthorRef;
   isPinned: boolean;
+
+  /** Counted from the vote rows on every read. Never stored. */
+  voteCount: number;
+
+  /** Whether the signed-in user has voted on this one. */
+  hasVoted: boolean;
+
+  /**
+   * Whether the signed-in user may vote on this one. Decided by the server, so
+   * the browser never reimplements the rule (and never needs to be told who it
+   * is in order to apply it).
+   */
+  canVote: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,6 +63,19 @@ export interface FeedbackRequestDetail {
   status: TaxonomyRef;
   author: AuthorRef;
   isPinned: boolean;
+
+  /** Counted from the vote rows on every read. Never stored. */
+  voteCount: number;
+
+  /** Whether the signed-in user has voted on this one. */
+  hasVoted: boolean;
+
+  /**
+   * Whether the signed-in user may vote on this one. Decided by the server, so
+   * the browser never reimplements the rule (and never needs to be told who it
+   * is in order to apply it).
+   */
+  canVote: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,4 +84,11 @@ export interface CreateFeedbackRequest {
   title: string;
   description: string;
   categoryId: number;
+}
+
+/** Returned by both vote endpoints, so a card can update without a refetch. */
+export interface VoteState {
+  requestId: number;
+  voteCount: number;
+  hasVoted: boolean;
 }

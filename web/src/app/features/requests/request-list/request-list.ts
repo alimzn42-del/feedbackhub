@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, numberAttribute } from '@angular/core';
+import { Component, computed, inject, input, numberAttribute, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
@@ -91,7 +91,91 @@ export class RequestList {
 
   protected readonly skeletonRows = [0, 1, 2, 3];
 
-  protected trackById(_index: number, item: FeedbackRequestListItem): number {
-    return item.id;
+  /* ── Voting ────────────────────────────────────────────────────────────── */
+
+  /** Ids with a vote in flight, so a card cannot be double-submitted. */
+  private readonly pending = signal<ReadonlySet<number>>(new Set());
+
+  protected readonly voteFailure = signal<string | null>(null);
+
+  protected isVoting(id: number): boolean {
+    return this.pending().has(id);
+  }
+
+  /**
+   * One control, two verbs. Clicking when you have not voted casts; clicking
+   * again withdraws — so the API never receives a duplicate vote in normal use.
+   *
+   * The count moves immediately and rolls back if the server refuses. The
+   * server's response is then applied verbatim rather than trusted to match the
+   * guess, which is what keeps a second tab or a stale page from drifting.
+   *
+   * Note what deliberately does NOT happen: the board does not re-sort under
+   * the pointer. The order is by vote count, so a vote can change a card's
+   * position — moving it out from under the cursor mid-click would be hostile.
+   * The new order arrives on the next load.
+   */
+  protected toggleVote(item: FeedbackRequestListItem): void {
+    if (!item.canVote || this.isVoting(item.id)) {
+      return;
+    }
+
+    const wasVoted = item.hasVoted;
+    const previousCount = item.voteCount;
+
+    this.voteFailure.set(null);
+    this.setPending(item.id, true);
+    this.applyVote(item.id, !wasVoted, wasVoted ? previousCount - 1 : previousCount + 1);
+
+    const call = wasVoted ? this.api.withdrawVote(item.id) : this.api.castVote(item.id);
+
+    call.subscribe({
+      next: ({ data }) => {
+        this.applyVote(item.id, data.hasVoted, data.voteCount);
+        this.setPending(item.id, false);
+      },
+      error: (failure: unknown) => {
+        this.applyVote(item.id, wasVoted, previousCount);
+        this.setPending(item.id, false);
+        this.voteFailure.set(toApiError(failure).message);
+      },
+    });
+  }
+
+  private applyVote(id: number, hasVoted: boolean, voteCount: number): void {
+    this.requests.update((page) =>
+      page
+        ? {
+            ...page,
+            data: page.data.map((row) => (row.id === id ? { ...row, hasVoted, voteCount } : row)),
+          }
+        : page,
+    );
+  }
+
+  private setPending(id: number, active: boolean): void {
+    this.pending.update((current) => {
+      const next = new Set(current);
+      if (active) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  /** Written out rather than templated, so a screen reader hears a sentence. */
+  protected voteLabel(item: FeedbackRequestListItem): string {
+    if (!item.canVote) {
+      return `You cannot vote on your own request. ${item.voteCount} ${
+        item.voteCount === 1 ? 'vote' : 'votes'
+      }.`;
+    }
+
+    const action = item.hasVoted ? 'Remove your vote from' : 'Vote for';
+    return `${action} "${item.title}". ${item.voteCount} ${
+      item.voteCount === 1 ? 'vote' : 'votes'
+    } so far.`;
   }
 }

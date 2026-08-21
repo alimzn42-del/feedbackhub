@@ -194,3 +194,95 @@
     flex-basis: 100%;
   }
 }
+
+/* ── Voting ───────────────────────────────────────────────────────────── */
+
+.card {
+  /* The vote control sits beside the content rather than inside it, so the
+     count is scannable down the left edge of the board. */
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.vote {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 3.25rem;
+  padding: var(--space-2);
+  font: inherit;
+  line-height: 1.1;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.vote:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+/* Voted state is carried by colour, weight AND the filled chevron, so it does
+   not depend on colour perception alone. */
+.vote--active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.vote:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vote__chevron {
+  font-size: 0.7rem;
+}
+
+.vote--active .vote__chevron {
+  transform: translateY(-1px);
+}
+
+.vote__count {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.vote--active .vote__count {
+  color: var(--accent);
+}
+
+.vote-failure {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text);
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+}
+
+@media (max-width: 30rem) {
+  .card {
+    /* Below this width the two columns squeeze the title badly; the control
+       moves above the content instead. */
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+
+  .vote {
+    flex-direction: row;
+    gap: var(--space-2);
+    align-self: start;
+  }
+}
