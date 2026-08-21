@@ -58,3 +58,16 @@ export const unpinRequest: RequestHandler = async (req, res) => {
 
   res.status(200).json({ data: updated });
 };
+
+/**
+ * One request in full, for its own page. The board only ever sends an excerpt,
+ * so until now the complete description had nowhere to be read.
+ */
+export const getRequest: RequestHandler = async (req, res) => {
+  authorize(requestPolicy.read(req.actor));
+
+  const { id } = parseOrThrow(requestIdParamsSchema, req.params, 'params');
+  const found = await requestsService.findById(req.actor, id);
+
+  res.status(200).json({ data: found });
+};

@@ -25,6 +25,7 @@ interface BaseRow {
   author_display_name: string;
   vote_count: number;
   has_voted: number;
+  comment_count: number;
 }
 
 interface ListRow extends BaseRow, RowDataPacket {
@@ -41,10 +42,18 @@ interface DetailRow extends BaseRow, RowDataPacket {
  * Counted, never stored. This aggregates the vote rows once per query rather
  * than reading a counter column that could disagree with them.
  */
-const VOTE_COUNTS_CTE = `
+const COUNTS_CTE = `
   WITH vote_counts AS (
     SELECT request_id, COUNT(*) AS votes
     FROM votes
+    GROUP BY request_id
+  ),
+  comment_counts AS (
+    -- Hidden comments are not counted: the number is what a reader can open,
+    -- not how many rows the table happens to keep for the audit trail.
+    SELECT request_id, COUNT(*) AS comments
+    FROM comments
+    WHERE deleted_at IS NULL
     GROUP BY request_id
   )
 `;
@@ -56,6 +65,7 @@ const JOINS = `
   JOIN users      u ON u.id = r.author_id
   LEFT JOIN users pinner ON pinner.id = r.pinned_by
   LEFT JOIN vote_counts vc ON vc.request_id = r.id
+  LEFT JOIN comment_counts cc ON cc.request_id = r.id
 `;
 
 const COMMON_COLUMNS = `
@@ -74,7 +84,8 @@ const COMMON_COLUMNS = `
   s.slug AS status_slug,
   u.id            AS author_id,
   u.display_name  AS author_display_name,
-  COALESCE(vc.votes, 0) AS vote_count
+  COALESCE(vc.votes, 0) AS vote_count,
+  COALESCE(cc.comments, 0) AS comment_count
 `;
 
 const EXCERPT_COLUMNS = `
@@ -130,6 +141,7 @@ function toListItem(row: ListRow): Omit<FeedbackRequestListItem, 'canVote' | 'ca
         ? { id: row.pinned_by, displayName: row.pinned_by_display_name }
         : null,
     voteCount: Number(row.vote_count),
+    commentCount: Number(row.comment_count),
     hasVoted: row.has_voted === 1,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -151,6 +163,7 @@ function toDetail(row: DetailRow): Omit<FeedbackRequestDetail, 'canVote' | 'canP
         ? { id: row.pinned_by, displayName: row.pinned_by_display_name }
         : null,
     voteCount: Number(row.vote_count),
+    commentCount: Number(row.comment_count),
     hasVoted: row.has_voted === 1,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -181,7 +194,7 @@ export interface ListParams {
 export async function list({ limit, offset, viewerId }: ListParams): Promise<ListPage> {
   const [rows] = await pool.query<ListRow[]>(
     `
-    ${VOTE_COUNTS_CTE}
+    ${COUNTS_CTE}
     SELECT
       ${COMMON_COLUMNS},
       ${EXCERPT_COLUMNS},
@@ -230,7 +243,7 @@ export interface PinnedPage {
 export async function listPinned(viewerId: number, limit: number): Promise<PinnedPage> {
   const [rows] = await pool.query<ListRow[]>(
     `
-    ${VOTE_COUNTS_CTE}
+    ${COUNTS_CTE}
     SELECT
       ${COMMON_COLUMNS},
       ${EXCERPT_COLUMNS},
@@ -259,7 +272,7 @@ export async function findById(
 ): Promise<Omit<FeedbackRequestDetail, 'canVote' | 'canPin'> | null> {
   const [rows] = await pool.query<DetailRow[]>(
     `
-    ${VOTE_COUNTS_CTE}
+    ${COUNTS_CTE}
     SELECT ${COMMON_COLUMNS}, r.description, ${HAS_VOTED}
     ${JOINS}
     WHERE r.id = :id
@@ -278,7 +291,7 @@ export async function findListItemById(
 ): Promise<ListItemRow | null> {
   const [rows] = await pool.query<ListRow[]>(
     `
-    ${VOTE_COUNTS_CTE}
+    ${COUNTS_CTE}
     SELECT ${COMMON_COLUMNS}, ${EXCERPT_COLUMNS}, ${HAS_VOTED}
     ${JOINS}
     WHERE r.id = :id

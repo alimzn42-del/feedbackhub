@@ -5,6 +5,7 @@ import { env } from './config/env.js';
 import { attachCurrentUser } from './auth/current-user.js';
 import { attachRequestId, errorHandler, notFoundHandler } from './http/error-handler.js';
 import { categoriesRouter } from './modules/categories/categories.routes.js';
+import { commentsRouter } from './modules/comments/comments.routes.js';
 import { requestsRouter } from './modules/requests/requests.routes.js';
 
 export function createApp() {
@@ -31,6 +32,7 @@ export function createApp() {
   app.use('/api', attachCurrentUser);
   app.use('/api/categories', categoriesRouter);
   app.use('/api/requests', requestsRouter);
+  app.use('/api/comments', commentsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

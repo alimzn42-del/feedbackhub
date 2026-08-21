@@ -93,6 +93,9 @@ export interface FeedbackRequestListItem {
   /** Counted from the vote rows on every read. Never stored. */
   voteCount: number;
 
+  /** Visible comments, counted on read. Never stored. */
+  commentCount: number;
+
   /** Whether the caller has voted, so the control can render its state. */
   hasVoted: boolean;
 

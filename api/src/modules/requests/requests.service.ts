@@ -105,6 +105,18 @@ export async function list(
   };
 }
 
+export async function findById(actor: Actor, id: number): Promise<FeedbackRequestDetail> {
+  authorize(requestPolicy.read(actor));
+
+  const found = await requestsRepository.findById(id, actor.id);
+
+  if (!found) {
+    throw new NotFoundError('That request does not exist.');
+  }
+
+  return withPermissions(actor, found);
+}
+
 export interface PinnedResult {
   data: FeedbackRequestListItem[];
   /** Every pinned request, including any the cap held back. */
