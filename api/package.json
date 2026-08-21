@@ -1,0 +1,32 @@
+{
+  "name": "@feedbackhub/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../.env --import tsx --watch src/main.ts",
+    "build": "tsc --project tsconfig.build.json",
+    "start": "node --env-file-if-exists=../.env dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "migrate": "node --env-file-if-exists=../.env scripts/migrate.mjs up",
+    "migrate:down": "node --env-file-if-exists=../.env scripts/migrate.mjs down",
+    "seed": "node --env-file-if-exists=../.env scripts/seed.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "mysql2": "^3.23.4",
+    "postgrator": "^8.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
