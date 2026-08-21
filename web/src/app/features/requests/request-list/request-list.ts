@@ -83,6 +83,24 @@ export class RequestList {
     return meta !== null && meta.total > 0 && this.items().length === 0;
   });
 
+  /**
+   * Which rows of the whole collection this page is showing.
+   *
+   * Derived from the page metadata rather than counted locally, and clamped by
+   * the rows actually returned — the last page is rarely full, so
+   * page * pageSize would overstate it.
+   */
+  protected readonly rangeStart = computed(() => {
+    const meta = this.meta();
+    if (!meta || this.items().length === 0) return 0;
+    return (meta.page - 1) * meta.pageSize + 1;
+  });
+
+  protected readonly rangeEnd = computed(() => {
+    if (this.items().length === 0) return 0;
+    return this.rangeStart() + this.items().length - 1;
+  });
+
   protected readonly hasPrevious = computed(() => this.currentPage() > 1);
 
   protected readonly hasNext = computed(() => {

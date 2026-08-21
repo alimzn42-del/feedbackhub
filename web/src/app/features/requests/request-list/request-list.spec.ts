@@ -418,3 +418,84 @@ describe('RequestList voting from the pinned shelf', () => {
     );
   });
 });
+
+describe('RequestList pagination summary', () => {
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([{ path: '**', children: [] }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    try {
+      http.verify();
+    } finally {
+      TestBed.resetTestingModule();
+    }
+  });
+
+  async function renderPage(
+    rows: number,
+    meta: { page: number; pageSize: number; total: number; totalPages: number },
+  ) {
+    const fixture = TestBed.createComponent(RequestList);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [], total: 0 });
+    http.expectOne((r) => r.url === '/api/requests').flush({
+      data: Array.from({ length: rows }, (_, i) => item({ id: i + 1 })),
+      page: meta,
+    });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const summary = (fixture: { nativeElement: HTMLElement }) =>
+    fixture.nativeElement.querySelector('.pager__summary')?.textContent?.replace(/\s+/g, ' ').trim();
+
+  it('says which rows of the whole collection this page holds', async () => {
+    const fixture = await renderPage(20, { page: 1, pageSize: 20, total: 27, totalPages: 2 });
+
+    expect(summary(fixture)).toContain('Showing 1–20 of 27 requests');
+    expect(summary(fixture)).toContain('page 1 of 2');
+  });
+
+  it('does not overstate the last page, which is rarely full', async () => {
+    // page * pageSize would say 40; only 7 rows came back.
+    const fixture = await renderPage(7, { page: 2, pageSize: 20, total: 27, totalPages: 2 });
+
+    expect(summary(fixture)).toContain('Showing 21–27 of 27 requests');
+  });
+
+  it('still reports the count when there is only one page', async () => {
+    const fixture = await renderPage(8, { page: 1, pageSize: 20, total: 8, totalPages: 1 });
+
+    expect(summary(fixture)).toContain('Showing 1–8 of 8 requests');
+    // The count is worth showing; the controls are not, with nowhere to go.
+    expect(fixture.nativeElement.querySelector('[aria-label="Pagination"]')).toBeNull();
+    expect(summary(fixture)).not.toContain('page 1 of 1');
+  });
+
+  it('says "request" rather than "requests" when there is one', async () => {
+    const fixture = await renderPage(1, { page: 1, pageSize: 20, total: 1, totalPages: 1 });
+
+    expect(summary(fixture)).toBe('Showing 1–1 of 1 request');
+  });
+
+  it('announces the range to a screen reader as well', async () => {
+    const fixture = await renderPage(20, { page: 1, pageSize: 20, total: 27, totalPages: 2 });
+
+    const live = fixture.nativeElement.querySelector('[role="status"]');
+
+    expect(live.textContent.replace(/\s+/g, ' ')).toContain(
+      'Showing 1 to 20 of 27 requests, page 1 of 2',
+    );
+  });
+});

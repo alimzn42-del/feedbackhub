@@ -18,7 +18,7 @@
   } @else if (error()) {
     Requests could not be loaded.
   } @else if (meta(); as page) {
-    {{ page.total }} requests, showing page {{ page.page }} of {{ page.totalPages }}.
+    Showing {{ rangeStart() }} to {{ rangeEnd() }} of {{ page.total }} requests, page {{ page.page }} of {{ page.totalPages }}.
   }
 </div>
 
@@ -135,6 +135,15 @@
   </ul>
 
   @if (meta(); as page) {
+    <p class="pager__summary">
+      Showing <strong>{{ rangeStart() }}–{{ rangeEnd() }}</strong> of
+      <strong>{{ page.total }}</strong>
+      {{ page.total === 1 ? 'request' : 'requests' }}
+      @if (page.totalPages > 1) {
+        <span class="pager__summary-page">page {{ page.page }} of {{ page.totalPages }}</span>
+      }
+    </p>
+
     @if (page.totalPages > 1) {
       <nav class="pager" aria-label="Pagination">
         @if (hasPrevious()) {
@@ -149,10 +158,7 @@
           <span class="button button--secondary" aria-disabled="true">Previous</span>
         }
 
-        <p class="pager__position">
-          Page {{ page.page }} of {{ page.totalPages }}
-          <span class="pager__total">{{ page.total }} requests</span>
-        </p>
+        <p class="pager__position">Page {{ page.page }} of {{ page.totalPages }}</p>
 
         @if (hasNext()) {
           <a
