@@ -11,6 +11,13 @@ export const DESCRIPTION_MIN = 20;
 export const DESCRIPTION_MAX = 5000;
 export const EXCERPT_LENGTH = 240;
 
+/**
+ * Pinning is unlimited by decision, so the pinned endpoint is capped instead.
+ * The response reports the true total, so the panel can say when it is not
+ * showing everything rather than silently truncating.
+ */
+export const MAX_PINNED_RETURNED = 100;
+
 export const createRequestBodySchema = z
   .object({
     title: z
@@ -76,6 +83,13 @@ export interface FeedbackRequestListItem {
   author: AuthorRef;
   isPinned: boolean;
 
+  /** When it was pinned, and by which admin. Null on anything unpinned. */
+  pinnedAt: string | null;
+  pinnedBy: AuthorRef | null;
+
+  /** Whether the caller may pin or unpin. Admins only. */
+  canPin: boolean;
+
   /** Counted from the vote rows on every read. Never stored. */
   voteCount: number;
 
@@ -97,3 +111,11 @@ export interface FeedbackRequestListItem {
 export interface FeedbackRequestDetail extends Omit<FeedbackRequestListItem, 'excerpt' | 'excerptTruncated'> {
   description: string;
 }
+
+/** Shared by every route that names a request in its path. */
+export const requestIdParamsSchema = z.object({
+  id: z.coerce
+    .number({ error: 'The request id must be a number.' })
+    .int({ error: 'The request id must be a whole number.' })
+    .positive({ error: 'The request id must be a positive number.' }),
+});

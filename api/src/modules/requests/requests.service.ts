@@ -1,5 +1,5 @@
 import type { Actor } from '../../auth/actor.js';
-import { MisconfigurationError, ValidationError } from '../../http/errors.js';
+import { MisconfigurationError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { toOffset, toPageMeta, type Paginated } from '../../http/pagination.js';
 import { authorize } from '../../policy/index.js';
 import { requestPolicy } from '../../policy/requests.policy.js';
@@ -7,25 +7,30 @@ import { votePolicy } from '../../policy/votes.policy.js';
 import * as categoriesRepository from '../categories/categories.repository.js';
 import * as statusesRepository from '../statuses/statuses.repository.js';
 import * as requestsRepository from './requests.repository.js';
-import type {
-  CreateRequestBody,
-  FeedbackRequestDetail,
-  FeedbackRequestListItem,
-  ListRequestsQuery,
+import {
+  MAX_PINNED_RETURNED,
+  type CreateRequestBody,
+  type FeedbackRequestDetail,
+  type FeedbackRequestListItem,
+  type ListRequestsQuery,
 } from './requests.schema.js';
 
 /**
- * Whether this viewer may vote on this row, answered by the policy module.
+ * Attaches the two "may I" answers the browser cannot work out for itself.
  *
- * The browser cannot work this out for itself: it is not told who it is, and
- * even if it were, reimplementing the rule client-side would mean two copies of
- * it that can disagree. The server decides and sends the answer.
+ * It is never told who it is, and even if it were, reimplementing the rules
+ * client-side would mean two copies free to disagree. The server decides and
+ * sends the answer, per row.
  */
-function withVotePermission<T extends { author: { id: number } }>(
+function withPermissions<T extends { author: { id: number } }>(
   actor: Actor,
   row: T,
-): T & { canVote: boolean } {
-  return { ...row, canVote: votePolicy.cast(actor, { authorId: row.author.id }).allowed };
+): T & { canVote: boolean; canPin: boolean } {
+  return {
+    ...row,
+    canVote: votePolicy.cast(actor, { authorId: row.author.id }).allowed,
+    canPin: requestPolicy.setPinned(actor).allowed,
+  };
 }
 
 /**
@@ -79,7 +84,7 @@ export async function create(
     throw new MisconfigurationError('The request was created but could not be read back.');
   }
 
-  return withVotePermission(actor, created);
+  return withPermissions(actor, created);
 }
 
 export async function list(
@@ -95,7 +100,64 @@ export async function list(
   });
 
   return {
-    data: items.map((item) => withVotePermission(actor, item)),
+    data: items.map((item) => withPermissions(actor, item)),
     page: toPageMeta(query, total),
   };
+}
+
+export interface PinnedResult {
+  data: FeedbackRequestListItem[];
+  /** Every pinned request, including any the cap held back. */
+  total: number;
+}
+
+/**
+ * Pinned requests are not paginated — the panel shows a few and expands to
+ * scroll the rest — so this returns them in one response, capped for safety.
+ */
+export async function listPinned(actor: Actor): Promise<PinnedResult> {
+  authorize(requestPolicy.list(actor));
+
+  const { items, total } = await requestsRepository.listPinned(actor.id, MAX_PINNED_RETURNED);
+
+  return { data: items.map((item) => withPermissions(actor, item)), total };
+}
+
+/**
+ * Pin and unpin are admin-only, and re-pinning is not an error: it refreshes
+ * who and when, which is what makes the panel ordering mean something. There is
+ * no state to conflict with, so no 409 here.
+ *
+ * Existence is checked separately rather than read from affectedRows, which
+ * counts CHANGED rows — unpinning something already unpinned changes nothing
+ * and would otherwise look like a missing request.
+ */
+async function setPinned(
+  actor: Actor,
+  id: number,
+  apply: () => Promise<void>,
+): Promise<FeedbackRequestListItem> {
+  authorize(requestPolicy.setPinned(actor));
+
+  if (!(await requestsRepository.exists(id))) {
+    throw new NotFoundError('That request does not exist.');
+  }
+
+  await apply();
+
+  const updated = await requestsRepository.findListItemById(id, actor.id);
+
+  if (!updated) {
+    throw new MisconfigurationError('The request changed but could not be read back.');
+  }
+
+  return withPermissions(actor, updated);
+}
+
+export function pin(actor: Actor, id: number): Promise<FeedbackRequestListItem> {
+  return setPinned(actor, id, () => requestsRepository.pin(id, actor.id));
+}
+
+export function unpin(actor: Actor, id: number): Promise<FeedbackRequestListItem> {
+  return setPinned(actor, id, () => requestsRepository.unpin(id));
 }

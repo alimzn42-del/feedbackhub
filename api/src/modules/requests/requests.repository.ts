@@ -10,7 +10,9 @@ import { EXCERPT_LENGTH, type FeedbackRequestDetail, type FeedbackRequestListIte
 interface BaseRow {
   id: number;
   title: string;
-  is_pinned: number;
+  pinned_at: Date | null;
+  pinned_by: number | null;
+  pinned_by_display_name: string | null;
   created_at: Date;
   updated_at: Date;
   category_id: number;
@@ -52,13 +54,16 @@ const JOINS = `
   JOIN categories c ON c.id = r.category_id
   JOIN statuses   s ON s.id = r.status_id
   JOIN users      u ON u.id = r.author_id
+  LEFT JOIN users pinner ON pinner.id = r.pinned_by
   LEFT JOIN vote_counts vc ON vc.request_id = r.id
 `;
 
 const COMMON_COLUMNS = `
   r.id,
   r.title,
-  r.is_pinned,
+  r.pinned_at,
+  r.pinned_by,
+  pinner.display_name AS pinned_by_display_name,
   r.created_at,
   r.updated_at,
   c.id   AS category_id,
@@ -72,6 +77,11 @@ const COMMON_COLUMNS = `
   COALESCE(vc.votes, 0) AS vote_count
 `;
 
+const EXCERPT_COLUMNS = `
+  SUBSTRING(r.description, 1, :excerptLength) AS excerpt,
+  CHAR_LENGTH(r.description) > :excerptLength AS excerpt_truncated
+`;
+
 /** Whether the viewer has voted. One index lookup per row on idx_votes_user. */
 const HAS_VOTED = `
   EXISTS (
@@ -81,26 +91,28 @@ const HAS_VOTED = `
 `;
 
 /**
- * The default order, in one place.
+ * The board is split in two, so neither query needs to sort by pinned state.
  *
- * Pinned first, absolutely — admin curation outranks the crowd and is not
- * something a vote can push down. Then vote count, the priority signal the
- * board exists to surface. Then newest, then id.
+ * Pinned requests live in their own panel and are excluded from the list
+ * below it — a request appears in exactly one place. The previous approach,
+ * ordering pinned-first inside one list, put them at the top of page 1 only and
+ * quietly shifted everything else along; splitting removes that.
  *
- * The last two are not decoration. Requests tie on vote count constantly — most
- * of the board sits on zero — and without a total order two rows on equal votes
- * are free to swap between page 1 and page 2 while somebody is paging through.
+ * The list orders by vote count, the priority signal, then newest, then id. The
+ * last two keep the ordering total: most of the board sits on zero votes, so
+ * rows tie constantly and would otherwise be free to swap between pages while
+ * somebody is paging through.
  *
- * No index can serve the vote_count key: the count is derived, so MySQL has to
- * aggregate every row before it can order any of them. That is the accepted
- * cost of not storing a counter. The measured plan is recorded in
- * notes/ai-log.md.
+ * No index can serve the vote_count key — the count is derived, so every row
+ * must be aggregated before any can be ordered. Measured, not assumed; the plan
+ * is in notes/ai-log.md.
  */
-const DEFAULT_ORDER = `
-  ORDER BY r.is_pinned DESC, vote_count DESC, r.created_at DESC, r.id DESC
-`;
+const LIST_ORDER = 'ORDER BY vote_count DESC, r.created_at DESC, r.id DESC';
 
-function toListItem(row: ListRow): Omit<FeedbackRequestListItem, 'canVote'> {
+/** Most recently pinned first: an admin expects what they just pinned on top. */
+const PINNED_ORDER = 'ORDER BY r.pinned_at DESC, r.id DESC';
+
+function toListItem(row: ListRow): Omit<FeedbackRequestListItem, 'canVote' | 'canPin'> {
   return {
     id: row.id,
     title: row.title,
@@ -109,7 +121,14 @@ function toListItem(row: ListRow): Omit<FeedbackRequestListItem, 'canVote'> {
     category: { id: row.category_id, name: row.category_name, slug: row.category_slug },
     status: { id: row.status_id, name: row.status_name, slug: row.status_slug },
     author: { id: row.author_id, displayName: row.author_display_name },
-    isPinned: row.is_pinned === 1,
+    isPinned: row.pinned_at !== null,
+    pinnedAt: row.pinned_at ? row.pinned_at.toISOString() : null,
+    // Rows pinned before this column existed have a time but no actor. Reported
+    // as null rather than attributed to somebody who did not do it.
+    pinnedBy:
+      row.pinned_by !== null && row.pinned_by_display_name !== null
+        ? { id: row.pinned_by, displayName: row.pinned_by_display_name }
+        : null,
     voteCount: Number(row.vote_count),
     hasVoted: row.has_voted === 1,
     createdAt: row.created_at.toISOString(),
@@ -117,7 +136,7 @@ function toListItem(row: ListRow): Omit<FeedbackRequestListItem, 'canVote'> {
   };
 }
 
-function toDetail(row: DetailRow): Omit<FeedbackRequestDetail, 'canVote'> {
+function toDetail(row: DetailRow): Omit<FeedbackRequestDetail, 'canVote' | 'canPin'> {
   return {
     id: row.id,
     title: row.title,
@@ -125,7 +144,12 @@ function toDetail(row: DetailRow): Omit<FeedbackRequestDetail, 'canVote'> {
     category: { id: row.category_id, name: row.category_name, slug: row.category_slug },
     status: { id: row.status_id, name: row.status_name, slug: row.status_slug },
     author: { id: row.author_id, displayName: row.author_display_name },
-    isPinned: row.is_pinned === 1,
+    isPinned: row.pinned_at !== null,
+    pinnedAt: row.pinned_at ? row.pinned_at.toISOString() : null,
+    pinnedBy:
+      row.pinned_by !== null && row.pinned_by_display_name !== null
+        ? { id: row.pinned_by, displayName: row.pinned_by_display_name }
+        : null,
     voteCount: Number(row.vote_count),
     hasVoted: row.has_voted === 1,
     createdAt: row.created_at.toISOString(),
@@ -133,8 +157,10 @@ function toDetail(row: DetailRow): Omit<FeedbackRequestDetail, 'canVote'> {
   };
 }
 
+export type ListItemRow = Omit<FeedbackRequestListItem, 'canVote' | 'canPin'>;
+
 export interface ListPage {
-  items: Omit<FeedbackRequestListItem, 'canVote'>[];
+  items: ListItemRow[];
   total: number;
 }
 
@@ -146,10 +172,11 @@ export interface ListParams {
 }
 
 /**
+ * The unpinned board, paginated.
+ *
  * One round trip for both the page and the total: COUNT(*) OVER () is evaluated
  * before LIMIT is applied, so it reports the size of the whole result set rather
- * than of the page. SQL_CALC_FOUND_ROWS is deprecated in MySQL 8 and this
- * replaces it.
+ * than of the page. SQL_CALC_FOUND_ROWS is deprecated in MySQL 8.
  */
 export async function list({ limit, offset, viewerId }: ListParams): Promise<ListPage> {
   const [rows] = await pool.query<ListRow[]>(
@@ -157,12 +184,12 @@ export async function list({ limit, offset, viewerId }: ListParams): Promise<Lis
     ${VOTE_COUNTS_CTE}
     SELECT
       ${COMMON_COLUMNS},
-      SUBSTRING(r.description, 1, :excerptLength) AS excerpt,
-      CHAR_LENGTH(r.description) > :excerptLength AS excerpt_truncated,
+      ${EXCERPT_COLUMNS},
       ${HAS_VOTED},
       COUNT(*) OVER () AS total_count
     ${JOINS}
-    ${DEFAULT_ORDER}
+    WHERE r.pinned_at IS NULL
+    ${LIST_ORDER}
     LIMIT :limit OFFSET :offset
     `,
     { excerptLength: EXCERPT_LENGTH, viewerId, limit, offset },
@@ -180,17 +207,56 @@ export async function list({ limit, offset, viewerId }: ListParams): Promise<Lis
   return { items: rows.map(toListItem), total: Number(first.total_count) };
 }
 
+/** Counts the same set the list pages over — unpinned only. */
 export async function count(): Promise<number> {
   const [rows] = await pool.query<(RowDataPacket & { total: number })[]>(
-    'SELECT COUNT(*) AS total FROM feedback_requests',
+    'SELECT COUNT(*) AS total FROM feedback_requests WHERE pinned_at IS NULL',
   );
   return Number(rows[0]?.total ?? 0);
+}
+
+export interface PinnedPage {
+  items: ListItemRow[];
+  /** Every pinned request, including any beyond the cap below. */
+  total: number;
+}
+
+/**
+ * The pinned panel. Not paginated — the panel shows a few and expands to scroll
+ * the rest — but capped, because pinning is unlimited by decision and an
+ * unbounded response is one careless afternoon away. `total` reports the real
+ * figure so the UI can say when it is not showing everything.
+ */
+export async function listPinned(viewerId: number, limit: number): Promise<PinnedPage> {
+  const [rows] = await pool.query<ListRow[]>(
+    `
+    ${VOTE_COUNTS_CTE}
+    SELECT
+      ${COMMON_COLUMNS},
+      ${EXCERPT_COLUMNS},
+      ${HAS_VOTED},
+      COUNT(*) OVER () AS total_count
+    ${JOINS}
+    WHERE r.pinned_at IS NOT NULL
+    ${PINNED_ORDER}
+    LIMIT :limit
+    `,
+    { excerptLength: EXCERPT_LENGTH, viewerId, limit },
+  );
+
+  const first = rows[0];
+
+  if (!first) {
+    return { items: [], total: 0 };
+  }
+
+  return { items: rows.map(toListItem), total: Number(first.total_count) };
 }
 
 export async function findById(
   id: number,
   viewerId: number,
-): Promise<Omit<FeedbackRequestDetail, 'canVote'> | null> {
+): Promise<Omit<FeedbackRequestDetail, 'canVote' | 'canPin'> | null> {
   const [rows] = await pool.query<DetailRow[]>(
     `
     ${VOTE_COUNTS_CTE}
@@ -205,6 +271,33 @@ export async function findById(
   return row ? toDetail(row) : null;
 }
 
+/** One row in list shape, for returning a request the caller just changed. */
+export async function findListItemById(
+  id: number,
+  viewerId: number,
+): Promise<ListItemRow | null> {
+  const [rows] = await pool.query<ListRow[]>(
+    `
+    ${VOTE_COUNTS_CTE}
+    SELECT ${COMMON_COLUMNS}, ${EXCERPT_COLUMNS}, ${HAS_VOTED}
+    ${JOINS}
+    WHERE r.id = :id
+    LIMIT 1
+    `,
+    { excerptLength: EXCERPT_LENGTH, id, viewerId },
+  );
+  const row = rows[0];
+  return row ? toListItem(row) : null;
+}
+
+export async function exists(id: number): Promise<boolean> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    'SELECT 1 FROM feedback_requests WHERE id = :id LIMIT 1',
+    { id },
+  );
+  return rows.length === 1;
+}
+
 /** The author id alone, for policy decisions that do not need the whole row. */
 export async function findAuthorId(id: number): Promise<number | null> {
   const [rows] = await pool.execute<(RowDataPacket & { author_id: number })[]>(
@@ -212,6 +305,31 @@ export async function findAuthorId(id: number): Promise<number | null> {
     { id },
   );
   return rows[0]?.author_id ?? null;
+}
+
+/**
+ * Pinning records who and when, not merely that. Re-pinning something already
+ * pinned refreshes both, which is what makes the panel's "most recent first"
+ * order mean something.
+ */
+export async function pin(id: number, actorId: number): Promise<void> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    `
+    UPDATE feedback_requests
+    SET pinned_at = CURRENT_TIMESTAMP(3), pinned_by = :actorId
+    WHERE id = :id
+    `,
+    { id, actorId },
+  );
+  void result;
+}
+
+export async function unpin(id: number): Promise<void> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    'UPDATE feedback_requests SET pinned_at = NULL, pinned_by = NULL WHERE id = :id',
+    { id },
+  );
+  void result;
 }
 
 export type InsertRequestInput = {

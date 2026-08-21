@@ -3,7 +3,7 @@ import { parseOrThrow } from '../../http/validate.js';
 import { authorize } from '../../policy/index.js';
 import { requestPolicy } from '../../policy/requests.policy.js';
 import * as requestsService from './requests.service.js';
-import { createRequestBodySchema, listRequestsQuerySchema } from './requests.schema.js';
+import { createRequestBodySchema, listRequestsQuerySchema, requestIdParamsSchema } from './requests.schema.js';
 
 /**
  * HTTP in, HTTP out. No rules, no SQL — the handler asks the policy module and
@@ -32,4 +32,29 @@ export const listRequests: RequestHandler = async (req, res) => {
   const page = await requestsService.list(req.actor, query);
 
   res.status(200).json(page);
+};
+
+/**
+ * The pinned panel. Deliberately not paginated: the panel shows a few and
+ * expands to scroll the rest, so there are no pages to describe. It reports the
+ * true total separately, because the response is capped.
+ */
+export const listPinnedRequests: RequestHandler = async (req, res) => {
+  const { data, total } = await requestsService.listPinned(req.actor);
+
+  res.status(200).json({ data, total });
+};
+
+export const pinRequest: RequestHandler = async (req, res) => {
+  const { id } = parseOrThrow(requestIdParamsSchema, req.params, 'params');
+  const updated = await requestsService.pin(req.actor, id);
+
+  res.status(200).json({ data: updated });
+};
+
+export const unpinRequest: RequestHandler = async (req, res) => {
+  const { id } = parseOrThrow(requestIdParamsSchema, req.params, 'params');
+  const updated = await requestsService.unpin(req.actor, id);
+
+  res.status(200).json({ data: updated });
 };

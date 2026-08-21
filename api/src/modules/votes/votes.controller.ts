@@ -1,14 +1,7 @@
 import type { RequestHandler } from 'express';
-import { z } from 'zod';
 import { parseOrThrow } from '../../http/validate.js';
+import { requestIdParamsSchema } from '../requests/requests.schema.js';
 import * as votesService from './votes.service.js';
-
-const requestIdParamsSchema = z.object({
-  id: z.coerce
-    .number({ error: 'The request id must be a number.' })
-    .int({ error: 'The request id must be a whole number.' })
-    .positive({ error: 'The request id must be a positive number.' }),
-});
 
 /**
  * The vote resource is singular and scoped to the caller — /requests/:id/vote,
