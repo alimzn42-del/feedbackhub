@@ -274,3 +274,27 @@
   border: 1px solid var(--danger-border);
   border-radius: var(--radius-sm);
 }
+
+/* Admin-only, so it stays visually quiet — it is not the action most people
+   on this board are here to take. */
+.pin {
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pin:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.pin:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -1,0 +1,104 @@
+@if (items().length > 0) {
+  <section class="pinned" aria-labelledby="pinned-heading">
+    <header class="pinned__header">
+      <h2 class="pinned__heading" id="pinned-heading">
+        <svg class="pinned__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M9 3h6l-1 6 4 3v2H6v-2l4-3-1-6Z" />
+          <path d="M12 14v7" />
+        </svg>
+        Pinned
+        <span class="pinned__count">{{ total() }}</span>
+      </h2>
+      <p class="pinned__note">Kept at the top by an admin, regardless of votes.</p>
+    </header>
+
+    <ul class="pinned__list" [class.pinned__list--scroll]="expanded()">
+      @for (request of visible(); track request.id) {
+        <li class="pinned__item">
+          <div class="pinned__main">
+            <h3 class="pinned__title">{{ request.title }}</h3>
+
+            <p class="pinned__meta">
+              <span class="chip chip--category">{{ request.category.name }}</span>
+              <span class="chip chip--status" [attr.data-status]="request.status.slug">
+                {{ request.status.name }}
+              </span>
+            </p>
+
+            <p class="pinned__byline">
+              @if (request.pinnedBy) {
+                Pinned by {{ request.pinnedBy.displayName }}
+              } @else {
+                Pinned
+              }
+              @if (request.pinnedAt) {
+                <span aria-hidden="true">·</span>
+                <time [attr.datetime]="request.pinnedAt">{{
+                  request.pinnedAt | date: 'mediumDate'
+                }}</time>
+              }
+              <span aria-hidden="true">·</span>
+              filed by {{ request.author.displayName }}
+            </p>
+          </div>
+
+          <div class="pinned__actions">
+            <button
+              type="button"
+              class="vote"
+              [class.vote--active]="request.hasVoted"
+              [attr.aria-pressed]="request.canVote ? request.hasVoted : null"
+              [attr.aria-label]="voteLabel(request)"
+              [attr.title]="request.canVote ? null : 'You cannot vote on your own request.'"
+              [disabled]="!request.canVote || isBusy(request.id)"
+              (click)="vote.emit(request)"
+            >
+              <svg class="vote__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  d="M7 21V9.6l4.6-6.9a1.5 1.5 0 0 1 2.7 1l-1 4.8h5a1.9 1.9 0 0 1 1.9 2.2l-1.1 7.3A2 2 0 0 1 17.2 21H7Z"
+                />
+                <path d="M3.8 9.8h3.1v11.1H3.8z" />
+              </svg>
+              <span class="vote__count">{{ request.voteCount }}</span>
+            </button>
+
+            @if (request.canPin) {
+              <button
+                type="button"
+                class="pinned__unpin"
+                [attr.aria-label]="'Unpin ' + request.title"
+                [disabled]="isBusy(request.id)"
+                (click)="unpin.emit(request)"
+              >
+                Unpin
+              </button>
+            }
+          </div>
+        </li>
+      }
+    </ul>
+
+    @if (expandable() > 0) {
+      <button
+        type="button"
+        class="pinned__toggle"
+        [attr.aria-expanded]="expanded()"
+        aria-controls="pinned-heading"
+        (click)="toggle()"
+      >
+        @if (expanded()) {
+          Show less
+        } @else {
+          Show {{ expandable() }} more
+        }
+      </button>
+    }
+
+    @if (beyondCap() > 0) {
+      <p class="pinned__overflow" role="status">
+        {{ beyondCap() }} more pinned requests are not shown. Consider unpinning some — a board
+        where everything is pinned has nothing pinned.
+      </p>
+    }
+  </section>
+}

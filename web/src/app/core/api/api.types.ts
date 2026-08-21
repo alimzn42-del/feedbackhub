@@ -39,6 +39,13 @@ export interface FeedbackRequestListItem {
   author: AuthorRef;
   isPinned: boolean;
 
+  /** When it was pinned, and by which admin. Null on anything unpinned. */
+  pinnedAt: string | null;
+  pinnedBy: AuthorRef | null;
+
+  /** Whether the signed-in user may pin or unpin. Admins only. */
+  canPin: boolean;
+
   /** Counted from the vote rows on every read. Never stored. */
   voteCount: number;
 
@@ -63,6 +70,13 @@ export interface FeedbackRequestDetail {
   status: TaxonomyRef;
   author: AuthorRef;
   isPinned: boolean;
+
+  /** When it was pinned, and by which admin. Null on anything unpinned. */
+  pinnedAt: string | null;
+  pinnedBy: AuthorRef | null;
+
+  /** Whether the signed-in user may pin or unpin. Admins only. */
+  canPin: boolean;
 
   /** Counted from the vote rows on every read. Never stored. */
   voteCount: number;
@@ -91,4 +105,10 @@ export interface VoteState {
   requestId: number;
   voteCount: number;
   hasVoted: boolean;
+}
+
+/** The pinned shelf: not paginated, but capped, so the total is separate. */
+export interface PinnedResult {
+  data: FeedbackRequestListItem[];
+  total: number;
 }

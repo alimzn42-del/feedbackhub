@@ -4,13 +4,14 @@ import { httpResource } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { RequestsApi } from '../data/requests.api';
 import { toApiError } from '../../../core/api/api-error';
-import type { FeedbackRequestListItem, Paginated } from '../../../core/api/api.types';
+import type { FeedbackRequestListItem, Paginated, PinnedResult } from '../../../core/api/api.types';
+import { PinnedPanel } from '../pinned-panel/pinned-panel';
 
 const DEFAULT_PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-request-list',
-  imports: [RouterLink, DatePipe],
+  imports: [RouterLink, DatePipe, PinnedPanel],
   templateUrl: './request-list.html',
   styleUrl: './request-list.scss',
 })
@@ -50,6 +51,18 @@ export class RequestList {
     url: this.api.requestsUrl,
     params: { page: this.currentPage(), pageSize: this.currentPageSize() },
   }));
+
+  /**
+   * The pinned shelf. A separate request because it is a different collection
+   * with different rules: not paginated, ordered by when it was pinned, and
+   * excluded from the list below so nothing appears twice.
+   */
+  protected readonly pinned = httpResource<PinnedResult>(() => ({
+    url: this.api.pinnedUrl,
+  }));
+
+  protected readonly pinnedItems = computed(() => this.pinned.value()?.data ?? []);
+  protected readonly pinnedTotal = computed(() => this.pinned.value()?.total ?? 0);
 
   protected readonly items = computed(() => this.requests.value()?.data ?? []);
   protected readonly meta = computed(() => this.requests.value()?.page ?? null);
@@ -94,7 +107,7 @@ export class RequestList {
   /* ── Voting ────────────────────────────────────────────────────────────── */
 
   /** Ids with a vote in flight, so a card cannot be double-submitted. */
-  private readonly pending = signal<ReadonlySet<number>>(new Set());
+  protected readonly pending = signal<ReadonlySet<number>>(new Set<number>());
 
   protected readonly voteFailure = signal<string | null>(null);
 
@@ -177,5 +190,39 @@ export class RequestList {
     return `${action} "${item.title}". ${item.voteCount} ${
       item.voteCount === 1 ? 'vote' : 'votes'
     } so far.`;
+  }
+
+  /* ── Pinning ───────────────────────────────────────────────────────────── */
+
+  /**
+   * Not optimistic, unlike voting. Pinning moves a request between two
+   * collections, so guessing means rendering it in both or in neither until the
+   * server answers. The row is disabled while the call is in flight and both
+   * collections refetch together once it lands.
+   */
+  protected togglePin(item: FeedbackRequestListItem): void {
+    if (!item.canPin || this.isVoting(item.id)) {
+      return;
+    }
+
+    this.voteFailure.set(null);
+    this.setPending(item.id, true);
+
+    const call = item.isPinned ? this.api.unpin(item.id) : this.api.pin(item.id);
+
+    call.subscribe({
+      next: () => {
+        this.setPending(item.id, false);
+        // Pinning moves a row between the two collections, so both are refetched.
+        // Reloaded rather than version-stamped: the query schema rejects unknown
+        // parameters, and a cache-busting value in the URL would be one.
+        this.requests.reload();
+        this.pinned.reload();
+      },
+      error: (failure: unknown) => {
+        this.setPending(item.id, false);
+        this.voteFailure.set(toApiError(failure).message);
+      },
+    });
   }
 }

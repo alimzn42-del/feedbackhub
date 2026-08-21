@@ -5,12 +5,16 @@ import { API_BASE_URL } from '../../../core/api/api-base-url';
 import type {
   CreateFeedbackRequest,
   FeedbackRequestDetail,
-  Paginated,
   FeedbackRequestListItem,
+  Paginated,
+  PinnedResult,
   TaxonomyRef,
   VoteState,
   Wrapped,
 } from '../../../core/api/api.types';
+
+/** Pinning is a sub-resource of the request it applies to. */
+const pinUrl = (base: string, id: number) => base + '/' + id + '/pin';
 
 @Injectable({ providedIn: 'root' })
 export class RequestsApi {
@@ -18,6 +22,7 @@ export class RequestsApi {
   private readonly baseUrl = inject(API_BASE_URL);
 
   readonly requestsUrl = `${this.baseUrl}/requests`;
+  readonly pinnedUrl = `${this.baseUrl}/requests/pinned`;
   readonly categoriesUrl = `${this.baseUrl}/categories`;
 
   /**
@@ -53,5 +58,18 @@ export class RequestsApi {
 
   withdrawVote(requestId: number): Observable<Wrapped<VoteState>> {
     return this.http.delete<Wrapped<VoteState>>(`${this.requestsUrl}/${requestId}/vote`);
+  }
+
+  pin(requestId: number): Observable<Wrapped<FeedbackRequestListItem>> {
+    return this.http.put<Wrapped<FeedbackRequestListItem>>(
+      pinUrl(this.requestsUrl, requestId),
+      {},
+    );
+  }
+
+  unpin(requestId: number): Observable<Wrapped<FeedbackRequestListItem>> {
+    return this.http.delete<Wrapped<FeedbackRequestListItem>>(
+      pinUrl(this.requestsUrl, requestId),
+    );
   }
 }

@@ -16,6 +16,9 @@ function item(overrides: Partial<FeedbackRequestListItem> = {}): FeedbackRequest
     status: { id: 1, name: 'New', slug: 'new' },
     author: { id: 1, displayName: 'Robin Alvarez' },
     isPinned: false,
+    pinnedAt: null,
+    pinnedBy: null,
+    canPin: false,
     voteCount: 3,
     hasVoted: false,
     canVote: true,
@@ -68,6 +71,8 @@ describe('RequestList', () => {
   function render() {
     const fixture = TestBed.createComponent(RequestList);
     fixture.detectChanges();
+    // The pinned shelf is a second collection fetched alongside the list.
+    http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [], total: 0 });
     return fixture;
   }
 
@@ -176,6 +181,7 @@ describe('RequestList voting', () => {
   async function renderWith(first: FeedbackRequestListItem) {
     const fixture = TestBed.createComponent(RequestList);
     fixture.detectChanges();
+    http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [], total: 0 });
     http.expectOne((r) => r.url === '/api/requests').flush(page([first]));
     await fixture.whenStable();
     fixture.detectChanges();

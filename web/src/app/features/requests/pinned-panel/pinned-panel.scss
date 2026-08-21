@@ -1,0 +1,147 @@
+.pinned {
+  margin-bottom: var(--space-6);
+  padding: var(--space-4);
+  background: var(--accent-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.pinned__header {
+  margin-bottom: var(--space-3);
+}
+
+.pinned__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.pinned__icon {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.pinned__count {
+  padding: 0 var(--space-2);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  background: var(--surface-raised);
+  border-radius: var(--radius-pill);
+}
+
+.pinned__note {
+  margin-top: var(--space-1);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.pinned__list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* Expanded, the shelf scrolls rather than pushing the board off the screen.
+   The height is a viewport fraction so it never dominates a short window. */
+.pinned__list--scroll {
+  max-height: min(60vh, 26rem);
+  overflow-y: auto;
+  padding-right: var(--space-2);
+  overscroll-behavior: contain;
+}
+
+.pinned__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.pinned__main {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.pinned__title {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.pinned__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.pinned__byline {
+  margin-top: var(--space-2);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.pinned__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pinned__unpin {
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pinned__unpin:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-subtle);
+}
+
+.pinned__unpin:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pinned__toggle {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pinned__toggle:hover {
+  background: var(--surface-raised);
+}
+
+.pinned__overflow {
+  margin-top: var(--space-3);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
