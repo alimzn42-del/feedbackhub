@@ -16,7 +16,9 @@
       @for (request of visible(); track request.id) {
         <li class="pinned__item">
           <div class="pinned__main">
-            <h3 class="pinned__title">{{ request.title }}</h3>
+            <h3 class="pinned__title">
+              <a [routerLink]="['/requests', request.id]">{{ request.title }}</a>
+            </h3>
 
             <p class="pinned__meta">
               <span class="chip chip--category">{{ request.category.name }}</span>
@@ -53,6 +55,11 @@
           </div>
 
           <div class="pinned__actions">
+            <a class="pinned__comments" [routerLink]="['/requests', request.id]">
+              {{ request.commentCount }}
+              {{ request.commentCount === 1 ? 'comment' : 'comments' }}
+            </a>
+
             <button
               type="button"
               class="vote"

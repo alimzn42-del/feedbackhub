@@ -1,5 +1,6 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import type { FeedbackRequestListItem } from '../../../core/api/api.types';
 
 /** How many are visible before the panel is expanded. */
@@ -18,7 +19,7 @@ const COLLAPSED_COUNT = 3;
  */
 @Component({
   selector: 'app-pinned-panel',
-  imports: [DatePipe],
+  imports: [DatePipe, RouterLink],
   templateUrl: './pinned-panel.html',
   styleUrl: './pinned-panel.scss',
 })

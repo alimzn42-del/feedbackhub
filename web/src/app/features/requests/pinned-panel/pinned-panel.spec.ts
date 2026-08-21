@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { provideRouter } from '@angular/router';
 import { PinnedPanel } from './pinned-panel';
 import type { FeedbackRequestListItem } from '../../../core/api/api.types';
 
@@ -41,6 +42,14 @@ const toggle = (fixture: { nativeElement: HTMLElement }) =>
   fixture.nativeElement.querySelector('.pinned__toggle') as HTMLButtonElement | null;
 
 describe('PinnedPanel', () => {
+  // The panel links to each request, so RouterLink needs an ActivatedRoute.
+  // Configured for every test, not only the ones that go through render().
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideRouter([{ path: '**', children: [] }])],
+    });
+  });
+
   afterEach(() => TestBed.resetTestingModule());
 
   it('renders nothing at all when nothing is pinned', () => {
@@ -92,6 +101,28 @@ describe('PinnedPanel', () => {
     expect(fixture.nativeElement.querySelector('.pinned__list--scroll')).not.toBeNull();
   });
 
+  it('links every pinned request to its own page', () => {
+    // The shelf had no links at all, so a pinned request could not be opened,
+    // read in full, or commented on — the board cards linked, this did not.
+    const fixture = render([pinnedItem(7)]);
+
+    const links = [...fixture.nativeElement.querySelectorAll('a')].map((a: Element) =>
+      a.getAttribute('href'),
+    );
+
+    expect(links).toContain('/requests/7');
+    expect(fixture.nativeElement.querySelector('.pinned__title a')).not.toBeNull();
+  });
+
+  it('offers a way through to the discussion, like the board cards do', () => {
+    const fixture = render([pinnedItem(7, { commentCount: 3 })]);
+
+    const comments = fixture.nativeElement.querySelector('.pinned__comments');
+
+    expect(comments?.textContent?.replace(/\s+/g, ' ').trim()).toBe('3 comments');
+    expect(comments?.getAttribute('href')).toBe('/requests/7');
+  });
+
   it('names the author and the admin who pinned it, as separate facts', () => {
     const fixture = render([pinnedItem(1)]);
 
@@ -134,6 +165,9 @@ describe('PinnedPanel', () => {
     const asUser = render([pinnedItem(1, { canPin: false })]);
     expect(asUser.nativeElement.querySelector('.pinned__unpin')).toBeNull();
     TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [provideRouter([{ path: '**', children: [] }])],
+    });
 
     const asAdmin = render([pinnedItem(1, { canPin: true })]);
     expect(asAdmin.nativeElement.querySelector('.pinned__unpin')).not.toBeNull();
