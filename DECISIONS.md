@@ -14,9 +14,6 @@ to denormalise. `utf8mb4` / `utf8mb4_0900_ai_ci` throughout.
 conversion on read. The container runs at `+00:00`, the driver reads at `Z`, and
 the API emits ISO-8601 UTC. There is one representation of an instant.
 
-**Vote and comment counts are derived, never stored.** No counter columns exist
-to drift out of sync. When voting lands, the count comes from a join.
-
 **`name` and `slug` on every taxonomy row.** `name` is the display label and
 admins may rename it freely. `slug` is the stable handle that goes in URLs, so a
 shared filter link survives a rename.
@@ -82,6 +79,20 @@ UNIQUE key, so the constraint is correct from day one.
 do not contain rules. No permission library and no dynamic RBAC engine — two
 roles and roughly fifteen rules do not pay for one.
 
+Unit tests over the policy prove the rules are written correctly. They cannot
+prove a handler asks — an endpoint that forgets to check keeps every one of them
+green. So authorization is also tested through the real Express app, asserting
+that each route consults the policy with the acting user and that a denial
+becomes a 403 in the standard envelope. See `api/src/app.authorization.test.ts`,
+which also records what slice 1 cannot yet cover.
+
+**Permission is checked before the body is validated.** A caller who may not
+perform an action should not learn the payload schema from a 422 enumerating
+every field and its constraints. The controller asks the policy first; the
+service asks again, because the service rather than the controller is the
+boundary any future caller crosses. The duplication is deliberate and costs a
+comparison.
+
 **Unauthorized actions return `403`, never a disguised `404`.** The board is
 internal and every request on it is visible to everyone, so pretending a
 resource does not exist conceals nothing and only makes the client's job harder.
@@ -89,15 +100,6 @@ resource does not exist conceals nothing and only makes the client's job harder.
 **An admin does not edit another person's text.** Moderation is deletion or a
 status change. `requestPolicy.editContent` refuses admins deliberately, and the
 test says so, because it is the rule most likely to be "fixed" by mistake later.
-
-**Role changes: reversed.** The original decision was that an admin may only
-demote *themselves*. That was overturned during design review: a departed or
-mistaken admin would have been unremovable through the application, leaving a
-manual database edit — exactly what the audit trail exists to prevent. The rule
-is now that **any admin may promote or demote any user, the operation is refused
-when it would leave zero admins, and every change is recorded with actor,
-target, direction and timestamp.** Demotion in a dispute is reversible, recorded
-and bounded, which is a smaller exposure than the dead end was.
 
 ## HTTP
 
@@ -172,8 +174,9 @@ browser would mean sending it anyway. The excerpt is cut in SQL.
 **Node is pinned in the repository.** Angular 22 requires Node 24.15.0 or newer
 and the development machine had 24.12.0. Rather than deviating from "latest
 stable Angular" or changing the machine's Node globally, `.node-version` pins
-24.19.0 for this repository — which is the right shape for a containerised app
-anyway.
+24.19.0 for this repository. `engines.node` in the root package.json names the
+same exact version, and docker-compose pins `mysql:8.4.6` rather than a floating
+`8.4` tag, so nothing in the repository resolves a version at build time.
 
 **The API base URL is relative (`/api`), not an environment file.** The CLI
 proxy forwards it in development and a reverse proxy serves it in a deployment,

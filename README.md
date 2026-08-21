@@ -45,7 +45,7 @@ the browser talks to both same-origin.
 
 ```bash
 npm test                 # API and web
-npm test --workspace api # API only  (policy rules, configuration guards)
+npm test --workspace api # API only  (route-level authorization, policy rules, config guards)
 npm test --workspace web # web only  (component states, form validation)
 ```
 
