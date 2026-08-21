@@ -37,6 +37,7 @@ npm run db:up            # start MySQL 8.4 (docker compose)
 npm run migrate          # create the schema
 npm run seed             # one admin, two users, categories and statuses
 
+npm run demo             # optional: a populated board to click around
 npm run dev:api          # http://localhost:3000
 npm run dev:web          # http://localhost:4200   (in a second terminal)
 ```
@@ -55,6 +56,7 @@ npm test --workspace web # web only  (component states, form validation)
 ### Other commands
 
 ```bash
+npm run demo             # a populated board: 14 requests, 7 people, votes, threads
 npm run migrate -- 2     # migrate to a specific schema version, either direction
 npm run migrate:down     # undo the most recent migration
 npm run db:reset         # destroy the database volume and start clean
@@ -76,6 +78,16 @@ controls. The seeded users are:
 | `admin@feedbackhub.local` | Robin Alvarez | admin |
 | `dana@feedbackhub.local` | Dana Okafor | user |
 | `sam@feedbackhub.local` | Sam Lindqvist | user |
+
+`npm run demo` adds four more, including a second admin, so the rules that
+depend on *who* you are can actually be exercised:
+
+| Email | Name | Role |
+|---|---|---|
+| `priya@feedbackhub.local` | Priya Raman | admin |
+| `marcus@feedbackhub.local` | Marcus Bell | user |
+| `lena@feedbackhub.local` | Lena Fischer | user |
+| `omar@feedbackhub.local` | Omar Haddad | user |
 
 This is a development backdoor and is treated as one: the API **refuses to
 start** if it is still compiled in when `NODE_ENV=production`. See

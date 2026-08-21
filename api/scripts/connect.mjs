@@ -38,6 +38,9 @@ export async function connectForScripts() {
   return mysql.createConnection({
     ...readDatabaseEnv(),
     multipleStatements: true,
+    // Matches the application pool, so a script can use :named parameters
+    // rather than counting question marks.
+    namedPlaceholders: true,
     timezone: 'Z',
   });
 }
