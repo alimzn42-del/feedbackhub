@@ -75,6 +75,20 @@ export interface FeedbackRequestListItem {
   status: TaxonomyRef;
   author: AuthorRef;
   isPinned: boolean;
+
+  /** Counted from the vote rows on every read. Never stored. */
+  voteCount: number;
+
+  /** Whether the caller has voted, so the control can render its state. */
+  hasVoted: boolean;
+
+  /**
+   * Whether the caller may vote on this one. Computed by the policy module per
+   * row, so the browser never has to know the rule — or the caller identity it
+   * would need to apply it.
+   */
+  canVote: boolean;
+
   createdAt: string;
   updatedAt: string;
 }

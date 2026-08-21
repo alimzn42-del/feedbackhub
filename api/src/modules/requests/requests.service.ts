@@ -3,15 +3,30 @@ import { MisconfigurationError, ValidationError } from '../../http/errors.js';
 import { toOffset, toPageMeta, type Paginated } from '../../http/pagination.js';
 import { authorize } from '../../policy/index.js';
 import { requestPolicy } from '../../policy/requests.policy.js';
-import * as requestsRepository from './requests.repository.js';
+import { votePolicy } from '../../policy/votes.policy.js';
 import * as categoriesRepository from '../categories/categories.repository.js';
 import * as statusesRepository from '../statuses/statuses.repository.js';
+import * as requestsRepository from './requests.repository.js';
 import type {
   CreateRequestBody,
   FeedbackRequestDetail,
   FeedbackRequestListItem,
   ListRequestsQuery,
 } from './requests.schema.js';
+
+/**
+ * Whether this viewer may vote on this row, answered by the policy module.
+ *
+ * The browser cannot work this out for itself: it is not told who it is, and
+ * even if it were, reimplementing the rule client-side would mean two copies of
+ * it that can disagree. The server decides and sends the answer.
+ */
+function withVotePermission<T extends { author: { id: number } }>(
+  actor: Actor,
+  row: T,
+): T & { canVote: boolean } {
+  return { ...row, canVote: votePolicy.cast(actor, { authorId: row.author.id }).allowed };
+}
 
 /**
  * Every entry point asks the policy module first and does nothing before it has
@@ -58,13 +73,13 @@ export async function create(
     authorId: actor.id,
   });
 
-  const created = await requestsRepository.findById(id);
+  const created = await requestsRepository.findById(id, actor.id);
 
   if (!created) {
     throw new MisconfigurationError('The request was created but could not be read back.');
   }
 
-  return created;
+  return withVotePermission(actor, created);
 }
 
 export async function list(
@@ -73,7 +88,14 @@ export async function list(
 ): Promise<Paginated<FeedbackRequestListItem>> {
   authorize(requestPolicy.list(actor));
 
-  const { items, total } = await requestsRepository.list(query.pageSize, toOffset(query));
+  const { items, total } = await requestsRepository.list({
+    limit: query.pageSize,
+    offset: toOffset(query),
+    viewerId: actor.id,
+  });
 
-  return { data: items, page: toPageMeta(query, total) };
+  return {
+    data: items.map((item) => withVotePermission(actor, item)),
+    page: toPageMeta(query, total),
+  };
 }
