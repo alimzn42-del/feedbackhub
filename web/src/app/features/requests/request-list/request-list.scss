@@ -197,70 +197,73 @@
 
 /* ── Voting ───────────────────────────────────────────────────────────── */
 
-.card {
-  /* The vote control sits beside the content rather than inside it, so the
-     count is scannable down the left edge of the board. */
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-4);
-  align-items: start;
+.card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
 }
 
+/* A quiet inline action, not a scoreboard: the card is the content and the
+   like sits under it, the way it does anywhere else you have used one. */
 .vote {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-  min-width: 3.25rem;
-  padding: var(--space-2);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-left: calc(var(--space-3) * -1);
   font: inherit;
-  line-height: 1.1;
+  font-size: 0.875rem;
+  font-weight: 600;
   color: var(--text-muted);
-  background: var(--surface-sunken);
-  border: 1px solid var(--border);
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
+    color 120ms ease,
+    background-color 120ms ease;
 }
 
 .vote:hover:not(:disabled) {
   color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-/* Voted state is carried by colour, weight AND the filled chevron, so it does
-   not depend on colour perception alone. */
-.vote--active {
-  color: var(--accent);
-  border-color: var(--accent);
   background: var(--accent-subtle);
 }
 
 .vote:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-.vote__chevron {
-  font-size: 0.7rem;
+.vote__icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  /* Outline until you have voted, solid once you have — so the state is
+     carried by shape as well as by colour. */
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  transition: transform 120ms ease;
 }
 
-.vote--active .vote__chevron {
+.vote--active {
+  color: var(--accent);
+}
+
+.vote--active .vote__icon {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.vote:hover:not(:disabled) .vote__icon {
   transform: translateY(-1px);
 }
 
 .vote__count {
-  font-size: 1.0625rem;
-  font-weight: 700;
   font-variant-numeric: tabular-nums;
-}
-
-.vote--active .vote__count {
-  color: var(--accent);
 }
 
 .vote-failure {
@@ -270,19 +273,4 @@
   background: var(--danger-subtle);
   border: 1px solid var(--danger-border);
   border-radius: var(--radius-sm);
-}
-
-@media (max-width: 30rem) {
-  .card {
-    /* Below this width the two columns squeeze the title badly; the control
-       moves above the content instead. */
-    grid-template-columns: 1fr;
-    gap: var(--space-3);
-  }
-
-  .vote {
-    flex-direction: row;
-    gap: var(--space-2);
-    align-self: start;
-  }
 }
