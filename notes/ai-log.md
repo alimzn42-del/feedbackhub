@@ -679,3 +679,77 @@ what each does to the rows rather than describing the difference. Soft won.
 Generating markdown containing backticks through `node -e "..."` inside bash
 corrupted the file again. Fourth occurrence in this project. Switched to writing
 files directly, which is what should have happened after the first.
+
+---
+
+## 2026-08-21 — Comments: API and screens
+
+Asked for "the front comment, only not the setting". Built the endpoints too:
+the previous round was schema only, so a comment UI would have had nothing to
+talk to.
+
+### Two things the request implied but did not say
+
+A comment thread needs somewhere to live, and the board only ever sends an
+excerpt — the full description of a request had nowhere to be read, and a
+discussion had no URL anybody could send a colleague. So the slice grew a
+detail page and a `GET /api/requests/:id` to feed it. That was raised as a
+question the round before and not answered; built to the recommendation rather
+than stalling on it, and flagged here.
+
+The board also gained a comment count. Derived, like the vote count, and
+counting only visible comments — a hidden comment stays in the table for the
+audit trail but is not something a reader can open.
+
+### The test that found a real gap
+
+Writing "refuses to send an empty comment" produced a passing assertion on the
+network — nothing was sent — and a failing one on the screen. `Validators.
+required` accepts a string of spaces. The server does not: Zod trims before
+checking length. So typing three spaces and pressing Comment did nothing at all
+and said nothing at all.
+
+Added a `notBlank` validator to all three composers. Worth recording because
+the bug is invisible from either side alone: the client thought the value was
+present, the server would have rejected it, and the user saw silence.
+
+### Deliberately not optimistic, and why that is not inconsistent
+
+Voting updates the count on click. Deleting a comment does not, and the
+difference is the number of possible outcomes. A vote changes an integer in
+place — one shape, trivially reversible. A delete can remove the row, replace
+it with a tombstone, or hide several replies alongside it, and which one
+depends on rules the browser does not hold. Guessing means rendering one of
+three and correcting it a moment later.
+
+### Where the shape came from
+
+The reply control is not rendered on a reply at all, rather than rendered and
+refused. The server sends `canReply: false` and the template has no branch that
+would draw it. Same for edit and delete: the browser is never told who it is,
+so it never decides — it is told, per row, what it may do.
+
+### Verified by exercising
+
+Ran the four deletion rules through the live API rather than trusting the unit
+tests: an admin deleting their own comment that has a reply produced
+
+    {"kind":"soft","repliesHidden":1}
+
+    root  9 | deleted true | reason author      | body null
+    reply 10 | deleted true | reason with-parent | body null
+
+which is the case that motivated the `hidden_with_parent` column two rounds
+ago — the reply is hidden, and it says so honestly rather than claiming a
+moderator did it.
+
+Also confirmed a reply to a reply is a 422 naming `parentId`, and that
+`/requests/4` serves.
+
+### A commit that did not happen
+
+The service tests were meant to be their own commit. `git add
+api/src/modules/comments` had already taken them in with the API, so the second
+commit was empty. Left as it landed rather than rewritten — the history is
+slightly less granular than intended and entirely accurate, which is the better
+of the two.

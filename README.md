@@ -5,10 +5,12 @@ feedback, everyone browses and upvotes, and admins triage. The point is to stop
 the same suggestion arriving five times by email, and to make visible what is
 actually being worked on.
 
-**Status: slice 3.** A feedback request can be created, listed, voted on and
-pinned by an admin. The board is ordered by vote count, with pinned requests on
-their own shelf above it. Comments, search, filters, status changes and
-authentication are not built yet — see [Scope](#what-is-and-is-not-built) below.
+**Status: slice 4.** A feedback request can be created, listed, voted on,
+pinned by an admin, and discussed. The board is ordered by vote count with
+pinned requests on their own shelf; each request has a page carrying its full
+text and a comment thread one reply deep. Search, filters, status changes,
+comment moderation and authentication are not built yet — see
+[Scope](#what-is-and-is-not-built) below.
 
 ## Requirements
 
@@ -114,17 +116,37 @@ a single envelope; see [DECISIONS.md](DECISIONS.md#error-shape).
 | `DELETE /api/requests/:id/vote` | withdraw your vote; safe to repeat |
 | `PUT /api/requests/:id/pin` | **admin only**; records who pinned it and when |
 | `DELETE /api/requests/:id/pin` | **admin only** |
+| `GET /api/requests/:id` | one request in full, including its description |
+| `GET /api/requests/:id/comments` | the thread, two levels, not paginated |
+| `POST /api/requests/:id/comments` | `{ body, parentId? }` — a reply cannot be replied to |
+| `PATCH /api/comments/:id` | **author only**; an admin cannot reword somebody |
+| `DELETE /api/comments/:id` | author or admin; removes or hides, see below |
 | `GET /api/categories` | the active categories, for the create form |
 
 ## What is and is not built
 
-**Built:** the five tables and their seed data; request creation and listing
-with server-side pagination; voting, with the board ordered by vote count and
-counts derived rather than stored; admin pinning, recorded with actor and time,
-shown on a shelf above the board and excluded from the list; the identity seam;
-the policy module; one error shape with one middleware producing it; and two
-screens with real loading, empty and error states.
+**Built:** six tables and their seed data; request creation and listing with
+server-side pagination; voting, with the board ordered by vote count and counts
+derived rather than stored; admin pinning, recorded with actor and time, shown
+on a shelf above the board and excluded from the list; comment threads one reply
+deep; the identity seam; the policy module; one error shape with one middleware
+producing it; and three screens with real loading, empty and error states.
 
-**Not built, by design:** comments, search, filters, sort switching, status
-changes, admin screens, settings, Keycloak, and deployment beyond the database
-container. Sorting by newest arrives with the filters slice.
+**Deleting a comment** does one of two things, and which one is a judgement the
+server makes rather than the browser:
+
+| Actor | Has replies | The comment | Its replies |
+|---|---|---|---|
+| Author | no | removed outright | — |
+| Author | yes | hidden, tombstoned | hidden with it |
+| Admin | no | hidden, "an admin removed this" | — |
+| Admin | yes | hidden | hidden with it |
+
+Hard deleting a comment with replies would cascade and destroy words written by
+other people, so it does not happen. A reply can never have replies, so an
+author removing their own reply is always the first row.
+
+**Not built, by design:** search, filters, sort switching, status changes,
+comment moderation before publication, admin screens, settings, Keycloak, and
+deployment beyond the database container. Sorting by newest arrives with the
+filters slice.

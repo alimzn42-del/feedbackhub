@@ -56,6 +56,11 @@ list — put them at the top of page 1 only and shifted everything else along,
 which made the pagination subtly wrong. Splitting removes the interleaving and
 both queries get simpler.
 
+**Comment counts are derived, never stored,** and count only what a reader can
+open. A hidden comment stays in the table for the audit trail but is not part of
+the number — which is exactly the sort of condition a stored counter gets wrong
+the first time somebody moderates something.
+
 **Vote counts are derived, never stored.** There is no counter column anywhere
 in this schema. The total is produced by counting the vote rows when the board
 is read, so nothing can claim a number the rows disagree with. A counter would
@@ -182,6 +187,47 @@ violated, which beats a rule that has to be remembered.
 and never reimplements the rule, so there is no second copy of it to disagree
 with the first.
 
+**Deleting a comment removes it or hides it, and which one is a judgement.**
+
+| Actor | Has replies | The comment | Its replies |
+|---|---|---|---|
+| Author | no | removed outright | — |
+| Author | yes | hidden, tombstoned | hidden with it |
+| Admin | no | hidden | — |
+| Admin | yes | hidden | hidden with it |
+
+Hard deleting a comment that has replies would cascade and destroy words written
+by other people because the person above them changed their mind, so it does not
+happen. An admin deleting their *own* comment counts as the author rather than a
+moderator. A reply can never have replies, so an author removing their own reply
+is always the first row — the depth limit collapses the matrix instead of
+needing a second one.
+
+"Has replies" counts every reply row, including already-hidden ones: hard
+deleting a comment whose replies were previously moderated would cascade those
+rows away and take the record of that moderation with them.
+
+**A removed comment's words do not leave the server.** The row is kept for the
+trail, not for the reader, so `body` and `author` come back null rather than
+being hidden by the browser.
+
+**Three explanations for a hidden comment; two of them derived.** Author-removed
+and admin-removed are told apart by `deleted_by = author_id`, which is a fact
+about the data. Hidden-with-parent is not derivable — a reply hidden alongside
+its parent carries the parent-remover's id, which does not match its own
+author's — so it is recorded in `hidden_with_parent` and nothing else is.
+
+**An admin cannot edit somebody else's comment,** for the same reason they
+cannot edit somebody else's request. Moderation is removal, not authorship.
+
+**Thread depth is enforced in the service, not the schema.** The constraint
+exists in MySQL and was built and tested — a generated column marking roots, a
+unique key on `(id, is_root)`, a composite foreign key into it — and it cannot
+coexist with `ON DELETE CASCADE`, which MySQL refuses on generated-column
+foreign keys. Losing the cascade would let comments outlive their request
+whenever code forgot, so the cascade stayed and the depth rule moved up a layer.
+See `007.do.comments.sql`.
+
 **Unauthorized actions return `403`, never a disguised `404`.** The board is
 internal and every request on it is visible to everyone, so pretending a
 resource does not exist conceals nothing and only makes the client's job harder.
@@ -307,6 +353,11 @@ truncating.
 are the same operations the list performs, so they live in one place there.
 Two copies of an optimistic update are two chances for them to disagree.
 
+**Deleting a comment is deliberately NOT optimistic, unlike voting.** A vote
+changes a number in place. A delete can remove a row, replace it with a
+tombstone, or hide several replies with it — three shapes, decided by rules the
+browser does not hold. It waits, then reloads the thread.
+
 **Voting is optimistic, and the board does not re-sort under the pointer.**
 The count moves on click and rolls back if the server refuses. The response is
 then applied verbatim rather than assumed to match the guess, so a vote cast in
@@ -321,6 +372,10 @@ a row a game of chase. The new order arrives on the next load.
 cannot check — "that category no longer exists" — lands next to the input. Only
 failures that name no field, or name a field the form does not have, fall back
 to the banner.
+
+**Comments are plain text and are rendered as such.** `white-space: pre-wrap`
+keeps the line breaks somebody typed; nothing they typed is interpreted. There
+is no markdown, and therefore no HTML to sanitise.
 
 ## Scope
 
