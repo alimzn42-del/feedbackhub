@@ -13,19 +13,19 @@ import type { Actor } from './auth/actor.js';
  * These tests travel through the real Express app — the real middleware chain,
  * the real error handler, the real status codes.
  *
- * WHAT SLICE 1 CANNOT COVER YET
- * -----------------------------
- * No endpoint in this slice can return 403. Every rule a route reaches — create
- * a request, list requests, list categories — allows any authenticated user.
- * Edit, delete, change-status and pin have policy rules but no routes yet, so
- * "a non-owner is refused" and "a regular user is refused an admin action"
- * have nothing to travel through.
+ * SELF-VOTING IS THE FIRST REAL REFUSAL
+ * -------------------------------------
+ * Until slice 2 no endpoint could return 403 at all: every rule a route
+ * reached allowed any authenticated user, so these tests could only prove the
+ * mechanism by making the policy deny artificially.
  *
- * So these tests prove the mechanism instead: the handler consults the policy,
- * and a denial from that policy becomes a 403 in the correct envelope rather
- * than a 404, a 500 or a silent success. When the first denying endpoint lands,
- * asserting the real cases is a few lines using the same harness — and doing it
- * is part of that slice's definition of done, not optional.
+ * "You cannot vote on your own request" changed that. It is refused end to end
+ * below, with nothing stubbed to make it happen, and the write is asserted not
+ * to have occurred.
+ *
+ * Still not reachable: a regular user refused an ADMIN-only action. Change
+ * status and pin have policy rules but no routes yet. Those tests belong to
+ * the slice that adds them.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /* Every repository is replaced. These tests are about the authorization path,
@@ -34,8 +34,14 @@ const usersRepository = vi.hoisted(() => ({ findByEmail: vi.fn() }));
 const requestsRepository = vi.hoisted(() => ({
   insert: vi.fn(),
   findById: vi.fn(),
+  findAuthorId: vi.fn(),
   list: vi.fn(),
   count: vi.fn(),
+}));
+const votesRepository = vi.hoisted(() => ({
+  cast: vi.fn(),
+  withdraw: vi.fn(),
+  readState: vi.fn(),
 }));
 const categoriesRepository = vi.hoisted(() => ({
   listActive: vi.fn(),
@@ -47,6 +53,7 @@ vi.mock('./modules/users/users.repository.js', () => usersRepository);
 vi.mock('./modules/requests/requests.repository.js', () => requestsRepository);
 vi.mock('./modules/categories/categories.repository.js', () => categoriesRepository);
 vi.mock('./modules/statuses/statuses.repository.js', () => statusesRepository);
+vi.mock('./modules/votes/votes.repository.js', () => votesRepository);
 
 const { createApp } = await import('./app.js');
 const { requestPolicy } = await import('./policy/requests.policy.js');
@@ -74,6 +81,10 @@ beforeEach(() => {
   categoriesRepository.findActiveId.mockResolvedValue(2);
   categoriesRepository.listActive.mockResolvedValue([{ id: 2, name: 'Feature', slug: 'feature' }]);
   statusesRepository.findDefaultId.mockResolvedValue(1);
+  requestsRepository.findAuthorId.mockResolvedValue(99);
+  votesRepository.cast.mockResolvedValue(true);
+  votesRepository.withdraw.mockResolvedValue(true);
+  votesRepository.readState.mockResolvedValue({ requestId: 7, voteCount: 1, hasVoted: true });
   requestsRepository.insert.mockResolvedValue(11);
   requestsRepository.list.mockResolvedValue({ items: [], total: 0 });
   requestsRepository.findById.mockResolvedValue({
@@ -232,5 +243,90 @@ describe('every /api route establishes an identity first', () => {
     usersRepository.findByEmail.mockResolvedValue(null);
 
     await request(app).get('/health').expect(200);
+  });
+});
+
+describe('POST /api/requests/:id/vote', () => {
+  it('refuses the author voting on their own request, end to end', async () => {
+    // The first genuine 403 in this codebase. Nothing is stubbed to produce it:
+    // the request really is authored by the caller, and the real policy refuses.
+    requestsRepository.findAuthorId.mockResolvedValue(REGULAR_USER.id);
+
+    const response = await request(app).post('/api/requests/7/vote');
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('FORBIDDEN');
+    expect(response.body.error.message).toBe('You cannot vote on your own request.');
+    // Refused, and nothing was written.
+    expect(votesRepository.cast).not.toHaveBeenCalled();
+  });
+
+  it('allows voting on a request filed by someone else', async () => {
+    requestsRepository.findAuthorId.mockResolvedValue(99);
+
+    const response = await request(app).post('/api/requests/7/vote').expect(201);
+
+    expect(response.body.data).toEqual({ requestId: 7, voteCount: 1, hasVoted: true });
+    expect(votesRepository.cast).toHaveBeenCalledWith(7, REGULAR_USER.id);
+  });
+
+  it('takes the voter from the identity seam, never from the request', async () => {
+    await request(app).post('/api/requests/7/vote').send({ userId: 999 }).expect(201);
+
+    // There is nowhere in the URL or the payload to name a different voter, so
+    // "vote for yourself only" cannot be violated rather than merely being
+    // checked. The id passed to the repository is the acting user's, always.
+    expect(votesRepository.cast).toHaveBeenCalledWith(7, REGULAR_USER.id);
+  });
+
+  it('reports a second vote as a conflict rather than a silent success', async () => {
+    votesRepository.cast.mockResolvedValue(false);
+
+    const response = await request(app).post('/api/requests/7/vote');
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('CONFLICT');
+  });
+
+  it('404s for a request that does not exist, before deciding anything', async () => {
+    requestsRepository.findAuthorId.mockResolvedValue(null);
+
+    const response = await request(app).post('/api/requests/7/vote');
+
+    expect(response.status).toBe(404);
+    expect(votesRepository.cast).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-numeric request id', async () => {
+    const response = await request(app).post('/api/requests/abc/vote');
+
+    expect(response.status).toBe(422);
+    expect(response.body.error.details[0].field).toBe('id');
+  });
+});
+
+describe('DELETE /api/requests/:id/vote', () => {
+  it('withdraws the vote belonging to the caller, returning the new state', async () => {
+    votesRepository.readState.mockResolvedValue({ requestId: 7, voteCount: 0, hasVoted: false });
+
+    const response = await request(app).delete('/api/requests/7/vote').expect(200);
+
+    expect(response.body.data).toEqual({ requestId: 7, voteCount: 0, hasVoted: false });
+    expect(votesRepository.withdraw).toHaveBeenCalledWith(7, REGULAR_USER.id);
+  });
+
+  it('is idempotent when there was no vote to withdraw', async () => {
+    // Unlike casting, repeating this changes nothing, so there is no
+    // conflicting state to report.
+    votesRepository.withdraw.mockResolvedValue(false);
+    votesRepository.readState.mockResolvedValue({ requestId: 7, voteCount: 0, hasVoted: false });
+
+    await request(app).delete('/api/requests/7/vote').expect(200);
+  });
+
+  it('404s for a request that does not exist', async () => {
+    requestsRepository.findAuthorId.mockResolvedValue(null);
+
+    await request(app).delete('/api/requests/7/vote').expect(404);
   });
 });
