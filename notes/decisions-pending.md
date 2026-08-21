@@ -11,16 +11,73 @@ argued out, parked until they are true.
 
 ---
 
+## Comment deletion: four rules, one table
+
+The `comments` table exists. Nothing reads or writes it yet, so the rules that
+govern it are parked here rather than in `DECISIONS.md`.
+
+| Actor | Has replies | The comment | Its replies |
+|---|---|---|---|
+| Author | no | **hard delete** — the row goes | — |
+| Author | yes | **soft** — tombstone | **soft**, hidden with it |
+| Admin | no | **soft** — "an admin removed this" | — |
+| Admin | yes | **soft** | **soft**, hidden with it |
+
+A reply can never have replies, so the second row never applies to one: an
+author deleting their own reply is always a hard delete, and an admin deleting
+a reply is always soft. The rules are the same for both; the depth limit
+collapses the table for replies rather than needing a separate set.
+
+The author-with-replies cell was contested — one reading of the requirement had
+it hard deleting. The `parent_id` cascade would have turned that into the
+permanent destruction of every reply underneath: other people's words removed
+because the person above them changed their mind. Soft won.
+
+**"Has replies" means any reply rows exist, including already-hidden ones.**
+Hard-deleting a comment whose replies were previously hidden would cascade those
+rows away and take an admin's moderation record with them.
+
+**Three explanations for a hidden comment; two of them derivable.**
+Author-removed and admin-removed are told apart by `deleted_by = author_id`.
+Hidden-with-parent is not derivable: when an author removes their own comment
+the replies are stamped with that author's id, which does not match the reply
+author's, so a naive check accuses an ordinary user of moderating somebody and
+tells the reply author an admin removed their words when nobody did. The
+`hidden_with_parent` column records that case; the other two stay derived,
+because `deleted_by = author_id` is a fact about the data rather than a second
+copy of one.
+
+*Moves to `DECISIONS.md` with the comments slice.*
+
 ## Comment counts are derived, never stored
 
 The vote half of this shipped in slice 2 and has moved to `DECISIONS.md`. The
-comment half stays here: there is no comments table yet.
+comment half stays here: the table exists but nothing counts it yet.
 
 No counter column, so nothing can drift out of sync with the rows it counts.
-When comments land the count comes from a join, not from an integer somebody
-remembered to increment.
+When the comment endpoints land the count comes from a join, not from an integer
+somebody remembered to increment — and it will have to exclude hidden rows,
+which is exactly the sort of condition a stored counter gets wrong.
 
 *Moves to `DECISIONS.md` with the comments slice.*
+
+## Comment moderation before publication
+
+An admin setting, not yet designed and deliberately not yet in the schema: when
+enabled, a new comment is visible to its author but not to anybody else until an
+admin approves it.
+
+No column was added for this. It follows the ruling made when `preferences` was
+deferred in slice 1 — a column nothing reads or writes is dead weight, and
+having migrations is precisely what lets it arrive when it is needed. The shape
+it will take is a nullable `approved_at` on `comments` plus a settings table for
+the toggle itself, which is one small migration.
+
+Worth noting now because it changes a query that does not exist yet: every
+listing and every count will need "visible to me" rather than "not deleted", and
+that condition is easier to write once than to retrofit into three places.
+
+*Moves to `DECISIONS.md` with the moderation slice.*
 
 ## Role changes
 

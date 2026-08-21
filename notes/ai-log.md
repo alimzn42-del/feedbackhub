@@ -587,3 +587,95 @@ backticks or apostrophes through `node -e "..."` inside bash corrupts silently.
 This round it produced a duplicated import that only surfaced at compile time.
 Also lost two minutes to `python - <<'PY'`, which hangs waiting on stdin — the
 same mistake made earlier in the project.
+
+---
+
+## 2026-08-21 — Comments: schema only
+
+Asked for the database and the migration, explicitly not the feature.
+
+### Tried to put the depth rule in the database, and could not
+
+"A reply cannot be replied to" is the kind of invariant this project has twice
+put in the schema rather than in code — the votes primary key, and vote-for-
+yourself-only being unexpressible rather than merely checked. So the first
+attempt was structural: a stored generated column marking root rows, a unique
+key on (id, is_root), and a composite foreign key from (parent_id, 1) into it.
+
+It works. In a scratch database, a reply to a reply fails with error 1452,
+enforced by InnoDB with no application code involved.
+
+It cannot ship. MySQL refuses ON DELETE CASCADE on a foreign key involving
+generated columns (error 1215), and without that cascade the self-reference
+blocks its own parent's deletion — deleting a request fails with error 1451
+while replies still point at their root. Verified both directions in a probe
+database rather than reasoned about.
+
+So the choice was: the database guarantees the depth limit, or the database
+guarantees that deleting a request removes its comments. Only one was on offer.
+Kept the cascade, because comments outliving their request whenever code forgets
+is the worse failure, and wrote the finding into the migration so the next
+reader does not have to rediscover it.
+
+What survived from the attempt: the composite foreign key idea, repurposed. The
+parent reference is (parent_id, request_id) into (id, request_id), which makes
+it impossible for a reply on one request to answer a comment on another. That
+was not in the requirement and is a real bug prevented for free.
+
+### The probe that was not close enough to the real thing
+
+The CHECK constraint tying deleted_at to deleted_by was tested in isolation and
+accepted. It then failed on the real table:
+
+    Column 'deleted_by' cannot be used in a check constraint
+    'chk_comments_deletion': needed in a foreign key constraint
+    'fk_comments_deleted_by' referential action.
+
+The probe had the CHECK but no foreign key on that column. MySQL refuses a CHECK
+on a column carrying a referential action, so the two only conflict when both
+are present — exactly the combination the probe left out. Fixed by dropping
+ON UPDATE CASCADE from that one foreign key, which bought nothing anyway since
+user ids never change.
+
+The lesson is narrow and worth keeping: a probe that omits part of the final
+shape tests a different thing than the one being shipped.
+
+### A test that produced the right rows and the wrong meaning
+
+After the table was applied, the four deletion rules were exercised against real
+rows. The output looked correct — until the tombstone column:
+
+    id  author_id  deleted_by  tombstone
+    2   2          2           author removed this
+    3   3          2           an admin removed this      <- wrong
+
+Row 3 is Sam's reply, hidden because Dana removed the comment it answered. Dana
+is not an admin and moderated nobody. The naive rule "deleted_by <> author_id
+means moderation" is wrong for every reply hidden alongside its parent, and the
+screen would have told Sam an admin removed his words.
+
+Three explanations, only two derivable. Added `hidden_with_parent` in its own
+migration and left author-versus-admin derived from deleted_by, which genuinely
+is a fact about the data rather than a second copy of one.
+
+Migration 007 was already committed and pushed when this surfaced. It was not
+edited: postgrator checksums applied migrations, and rewriting one that another
+checkout may already have run turns a pull into a failure. 008 adds the column.
+Slightly noisier history, no chance of a broken checkout.
+
+### The requirement contradicted itself, and it mattered
+
+Four deletion rules were given. Two of them covered the same case and disagreed:
+a user deleting their own comment that has replies was hard-deleted by one rule
+and soft-deleted by another.
+
+Not a wording quibble. The parent_id cascade means hard delete physically
+removes every reply underneath — other people's words destroyed because the
+person above them changed their mind. Put back as a two-option question showing
+what each does to the rows rather than describing the difference. Soft won.
+
+### Shell friction, fourth time
+
+Generating markdown containing backticks through `node -e "..."` inside bash
+corrupted the file again. Fourth occurrence in this project. Switched to writing
+files directly, which is what should have happened after the first.
