@@ -1,0 +1,196 @@
+.list-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.list-header h1 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.list-header__subtitle {
+  margin-top: var(--space-2);
+  max-width: 44ch;
+  color: var(--text-muted);
+}
+
+.cards {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.card {
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.card__title {
+  font-size: 1.0625rem;
+  line-height: 1.35;
+}
+
+.card__excerpt {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+}
+
+.card__byline {
+  margin-top: var(--space-3);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.chip {
+  display: inline-block;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.chip--category {
+  background: var(--accent-subtle);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.chip--status[data-status='done'] {
+  color: #1f7a3d;
+  background: #e7f5eb;
+  border-color: transparent;
+}
+
+.chip--status[data-status='declined'] {
+  color: var(--danger);
+  background: var(--danger-subtle);
+  border-color: transparent;
+}
+
+.chip--pinned {
+  border-style: dashed;
+}
+
+/* ── States ───────────────────────────────────────────────────────────── */
+
+.state {
+  padding: var(--space-6);
+  text-align: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.state--error {
+  border-color: var(--danger-border);
+  background: var(--danger-subtle);
+}
+
+.state__title {
+  font-size: 1.125rem;
+}
+
+.state__body {
+  margin: var(--space-2) auto var(--space-4);
+  max-width: 46ch;
+  color: var(--text-muted);
+}
+
+.state--error .state__body {
+  color: var(--text);
+}
+
+.state__meta {
+  margin-bottom: var(--space-4);
+  font-size: 0.8125rem;
+  font-family: ui-monospace, monospace;
+  color: var(--text-muted);
+}
+
+/* Skeletons mirror the real card's geometry so the layout does not jump when
+   the data lands. */
+.card--skeleton {
+  pointer-events: none;
+}
+
+.skeleton {
+  height: 0.85rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--border) 25%, var(--surface-sunken) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+.skeleton--title {
+  height: 1.15rem;
+  width: 55%;
+  margin-bottom: var(--space-3);
+}
+
+.skeleton--text {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+.skeleton--short {
+  width: 40%;
+  margin-bottom: 0;
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ── Pagination ───────────────────────────────────────────────────────── */
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.pager__position {
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.pager__total {
+  display: block;
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 30rem) {
+  .pager {
+    flex-wrap: wrap;
+  }
+
+  .pager__position {
+    order: -1;
+    flex-basis: 100%;
+  }
+}

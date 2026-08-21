@@ -1,0 +1,127 @@
+.form-header {
+  margin-bottom: var(--space-6);
+}
+
+.form-header h1 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.form-header__subtitle {
+  margin-top: var(--space-2);
+  max-width: 46ch;
+  color: var(--text-muted);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 40rem;
+  padding: var(--space-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.field__label {
+  font-weight: 600;
+}
+
+.field__hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.field__input {
+  width: 100%;
+  padding: var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.field__input--multiline {
+  resize: vertical;
+  min-height: 8rem;
+}
+
+.field__input--select {
+  /* A select is the right control for four curated options: it is native,
+     keyboard accessible for free, and scales to a longer taxonomy. */
+  appearance: auto;
+}
+
+.field__input:disabled {
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.field__input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.field__error {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.banner {
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--danger-border);
+  background: var(--danger-subtle);
+}
+
+.banner__title {
+  font-size: 1rem;
+  margin-bottom: var(--space-2);
+}
+
+.banner__list {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  list-style: disc;
+}
+
+.banner__meta {
+  margin-top: var(--space-3);
+  font-size: 0.8125rem;
+  font-family: ui-monospace, monospace;
+  color: var(--text-muted);
+}
+
+.spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

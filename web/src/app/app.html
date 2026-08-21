@@ -1,0 +1,24 @@
+<a class="skip-link" href="#main">Skip to main content</a>
+
+<header class="masthead">
+  <div class="masthead__inner">
+    <a class="masthead__brand" routerLink="/requests">
+      FeedbackHub
+      <span class="masthead__tagline">Internal product feedback</span>
+    </a>
+
+    <nav class="masthead__nav" aria-label="Primary">
+      <a
+        routerLink="/requests"
+        routerLinkActive="is-active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        >Board</a
+      >
+      <a routerLink="/requests/new" routerLinkActive="is-active">New request</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="page" tabindex="-1">
+  <router-outlet />
+</main>

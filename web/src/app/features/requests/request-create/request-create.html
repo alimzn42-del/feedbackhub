@@ -1,0 +1,119 @@
+<div class="form-header">
+  <h1>New request</h1>
+  <p class="form-header__subtitle">
+    Check the board first — if someone has already asked for this, vote on theirs instead.
+  </p>
+</div>
+
+@if (submitFailure(); as failure) {
+  @if (failure.status !== 422 || unattachedIssues().length > 0) {
+    <div class="banner banner--error" role="alert" tabindex="-1">
+      <h2 class="banner__title">The request was not saved</h2>
+      <p>{{ failure.message }}</p>
+
+      @if (unattachedIssues().length > 0) {
+        <ul class="banner__list">
+          @for (issue of unattachedIssues(); track issue.field + issue.code) {
+            <li>{{ issue.message }}</li>
+          }
+        </ul>
+      }
+
+      @if (failure.requestId) {
+        <p class="banner__meta">Reference: {{ failure.requestId }}</p>
+      }
+    </div>
+  }
+}
+
+<form class="form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  <div class="field">
+    <label class="field__label" for="title">Title</label>
+    <p class="field__hint" id="title-hint">
+      One sentence. What is the problem or the change you want?
+    </p>
+    <input
+      id="title"
+      type="text"
+      class="field__input"
+      formControlName="title"
+      [attr.aria-invalid]="errorFor('title') ? 'true' : null"
+      [attr.aria-describedby]="errorFor('title') ? 'title-hint title-error' : 'title-hint'"
+      [attr.maxlength]="limits.TITLE_MAX"
+      autocomplete="off"
+    />
+    @if (errorFor('title'); as message) {
+      <p class="field__error" id="title-error">{{ message }}</p>
+    }
+  </div>
+
+  <div class="field">
+    <label class="field__label" for="description">Description</label>
+    <p class="field__hint" id="description-hint">
+      What is happening now, what should happen instead, and who it affects.
+    </p>
+    <textarea
+      id="description"
+      class="field__input field__input--multiline"
+      formControlName="description"
+      rows="7"
+      [attr.aria-invalid]="errorFor('description') ? 'true' : null"
+      [attr.aria-describedby]="
+        errorFor('description') ? 'description-hint description-error' : 'description-hint'
+      "
+      [attr.maxlength]="limits.DESCRIPTION_MAX"
+    ></textarea>
+    @if (errorFor('description'); as message) {
+      <p class="field__error" id="description-error">{{ message }}</p>
+    }
+  </div>
+
+  <div class="field">
+    <label class="field__label" for="categoryId">Category</label>
+
+    @if (categories.isLoading()) {
+      <p class="field__hint" id="category-hint">Loading categories…</p>
+    } @else if (categoriesError(); as failure) {
+      <p class="field__error" id="category-error">
+        Categories could not be loaded: {{ failure.message }}
+      </p>
+    }
+
+    <select
+      id="categoryId"
+      class="field__input field__input--select"
+      formControlName="categoryId"
+      [attr.aria-invalid]="errorFor('categoryId') ? 'true' : null"
+      [attr.aria-describedby]="errorFor('categoryId') ? 'categoryId-error' : null"
+      [disabled]="!categories.hasValue()"
+    >
+      <option [ngValue]="null" disabled>Choose a category</option>
+      @for (category of categoryOptions(); track category.id) {
+        <option [ngValue]="category.id">{{ category.name }}</option>
+      }
+    </select>
+
+    @if (errorFor('categoryId'); as message) {
+      <p class="field__error" id="categoryId-error">{{ message }}</p>
+    }
+  </div>
+
+  <div class="form__actions">
+    <button type="submit" class="button" [disabled]="!canSubmit()">
+      @if (submitting()) {
+        <span class="spinner" aria-hidden="true"></span>
+        Submitting…
+      } @else {
+        Submit request
+      }
+    </button>
+
+    <a class="button button--secondary" routerLink="/requests">Cancel</a>
+  </div>
+
+  <p class="visually-hidden" role="status" aria-live="polite">
+    @if (submitting()) {
+      Submitting the request.
+    }
+  </p>
+</form>

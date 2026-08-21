@@ -1,0 +1,173 @@
+/* ── Design tokens ─────────────────────────────────────────────────────────
+   One place for colour, spacing and type. Components reference tokens only, so
+   the dark scheme below is the entire dark-mode implementation.             */
+
+:root {
+  color-scheme: light dark;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-pill: 999px;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --surface: #ffffff;
+  --surface-sunken: #f5f6f8;
+  --surface-raised: #ffffff;
+  --border: #dfe3e8;
+  --border-strong: #b9c0c8;
+
+  --text: #14181d;
+  --text-muted: #5c6773;
+  --text-inverse: #ffffff;
+
+  --accent: #2f5bd8;
+  --accent-hover: #2648b0;
+  --accent-subtle: #eaf0ff;
+
+  --danger: #b3261e;
+  --danger-subtle: #fdecea;
+  --danger-border: #f0b4af;
+
+  --focus-ring: 0 0 0 3px rgb(47 91 216 / 0.4);
+  --shadow-card: 0 1px 2px rgb(20 24 29 / 0.06), 0 1px 3px rgb(20 24 29 / 0.08);
+
+  --content-width: 56rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #14181d;
+    --surface-sunken: #0e1216;
+    --surface-raised: #1b2028;
+    --border: #2c333d;
+    --border-strong: #414a56;
+
+    --text: #e8ebef;
+    --text-muted: #9aa5b1;
+
+    --accent: #7d9bf0;
+    --accent-hover: #9ab1f5;
+    --accent-subtle: #1d2740;
+
+    --danger: #f2938c;
+    --danger-subtle: #341a18;
+    --danger-border: #6b302c;
+
+    --focus-ring: 0 0 0 3px rgb(125 155 240 / 0.45);
+    --shadow-card: none;
+  }
+}
+
+/* ── Reset ─────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--surface-sunken);
+}
+
+h1,
+h2,
+h3,
+p,
+figure {
+  margin: 0;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Every interactive element gets a visible ring, and only via :focus-visible so
+   pointer users do not see it. Never remove this without a replacement. */
+:focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Shared primitives ─────────────────────────────────────────────────── */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--text-inverse);
+  transition: background-color 120ms ease;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.button:disabled,
+.button[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.button--secondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.button--secondary:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
