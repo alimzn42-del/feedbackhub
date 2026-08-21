@@ -53,41 +53,6 @@
   font-size: 0.875rem;
   color: var(--text-muted);
 }
-
-.chip {
-  display: inline-block;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  background: var(--surface-sunken);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-}
-
-.chip--category {
-  background: var(--accent-subtle);
-  border-color: transparent;
-  color: var(--accent);
-}
-
-.chip--status[data-status='done'] {
-  color: #1f7a3d;
-  background: #e7f5eb;
-  border-color: transparent;
-}
-
-.chip--status[data-status='declined'] {
-  color: var(--danger);
-  background: var(--danger-subtle);
-  border-color: transparent;
-}
-
-.chip--pinned {
-  border-style: dashed;
-}
-
 /* ── States ───────────────────────────────────────────────────────────── */
 
 .state {
@@ -207,64 +172,6 @@
 }
 
 /* A quiet inline action, not a scoreboard: the card is the content and the
-   like sits under it, the way it does anywhere else you have used one. */
-.vote {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  margin-left: calc(var(--space-3) * -1);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    background-color 120ms ease;
-}
-
-.vote:hover:not(:disabled) {
-  color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-.vote:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.vote__icon {
-  width: 1.125rem;
-  height: 1.125rem;
-  /* Outline until you have voted, solid once you have — so the state is
-     carried by shape as well as by colour. */
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-  transition: transform 120ms ease;
-}
-
-.vote--active {
-  color: var(--accent);
-}
-
-.vote--active .vote__icon {
-  fill: currentColor;
-  stroke: currentColor;
-}
-
-.vote:hover:not(:disabled) .vote__icon {
-  transform: translateY(-1px);
-}
-
-.vote__count {
-  font-variant-numeric: tabular-nums;
-}
 
 .vote-failure {
   margin-bottom: var(--space-4);
