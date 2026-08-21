@@ -297,3 +297,124 @@ describe('RequestList voting', () => {
     );
   });
 });
+
+describe('RequestList voting from the pinned shelf', () => {
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([{ path: '**', children: [] }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    try {
+      http.verify();
+    } finally {
+      TestBed.resetTestingModule();
+    }
+  });
+
+  /**
+   * A request lives in the list OR on the shelf, never both — the server
+   * excludes pinned rows from the list. Voting from the shelf therefore has to
+   * update the shelf's copy; an earlier version only ever patched the list, so
+   * the call succeeded and the count on screen never moved.
+   */
+  it('moves the count on the shelf, not only in the list', async () => {
+    const pinnedRow = item({
+      id: 42,
+      title: 'A pinned request',
+      isPinned: true,
+      pinnedAt: '2026-08-21T09:00:00.000Z',
+      pinnedBy: { id: 1, displayName: 'Robin Alvarez' },
+      voteCount: 5,
+      hasVoted: false,
+    });
+
+    const fixture = TestBed.createComponent(RequestList);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [pinnedRow], total: 1 });
+    http.expectOne((r) => r.url === '/api/requests').flush(page([]));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const shelfVote = fixture.nativeElement.querySelector(
+      '.pinned__item .vote',
+    ) as HTMLButtonElement;
+
+    expect(shelfVote.textContent).toContain('5');
+
+    shelfVote.click();
+    fixture.detectChanges();
+
+    // Optimistic, on the shelf's own copy of the row.
+    expect(shelfVote.textContent).toContain('6');
+
+    http
+      .expectOne('/api/requests/42/vote')
+      .flush({ data: { requestId: 42, voteCount: 6, hasVoted: true } });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(shelfVote.getAttribute('aria-pressed')).toBe('true');
+    expect(shelfVote.textContent).toContain('6');
+  });
+
+  it('rolls the shelf back when the server refuses', async () => {
+    const pinnedRow = item({ id: 42, isPinned: true, voteCount: 5, hasVoted: false });
+
+    const fixture = TestBed.createComponent(RequestList);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [pinnedRow], total: 1 });
+    http.expectOne((r) => r.url === '/api/requests').flush(page([]));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const shelfVote = fixture.nativeElement.querySelector(
+      '.pinned__item .vote',
+    ) as HTMLButtonElement;
+
+    shelfVote.click();
+    fixture.detectChanges();
+    expect(shelfVote.textContent).toContain('6');
+
+    http.expectOne('/api/requests/42/vote').flush(
+      { error: { code: 'CONFLICT', message: 'You have already voted.', requestId: 'x' } },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(shelfVote.textContent).toContain('5');
+  });
+
+  it('shows both the author and the admin who pinned it', async () => {
+    const pinnedRow = item({
+      id: 42,
+      isPinned: true,
+      pinnedAt: '2026-08-21T09:00:00.000Z',
+      pinnedBy: { id: 1, displayName: 'Robin Alvarez' },
+    });
+
+    const fixture = TestBed.createComponent(RequestList);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [pinnedRow], total: 1 });
+    http.expectOne((r) => r.url === '/api/requests').flush(page([]));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const shelf = fixture.nativeElement.querySelector('.pinned__item');
+
+    // Two different facts, shown separately.
+    expect(shelf.querySelector('.pinned__byline').textContent).toContain('Robin Alvarez');
+    expect(shelf.querySelector('.pinned__attribution').textContent).toContain(
+      'Pinned by Robin Alvarez',
+    );
+  });
+});

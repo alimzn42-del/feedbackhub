@@ -155,15 +155,21 @@ export class RequestList {
     });
   }
 
+  /**
+   * Applies a vote to whichever collection holds the row.
+   *
+   * A request lives in the list OR on the pinned shelf, never both, and the
+   * vote control appears in both places. Updating only the list meant voting
+   * from the shelf called the API and then changed nothing on screen: the
+   * optimistic update and the reconciliation both looked in the wrong
+   * collection and silently found no match.
+   */
   private applyVote(id: number, hasVoted: boolean, voteCount: number): void {
-    this.requests.update((page) =>
-      page
-        ? {
-            ...page,
-            data: page.data.map((row) => (row.id === id ? { ...row, hasVoted, voteCount } : row)),
-          }
-        : page,
-    );
+    const patch = (row: FeedbackRequestListItem) =>
+      row.id === id ? { ...row, hasVoted, voteCount } : row;
+
+    this.requests.update((page) => (page ? { ...page, data: page.data.map(patch) } : page));
+    this.pinned.update((shelf) => (shelf ? { ...shelf, data: shelf.data.map(patch) } : shelf));
   }
 
   private setPending(id: number, active: boolean): void {

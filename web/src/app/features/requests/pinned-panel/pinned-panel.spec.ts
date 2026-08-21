@@ -91,18 +91,26 @@ describe('PinnedPanel', () => {
     expect(fixture.nativeElement.querySelector('.pinned__list--scroll')).not.toBeNull();
   });
 
-  it('names who pinned it', () => {
+  it('names the author and the admin who pinned it, as separate facts', () => {
     const fixture = render([pinnedItem(1)]);
 
-    expect(fixture.nativeElement.textContent).toContain('Pinned by Robin Alvarez');
-    expect(fixture.nativeElement.textContent).toContain('filed by Sam Lindqvist');
+    // Who wrote it and who promoted it are different things, so they are not
+    // run together into one byline where the second reads as an afterthought.
+    expect(fixture.nativeElement.querySelector('.pinned__byline').textContent).toContain(
+      'Sam Lindqvist',
+    );
+    expect(fixture.nativeElement.querySelector('.pinned__attribution').textContent).toContain(
+      'Pinned by Robin Alvarez',
+    );
   });
 
   it('does not invent an actor for a pin that predates the record', () => {
     const fixture = render([pinnedItem(1, { pinnedBy: null })]);
 
-    expect(fixture.nativeElement.textContent).not.toContain('Pinned by');
-    expect(fixture.nativeElement.textContent).toContain('Pinned');
+    const attribution = fixture.nativeElement.querySelector('.pinned__attribution');
+
+    expect(attribution.textContent).not.toContain('Pinned by');
+    expect(attribution.textContent).toContain('Pinned');
   });
 
   it('reports pinned requests the endpoint would not return', () => {

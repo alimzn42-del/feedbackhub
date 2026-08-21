@@ -94,6 +94,29 @@
   color: var(--text-muted);
 }
 
+/* Who pinned it is a different fact from who wrote it, so it gets its own line
+   and its own mark rather than being appended to the byline where it read as
+   an afterthought. */
+.pinned__attribution {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pinned__attribution-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
 .pinned__actions {
   display: flex;
   align-items: center;
