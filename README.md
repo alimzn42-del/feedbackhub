@@ -143,7 +143,6 @@ a single envelope; see [DECISIONS.md](DECISIONS.md#error-shape).
 | `PATCH /api/comments/:id` | **author only**; an admin cannot reword somebody |
 | `DELETE /api/comments/:id` | author or admin; removes or hides, see below |
 | `PUT /api/comments/:id/approval` | **admin only**; lets a waiting comment through |
-| `GET /api/comments/pending` | **admin only**; the moderation queue |
 | `GET /api/categories` | the active categories |
 | `GET /api/statuses` | the active statuses |
 | `GET /api/bootstrap` | everything the application needs to draw itself — see below |
@@ -231,6 +230,17 @@ Turning it **on** affects comments written from then on and nothing already on
 screen; turning it **off** releases whatever is waiting. Comment counts follow
 the same visibility rule as the thread — they are the same SQL fragment, so a
 badge cannot promise three comments above a thread showing one.
+
+**Finding what is waiting.** A count in the header, admin only, linking to
+`/requests?pending=true` — the requests that carry a waiting comment. It comes
+from the startup payload and is refetched after a decision, so it falls without a
+reload. It is absent entirely when approval is off or the reader cannot approve:
+a badge showing 0 would be a different claim from a header with nothing in it.
+
+**Deciding.** In the thread, beside the words — approve, or reject. There is no
+queue screen, because a comment out of its discussion cannot be judged. Rejecting
+is the ordinary delete: it records which admin did it, and the author is told an
+admin removed it.
 
 ### The submission limit
 

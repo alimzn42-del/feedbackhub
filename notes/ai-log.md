@@ -1473,3 +1473,60 @@ arrival, and clearing the filters a moment later is not one.
 **Worth remembering: a rule whose own action changes the condition it tests will
 work once.** The bare-address check read as obviously correct and was, for the
 first visit only.
+
+## 2026-08-23 — Giving comment approval a way to be found
+
+The setting worked and the feature did not. A held comment was visible to its
+author and to admins in the thread, and there was a queue on the settings screen
+listing waiting comments — but nothing anywhere said "three are waiting", so
+unless an admin happened to open the settings screen, they sat there. A feature
+whose only entry point is a screen nobody visits for that reason is not
+functional, whatever its tests say.
+
+### The queue was the wrong shape, not just the wrong place
+
+It listed comment bodies with the request title above them. That reads fine and
+cannot be acted on: whether "that is not what I meant" should be published
+depends entirely on what it answers. So the queue is gone — the endpoint, the
+repository query, the row type — and the decision moved to the thread, beside
+the words, where the discussion is.
+
+The control travels with the comment as `canApprove`, which is the same shape as
+`canVote` and `canEdit`: the browser is told what it may do to THIS row and is
+never told who it is. It is only ever true on a comment that is actually waiting,
+so the same flag answers both "may you" and "is there anything to approve".
+
+### Rejecting is deleting, on purpose
+
+There was a pull toward a `rejected_at` column. There should not be one: a
+rejected comment is a removed one, deletion already records which admin did it
+and already tells the author an admin did, and a third state would be a kind of
+hidden comment keeping no trail the other two do not keep. Reject is the existing
+DELETE with a confirmation in front of it.
+
+### Absent, not zero
+
+The count is omitted from the startup payload when the gate is down or the reader
+cannot approve, and the header renders nothing. It would have been easier to send
+0 and hide the badge in the template, and it would have been a different claim: a
+badge showing 0 says there is moderation here and nothing is waiting. Sending
+`null` all the way through — server omits, `pendingComments()` is null, the
+template's `@if` renders nothing — keeps one statement per state.
+
+### Things that cost time
+
+**`pending` was already taken.** The board had `protected readonly pending` for
+the set of requests with a vote in flight, and `withComponentInputBinding` binds
+query parameters by member NAME — so the URL parameter and the field could not
+both be called that. The set was renamed to `voting`, which is what it was about
+anyway.
+
+**A mocked module has to carry its constants, not just its functions.** Mocking
+the comments repository in the taxonomy test broke the requests repository, which
+imports `VISIBLE_COMMENT` from it — a SQL fragment, interpolated at module load.
+The error names the export, not the reason.
+
+**The `whenStable()` deadlock, a third time.** Rejecting reloads the thread, and
+the reload is scheduled rather than immediate, so flushing before awaiting is not
+enough either — the request does not exist yet. The pattern that works is a short
+loop: detectChanges, match, flush if present, turn the microtask queue over.

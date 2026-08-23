@@ -16,6 +16,12 @@ export interface BoardFilters {
   readonly categories: readonly string[];
   /** Only the signed-in user's own requests. */
   readonly mine: boolean;
+
+  /**
+   * Only requests carrying a comment waiting for approval. Admin only, and the
+   * server refuses it for anybody else rather than ignoring it.
+   */
+  readonly pending: boolean;
   /** Free text. Empty is no filter. */
   readonly q: string;
   readonly sort: SortOption;
@@ -41,6 +47,7 @@ export const NO_FILTERS: BoardFilters = {
   statuses: [],
   categories: [],
   mine: false,
+  pending: false,
   q: '',
   sort: DEFAULT_SORT,
 };
@@ -84,6 +91,7 @@ export function isFiltered(filters: BoardFilters): boolean {
     filters.statuses.length > 0 ||
     filters.categories.length > 0 ||
     filters.mine ||
+    filters.pending ||
     filters.q.length > 0
   );
 }
@@ -108,6 +116,7 @@ export function toQueryParams(
   if (filters.statuses.length > 0) params['status'] = filters.statuses.join(',');
   if (filters.categories.length > 0) params['category'] = filters.categories.join(',');
   if (filters.mine) params['mine'] = 'true';
+  if (filters.pending) params['pending'] = 'true';
   if (filters.q.length > 0) params['q'] = filters.q;
   if (filters.sort !== DEFAULT_SORT) params['sort'] = filters.sort;
 
@@ -131,6 +140,7 @@ export function isOnlySearchChange(current: BoardFilters, next: BoardFilters): b
     next.q !== current.q &&
     next.sort === current.sort &&
     next.mine === current.mine &&
+    next.pending === current.pending &&
     sameValues(next.statuses, current.statuses) &&
     sameValues(next.categories, current.categories)
   );

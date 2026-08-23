@@ -52,28 +52,6 @@ export const APPROVED_FOR_VIEWER = `(
  */
 export const VISIBLE_COMMENT = `c.deleted_at IS NULL AND ${APPROVED_FOR_VIEWER}`;
 
-/** One row of the moderation queue, with the request it is answering. */
-export interface PendingComment {
-  id: number;
-  requestId: number;
-  requestTitle: string;
-  parentId: number | null;
-  author: { id: number; displayName: string };
-  body: string;
-  createdAt: Date;
-}
-
-interface PendingRow extends RowDataPacket {
-  id: number;
-  request_id: number;
-  request_title: string;
-  parent_id: number | null;
-  author_id: number;
-  author_display_name: string;
-  body: string;
-  created_at: Date;
-}
-
 interface CommentRow extends RowDataPacket {
   id: number;
   request_id: number;
@@ -149,38 +127,6 @@ export async function listForRequest(
     { requestId, viewerId: viewer.id, seesPending: viewer.seesPending ? 1 : 0 },
   );
   return rows.map(toRecord);
-}
-
-/**
- * Everything still waiting, oldest first, across every request.
- *
- * The queue an admin works through. It carries the request's title because a
- * comment out of its thread is unjudgeable -- "that is not what I meant" is
- * either fine or not depending entirely on what it is answering.
- */
-export async function listPending(limit: number): Promise<PendingComment[]> {
-  const [rows] = await pool.query<PendingRow[]>(
-    `SELECT
-       c.id, c.request_id, c.parent_id, c.author_id, u.display_name AS author_display_name,
-       c.body, c.created_at, r.title AS request_title
-     FROM comments c
-     JOIN users u ON u.id = c.author_id
-     JOIN feedback_requests r ON r.id = c.request_id
-     WHERE c.approved_at IS NULL AND c.deleted_at IS NULL
-     ORDER BY c.created_at, c.id
-     LIMIT :limit`,
-    { limit },
-  );
-
-  return rows.map((row) => ({
-    id: row.id,
-    requestId: row.request_id,
-    requestTitle: row.request_title,
-    parentId: row.parent_id,
-    author: { id: row.author_id, displayName: row.author_display_name },
-    body: row.body,
-    createdAt: row.created_at,
-  }));
 }
 
 /**

@@ -249,6 +249,9 @@ export interface ListFilters {
   categoryIds?: readonly number[] | undefined;
   /** Restricts to one author. The "mine" filter resolves to the caller's id. */
   authorId?: number | undefined;
+
+  /** Only requests carrying a comment that is waiting for approval. */
+  pendingOnly?: boolean | undefined;
   /** Free text, matched against title and description. */
   search?: string | undefined;
 }
@@ -327,6 +330,16 @@ function buildWhere(
   if (filters.authorId !== undefined) {
     conditions.push('r.author_id = :authorId');
     params['authorId'] = filters.authorId;
+  }
+
+  if (filters.pendingOnly === true) {
+    // EXISTS rather than a join: one matching comment is enough, and a join
+    // would return the request once per waiting comment. The subquery stops at
+    // the first row it finds.
+    conditions.push(`EXISTS (
+      SELECT 1 FROM comments pc
+      WHERE pc.request_id = r.id AND pc.approved_at IS NULL AND pc.deleted_at IS NULL
+    )`);
   }
 
   if (filters.search !== undefined) {

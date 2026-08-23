@@ -18,6 +18,8 @@ export interface ConfigStub {
   categories: TaxonomyRef[];
   statuses: TaxonomyRef[];
   capabilities: Partial<Capabilities>;
+  /** Null unless a test is about the moderation indicator. */
+  pendingComments: number | null;
   settings: Record<string, ResolvedSetting>;
   user: { id: number; email: string; displayName: string } | null;
 }
@@ -32,6 +34,7 @@ const DEFAULTS: ConfigStub = {
     { id: 2, name: 'Planned', slug: 'planned' },
   ],
   capabilities: {},
+  pendingComments: null,
   settings: {},
   user: { id: 2, email: 'dana@feedbackhub.local', displayName: 'Dana Okafor' },
 };
@@ -54,6 +57,7 @@ export function provideStubbedConfig(overrides: Partial<ConfigStub> = {}): Provi
       reload: () => undefined,
 
       user: signal(stub.user),
+      pendingComments: signal(stub.pendingComments),
       categories: signal(stub.categories),
       statuses: signal(stub.statuses),
 

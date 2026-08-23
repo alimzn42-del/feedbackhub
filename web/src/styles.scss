@@ -440,3 +440,38 @@ ul {
   border-radius: var(--radius-sm);
   box-shadow: var(--focus-ring);
 }
+
+/* ── The moderation indicator ──────────────────────────────────────────────
+   Admin only, and absent entirely when comment approval is off — so it is
+   never a badge showing zero. It is the only discovery path for a waiting
+   comment: without it, one sits in a thread nobody has a reason to open.   */
+
+.masthead__pending {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.masthead__pending-count {
+  min-width: 1.5rem;
+  padding: 0 var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+  text-align: center;
+  color: var(--text-inverse);
+  background: var(--danger);
+  border-radius: var(--radius-pill);
+}
+
+/* When the indicator is present it takes the spacer role, so the account link
+   must not claim it too. */
+.masthead__pending ~ .masthead__account {
+  margin-left: 0;
+}
+
+.link-button--approve {
+  color: var(--success);
+  font-weight: 600;
+}

@@ -210,6 +210,7 @@ describe('RequestList filtering', () => {
       statuses: ['new'],
       categories: [],
       mine: false,
+      pending: false,
       q: '',
       sort: 'newest',
     });
@@ -234,6 +235,7 @@ describe('RequestList filtering', () => {
       statuses: [],
       categories: [],
       mine: false,
+      pending: false,
       q: '',
       sort: 'newest',
     });
@@ -255,6 +257,7 @@ describe('RequestList filtering', () => {
       statuses: [],
       categories: [],
       mine: false,
+      pending: false,
       q: 'dark',
       sort: 'newest',
     });
@@ -278,6 +281,7 @@ describe('RequestList filtering', () => {
       statuses: ['done'],
       categories: [],
       mine: false,
+      pending: false,
       q: 'dark',
       sort: 'newest',
     });

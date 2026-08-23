@@ -227,4 +227,56 @@ describe('App', () => {
     expect(nav).toContain('Categories');
     expect(nav).toContain('Settings');
   });
+
+  /* ── The moderation indicator ──────────────────────────────────────────── */
+
+  /**
+   * The whole discovery path for comment approval. Without it a waiting comment
+   * sits in a thread nobody has a reason to open, and the setting that held it
+   * back does nothing at all.
+   */
+  it('shows how many comments are waiting, linking to the requests that carry them', async () => {
+    const fixture = await render();
+
+    http.expectOne('/api/bootstrap').flush({
+      data: { ...BOOTSTRAP.data, pendingComments: 4 },
+    });
+
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector('.masthead__pending') as HTMLAnchorElement;
+
+    expect(link).not.toBeNull();
+    expect(link.textContent).toContain('4');
+    expect(link.getAttribute('href')).toContain('pending=true');
+  });
+
+  /**
+   * Absent, not zero. A badge showing 0 and a header with nothing in it are
+   * different claims, and the server makes the distinction by omitting the
+   * field when moderation is off or the reader cannot approve anything.
+   */
+  it('shows nothing at all when there is nothing to say', async () => {
+    const fixture = await render();
+
+    http.expectOne('/api/bootstrap').flush(BOOTSTRAP);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.masthead__pending')).toBeNull();
+  });
+
+  it('shows nothing when the count is zero rather than a badge saying none', async () => {
+    const fixture = await render();
+
+    http.expectOne('/api/bootstrap').flush({
+      data: { ...BOOTSTRAP.data, pendingComments: 0 },
+    });
+
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.masthead__pending')).toBeNull();
+  });
 });

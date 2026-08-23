@@ -19,7 +19,6 @@ import type {
 } from './comments.schema.js';
 import { globalValue } from '../settings/settings.service.js';
 import { isAdmin } from '../../policy/index.js';
-import type { PendingComment } from './comments.repository.js';
 
 /**
  * Why a comment shows as removed.
@@ -56,6 +55,10 @@ function toDto(actor: Actor, comment: CommentRecord, canReply: boolean): Comment
     // A reply cannot be replied to, and a removed comment cannot be answered.
     canReply: canReply && !comment.isDeleted,
     isPending: comment.approvedAt === null && !comment.isDeleted,
+    canApprove:
+      comment.approvedAt === null &&
+      !comment.isDeleted &&
+      commentPolicy.approve(actor).allowed,
     replies: [],
   };
 }
@@ -121,27 +124,17 @@ export async function listForRequest(
 }
 
 /**
- * The moderation queue.
+ * How many comments are waiting, for the one place that says so.
  *
- * Capped rather than paginated, and it says so when it is not showing
- * everything — the same shape as the pinned shelf, for the same reason: this is
- * a working list somebody empties, not a collection they page through. If it is
- * ever long enough for the cap to bite, the board has a problem the interface
- * should be reporting rather than paging over.
+ * There is deliberately no endpoint that LISTS them. A queue of comments taken
+ * out of the discussions they belong to is not something anybody can judge:
+ * "that is not what I meant" is fine or not entirely depending on what it
+ * answers. The count is the discovery path; the thread is where the decision is
+ * made.
  */
-const PENDING_LIMIT = 100;
-
-export async function listPending(
-  actor: Actor,
-): Promise<{ comments: PendingComment[]; total: number }> {
+export async function countPending(actor: Actor): Promise<number> {
   authorize(commentPolicy.approve(actor));
-
-  const [comments, total] = await Promise.all([
-    commentsRepository.listPending(PENDING_LIMIT),
-    commentsRepository.countPending(),
-  ]);
-
-  return { comments, total };
+  return commentsRepository.countPending();
 }
 
 /**

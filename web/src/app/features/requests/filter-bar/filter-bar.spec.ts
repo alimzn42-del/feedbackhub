@@ -128,7 +128,8 @@ describe('FilterBar', () => {
   });
 
   it('emits the whole state, not just the part that changed', () => {
-    const fixture = render({ statuses: ['done'], mine: true, q: 'dark', sort: 'newest' });
+    const fixture = render({ statuses: ['done'], mine: true,
+      pending: false, q: 'dark', sort: 'newest' });
 
     checkbox(fixture, 'Bug').click();
 
@@ -137,6 +138,7 @@ describe('FilterBar', () => {
       statuses: ['done'],
       categories: ['bug'],
       mine: true,
+      pending: false,
       q: 'dark',
       sort: 'newest',
     });
@@ -311,7 +313,8 @@ describe('FilterBar', () => {
   });
 
   it('clears every filter at once, and keeps the ordering', () => {
-    const fixture = render({ statuses: ['done'], mine: true, q: 'dark', sort: 'oldest' });
+    const fixture = render({ statuses: ['done'], mine: true,
+      pending: false, q: 'dark', sort: 'oldest' });
 
     const clear = Array.from(fixture.nativeElement.querySelectorAll('button')).find((button) =>
       (button as HTMLButtonElement).textContent?.includes('Clear all filters'),

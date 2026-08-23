@@ -25,6 +25,23 @@
         @if (canManageSettings()) {
           <a routerLink="/admin/settings" routerLinkActive="is-active">{{ t('nav.settings') }}</a>
         }
+        <!--
+          Absent entirely when there is nothing to say: moderation off, or a
+          reader who cannot approve. A badge showing 0 would be a different
+          claim from a header with nothing in it.
+        -->
+        @if (pendingComments(); as waiting) {
+          <a
+            class="masthead__pending"
+            routerLink="/requests"
+            [queryParams]="{ pending: 'true' }"
+            [attr.aria-label]="t('nav.pendingLabel', { count: waiting })"
+          >
+            {{ t('nav.pending') }}
+            <span class="masthead__pending-count">{{ waiting }}</span>
+          </a>
+        }
+
         <a class="masthead__account" routerLink="/account" routerLinkActive="is-active">
           {{ displayName() }}
         </a>

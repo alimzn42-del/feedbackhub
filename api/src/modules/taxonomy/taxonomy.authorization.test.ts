@@ -50,6 +50,17 @@ const statusesRepository = vi.hoisted(() => ({
  * Settings, stored nowhere: both tables read back empty, so everything resolves
  * to the fallback in the registry — the state a fresh installation is in.
  */
+/**
+ * The requests repository imports VISIBLE_COMMENT from here, so a mock of this
+ * module has to carry it: a SQL fragment, not a function, and the queries it is
+ * interpolated into are never run in these tests.
+ */
+const commentsRepository = vi.hoisted(() => ({
+  countPending: vi.fn(),
+  VISIBLE_COMMENT: 'c.deleted_at IS NULL',
+  APPROVED_FOR_VIEWER: '(1 = 1)',
+}));
+
 const settingsRepository = vi.hoisted(() => ({
   readGlobal: vi.fn(),
   readForUser: vi.fn(),
@@ -61,6 +72,7 @@ const settingsRepository = vi.hoisted(() => ({
 
 vi.mock('../users/users.repository.js', () => usersRepository);
 vi.mock('../settings/settings.repository.js', () => settingsRepository);
+vi.mock('../comments/comments.repository.js', () => commentsRepository);
 vi.mock('../categories/categories.repository.js', () => categoriesRepository);
 vi.mock('../statuses/statuses.repository.js', () => statusesRepository);
 
@@ -96,6 +108,7 @@ const app = createApp();
 
 beforeEach(() => {
   settingsRepository.readGlobal.mockResolvedValue(new Map());
+  commentsRepository.countPending.mockResolvedValue(3);
   settingsRepository.readForUser.mockResolvedValue(new Map());
   usersRepository.findByEmail.mockResolvedValue(REGULAR_USER);
 
@@ -300,5 +313,51 @@ describe('what the interface is told it may do', () => {
     expect(keys).not.toContain('submissions.perUserPerDay');
     expect(keys).not.toContain('registration.policy');
     expect(keys).not.toContain('comments.requireApproval');
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The moderation indicator.
+ *
+ * The count is the whole discovery path for comment approval — without one,
+ * waiting comments sit forever and the setting does nothing. It travels in the
+ * startup payload so the header can show it before anything else has loaded.
+ *
+ * It is ABSENT rather than zero in the two cases where the question does not
+ * apply, because a header badge showing 0 and a header with nothing in it are
+ * different statements.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('how many comments are waiting', () => {
+  const gateUp = () =>
+    settingsRepository.readGlobal.mockResolvedValue(
+      new Map<string, unknown>([['comments.requireApproval', true]]),
+    );
+
+  it('tells an admin, while the gate is up', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    gateUp();
+
+    const response = await request(app).get('/api/bootstrap').expect(200);
+
+    expect(response.body.data.pendingComments).toBe(3);
+  });
+
+  it('says nothing to a regular user, even while the gate is up', async () => {
+    gateUp();
+
+    const response = await request(app).get('/api/bootstrap').expect(200);
+
+    expect(response.body.data).not.toHaveProperty('pendingComments');
+    expect(commentsRepository.countPending).not.toHaveBeenCalled();
+  });
+
+  /** With approval off there is no such thing as a waiting comment. */
+  it('says nothing to anybody while the gate is down', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    const response = await request(app).get('/api/bootstrap').expect(200);
+
+    expect(response.body.data).not.toHaveProperty('pendingComments');
+    expect(commentsRepository.countPending).not.toHaveBeenCalled();
   });
 });

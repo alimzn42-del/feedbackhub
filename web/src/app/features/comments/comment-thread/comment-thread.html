@@ -115,6 +115,27 @@
               <p class="comment__body">{{ comment.body }}</p>
 
               <div class="comment__actions">
+                @if (comment.canApprove) {
+                  <!-- Beside the comment, in the thread that gives it its
+                       meaning. The count in the header is how an admin finds
+                       it; this is where the decision is made. -->
+                  <button
+                    type="button"
+                    class="link-button link-button--approve"
+                    [disabled]="busy()"
+                    (click)="approve(comment)"
+                  >
+                    {{ t('comment.approve') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="link-button link-button--danger"
+                    [disabled]="busy()"
+                    (click)="rejecting.set(comment)"
+                  >
+                    {{ t('comment.reject') }}
+                  </button>
+                }
                 @if (comment.canReply) {
                   <button type="button" class="link-button" (click)="openReply(comment)">
                     {{ t('comment.reply') }}
@@ -223,6 +244,27 @@
 
                       <!-- No Reply here on purpose: threads are one level deep. -->
                       <div class="comment__actions">
+                        @if (reply.canApprove) {
+                          <!-- Beside the comment, in the thread that gives it its
+                               meaning. The count in the header is how an admin finds
+                               it; this is where the decision is made. -->
+                          <button
+                            type="button"
+                            class="link-button link-button--approve"
+                            [disabled]="busy()"
+                            (click)="approve(reply)"
+                          >
+                            {{ t('comment.approve') }}
+                          </button>
+                          <button
+                            type="button"
+                            class="link-button link-button--danger"
+                            [disabled]="busy()"
+                            (click)="rejecting.set(reply)"
+                          >
+                            {{ t('comment.reject') }}
+                          </button>
+                        }
                         @if (reply.canEdit) {
                           <button type="button" class="link-button" (click)="openEdit(reply)">
                             {{ t('common.edit') }}
@@ -250,3 +292,14 @@
     </ul>
   }
 </section>
+
+@if (rejecting(); as comment) {
+  <app-confirm-dialog
+    [title]="t('comment.rejectTitle')"
+    [body]="t('comment.rejectBody')"
+    [confirmLabel]="t('comment.reject')"
+    [busy]="busy()"
+    (confirmed)="confirmReject()"
+    (cancelled)="rejecting.set(null)"
+  />
+}

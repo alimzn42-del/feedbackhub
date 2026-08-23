@@ -19,6 +19,7 @@ function comment(overrides: Partial<Comment> = {}): Comment {
     canEdit: false,
     canDelete: false,
     canReply: true,
+    canApprove: false,
     isPending: false,
     replies: [],
     ...overrides,
@@ -404,5 +405,102 @@ describe('CommentThread', () => {
 
     expect(fixture.nativeElement.textContent).toContain('Something worth saying');
     expect(fixture.nativeElement.querySelector('.pending-flag')).not.toBeNull();
+  });
+
+  /* ──────────────────────────────────────────────────────────────────────────
+   * Moderating where the comment was written.
+   *
+   * Judging one needs the discussion around it, so the controls are beside the
+   * words rather than on a queue that lists comments out of their threads.
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  it('offers approve and reject on a waiting comment, and on nothing else', async () => {
+    const fixture = await render(
+      [comment({ id: 1, isPending: true, canApprove: true, canDelete: true }), comment({ id: 2 })],
+      true,
+    );
+
+    const actions = fixture.nativeElement.querySelectorAll('.comment__actions');
+
+    expect(actions[0].textContent).toContain('Approve');
+    expect(actions[0].textContent).toContain('Reject');
+    expect(actions[1].textContent).not.toContain('Approve');
+  });
+
+  it('approves through the real button and shows the result', async () => {
+    const fixture = await render(
+      [comment({ id: 1, isPending: true, canApprove: true })],
+      true,
+    );
+
+    const approve = ([...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[]).find(
+      (button) => button.textContent?.includes('Approve'),
+    )!;
+
+    approve.click();
+
+    const sent = http.expectOne((r) => r.url === '/api/comments/1/approval' && r.method === 'PUT');
+    sent.flush({ data: comment({ id: 1, isPending: false, canApprove: false }) });
+
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The flag is gone from the comment, and so is the control.
+    expect(fixture.nativeElement.querySelector('.pending-flag')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Approve');
+  });
+
+  /**
+   * Rejecting takes somebody's words off the board, so it asks first — and it
+   * is the ordinary deletion path, which records who removed it.
+   */
+  it('asks before rejecting, and rejects by deleting', async () => {
+    const fixture = await render(
+      [comment({ id: 1, isPending: true, canApprove: true, canDelete: true })],
+      true,
+    );
+
+    const reject = ([...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[]).find(
+      (button) => button.textContent?.trim() === 'Reject',
+    )!;
+
+    reject.click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+
+    // Nothing has been sent by opening it.
+    http.expectNone((r) => r.method === 'DELETE');
+
+    const confirm = [...dialog.querySelectorAll('button')].find((button: HTMLButtonElement) =>
+      button.textContent?.includes('Reject'),
+    ) as HTMLButtonElement;
+
+    confirm.click();
+
+    http.expectOne((r) => r.url === '/api/comments/1' && r.method === 'DELETE').flush({
+      data: { kind: 'soft' },
+    });
+
+    /**
+     * The deletion reloads the thread. That refetch has to be answered before
+     * anything awaits stability — an unanswered resource request IS a pending
+     * task — and it is scheduled rather than immediate, so this turns the
+     * microtask queue over until it appears.
+     */
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      fixture.detectChanges();
+      const reload = http.match((r) => r.url === '/api/requests/7/comments');
+
+      if (reload.length > 0) {
+        reload.forEach((r) => r.flush({ data: [], awaitsApproval: true }));
+        break;
+      }
+
+      await Promise.resolve();
+    }
+
+    fixture.detectChanges();
   });
 });

@@ -14,6 +14,19 @@ const isAuthor = (actor: Actor, request: RequestSubject): boolean =>
   actor.id === request.authorId;
 
 export const requestPolicy = {
+  /**
+   * Filtering the board down to what is waiting for moderation — admin only.
+   *
+   * Refused rather than ignored. A filter that quietly did nothing would tell a
+   * regular user that no requests have comments waiting, which is a different
+   * and wrong answer to a question they were not allowed to ask.
+   */
+  filterPending(actor: Actor): Decision {
+    return isAdmin(actor)
+      ? allow()
+      : deny('Only an admin can filter the board by comments waiting for approval.');
+  },
+
   /** Create — any authenticated user. */
   create(_actor: Actor): Decision {
     return allow();

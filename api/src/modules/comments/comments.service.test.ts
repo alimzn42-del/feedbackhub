@@ -408,4 +408,49 @@ describe('comment approval', () => {
     await expect(service.approve(ADMIN, 1)).rejects.toBeInstanceOf(ConflictError);
     expect(commentsRepository.approve).not.toHaveBeenCalled();
   });
+
+  /* ── The control travels with the comment it is about ─────────────────── */
+
+  it('offers approval on a waiting comment, to somebody who may approve', async () => {
+    settings.globalValue.mockResolvedValue(true);
+    commentsRepository.listForRequest.mockResolvedValue([record({ id: 1, approvedAt: null })]);
+
+    const { comments } = await service.listForRequest(ADMIN, 7);
+
+    expect(comments[0]).toMatchObject({ isPending: true, canApprove: true });
+  });
+
+  /**
+   * Its author sees that it is waiting and cannot wave it through. The flag is
+   * how the thread offers the control without being told who is reading.
+   */
+  it('does not offer approval to the person who wrote it', async () => {
+    settings.globalValue.mockResolvedValue(true);
+    commentsRepository.listForRequest.mockResolvedValue([
+      record({ id: 1, authorId: DANA.id, approvedAt: null }),
+    ]);
+
+    const { comments } = await service.listForRequest(DANA, 7);
+
+    expect(comments[0]).toMatchObject({ isPending: true, canApprove: false });
+  });
+
+  it('offers approval on nothing once it has been approved', async () => {
+    settings.globalValue.mockResolvedValue(true);
+    commentsRepository.listForRequest.mockResolvedValue([record({ id: 1 })]);
+
+    const { comments } = await service.listForRequest(ADMIN, 7);
+
+    expect(comments[0]).toMatchObject({ isPending: false, canApprove: false });
+  });
+
+  /** Rejecting is deleting, which an admin already has and which leaves a trail. */
+  it('offers deletion alongside it, which is what rejecting is', async () => {
+    settings.globalValue.mockResolvedValue(true);
+    commentsRepository.listForRequest.mockResolvedValue([record({ id: 1, approvedAt: null })]);
+
+    const { comments } = await service.listForRequest(ADMIN, 7);
+
+    expect(comments[0]?.canDelete).toBe(true);
+  });
 });

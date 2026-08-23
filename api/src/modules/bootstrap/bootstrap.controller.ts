@@ -4,7 +4,9 @@ import { settingPolicy } from '../../policy/settings.policy.js';
 import { statusPolicy } from '../../policy/statuses.policy.js';
 import * as categoriesRepository from '../categories/categories.repository.js';
 import * as statusesRepository from '../statuses/statuses.repository.js';
-import { firstPaintFor } from '../settings/settings.service.js';
+import { globalValue, firstPaintFor } from '../settings/settings.service.js';
+import * as commentsRepository from '../comments/comments.repository.js';
+import { commentPolicy } from '../../policy/comments.policy.js';
 import { toProfile } from '../users/users.service.js';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -39,6 +41,12 @@ import { toProfile } from '../users/users.service.js';
  *                "using the default" and an explicit choice that matches it
  *                render differently and only one has anything to reset.
  *
+ *   moderation   how many comments are waiting, for the admin who has to go and
+ *                look at them. Present ONLY when there is a gate up and this
+ *                caller may open it: with approval switched off there is no
+ *                such thing as a waiting comment, and the indicator is absent
+ *                rather than showing a confident zero.
+ *
  *   taxonomy     the active categories and statuses. Bounded lists — tens of
  *                rows, not a page of them — that the filter bar, both request
  *                forms and the detail screen all need. They were six requests
@@ -62,15 +70,30 @@ import { toProfile } from '../users/users.service.js';
  *   payload. `capabilities` answers every question a screen would have wanted
  *   one for, which is the same rule the rows have followed since slice 2.
  * ══════════════════════════════════════════════════════════════════════════ */
+/**
+ * The waiting count, or null when the question does not apply.
+ *
+ * Two ways it does not: the gate is down, so nothing is waiting on anybody's
+ * judgement; or this caller cannot approve, in which case the number is none of
+ * their business and the header has nothing to offer them anyway.
+ */
+async function countPendingFor(actor: Parameters<typeof toProfile>[0]): Promise<number | null> {
+  if (!commentPolicy.approve(actor).allowed) return null;
+  if (!(await globalValue('comments.requireApproval'))) return null;
+
+  return commentsRepository.countPending();
+}
+
 export const getBootstrap: RequestHandler = async (req, res) => {
   const actor = req.actor;
 
   // In parallel, because they have nothing to say to each other. The whole
   // point of this endpoint is that the client does not have to know that.
-  const [settings, categories, statuses] = await Promise.all([
+  const [settings, categories, statuses, pendingComments] = await Promise.all([
     firstPaintFor(actor),
     categoriesRepository.listActive(),
     statusesRepository.listActive(),
+    countPendingFor(actor),
   ]);
 
   res.status(200).json({
@@ -84,6 +107,11 @@ export const getBootstrap: RequestHandler = async (req, res) => {
       },
 
       settings,
+
+      // Omitted, not zeroed. A count of 0 and "there is no moderation here" are
+      // different statements, and only one of them should put anything in the
+      // header.
+      ...(pendingComments === null ? {} : { pendingComments }),
 
       taxonomy: { categories, statuses },
     },

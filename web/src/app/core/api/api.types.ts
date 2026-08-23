@@ -140,6 +140,15 @@ export interface Bootstrap {
    */
   settings: Record<string, ResolvedSetting>;
 
+  /**
+   * How many comments are waiting for approval.
+   *
+   * Absent unless there is a gate up AND this caller may open it — so the
+   * header shows nothing at all rather than a confident zero when moderation is
+   * switched off. Absent, not zero: they are different statements.
+   */
+  pendingComments?: number;
+
   taxonomy: {
     categories: TaxonomyRef[];
     statuses: TaxonomyRef[];
@@ -310,6 +319,14 @@ export interface Comment {
   canReply: boolean;
 
   /**
+   * Whether this caller may let this comment through. Only ever true on one
+   * that is actually waiting — so the thread can offer the control beside the
+   * words it is about, without being told who is reading. Rejecting is
+   * canDelete, which an admin already has.
+   */
+  canApprove: boolean;
+
+  /**
    * Waiting for an admin, and visible to its author until it is let through.
    *
    * This is how the moderation setting reaches somebody who is not allowed to
@@ -331,17 +348,6 @@ export interface Comment {
 export interface CommentThread {
   data: Comment[];
   awaitsApproval: boolean;
-}
-
-/** One row of the moderation queue, with the request it is answering. */
-export interface PendingComment {
-  id: number;
-  requestId: number;
-  requestTitle: string;
-  parentId: number | null;
-  author: AuthorRef;
-  body: string;
-  createdAt: string;
 }
 
 export interface CreateComment {

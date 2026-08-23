@@ -67,47 +67,11 @@
     }
 
     <!--
-      The queue the flag creates. Shown whenever anything is waiting, whether or
-      not the gate is currently up: turning it off releases what is waiting, but
-      an admin should still see what was held while it was on.
+      No list of waiting comments here, on purpose. A queue that shows comments
+      out of the discussions they belong to cannot be judged: "that is not what
+      I meant" is fine or not depending entirely on what it answers. An admin
+      finds them from the count in the header and decides in the thread.
     -->
-    @if (pendingComments().length > 0) {
-      <h3 class="admin__queue-title">
-        {{ t('admin.queue') }}
-        <span class="admin__count">{{ pendingTotal() }}</span>
-      </h3>
-
-      @if (!approvalOn()) {
-        <p class="setting__description">
-          {{ t('admin.queueOpenNote') }}
-        </p>
-      }
-
-      <ul class="admin__queue">
-        @for (comment of pendingComments(); track comment.id) {
-          <li class="admin__queued">
-            <p class="admin__queued-meta">
-              <strong>{{ comment.author.displayName }}</strong>
-              {{ t('admin.on') }}
-              <a [routerLink]="['/requests', comment.requestId]">{{ comment.requestTitle }}</a>
-            </p>
-            <!-- The words themselves. A moderation decision made without reading
-                 what is being decided is not a decision. -->
-            <p class="admin__queued-body">{{ comment.body }}</p>
-            <button
-              type="button"
-              class="button button--secondary"
-              [disabled]="saving()"
-              (click)="approve(comment.id)"
-            >
-              {{ t('admin.approve') }}
-            </button>
-          </li>
-        }
-      </ul>
-    } @else if (approvalOn()) {
-      <p class="setting__description">{{ t('admin.queueEmpty') }}</p>
-    }
   </section>
 
   <section class="admin__section">

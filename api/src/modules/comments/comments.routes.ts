@@ -1,19 +1,11 @@
 import { Router } from 'express';
-import {
-  approveComment,
-  deleteComment,
-  editComment,
-  listPendingComments,
-} from './comments.controller.js';
+import { approveComment, deleteComment, editComment } from './comments.controller.js';
 
 /**
  * Editing and deleting name a comment directly; listing and creating hang off
  * the request they belong to and are mounted in requests.routes.ts.
  */
 export const commentsRouter = Router();
-
-// Before any ':id' route, so "pending" is never read as an id.
-commentsRouter.get('/pending', listPendingComments);
 
 commentsRouter.patch('/:id', editComment);
 commentsRouter.delete('/:id', deleteComment);

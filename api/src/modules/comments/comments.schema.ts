@@ -95,6 +95,17 @@ export interface CommentDto {
   canDelete: boolean;
   canReply: boolean;
 
+  /**
+   * Whether this caller may let this comment through.
+   *
+   * Only ever true on a comment that is actually waiting, and only for somebody
+   * who may approve — so the thread can offer the control beside the words it
+   * is about, without being told who is reading. Rejecting is `canDelete`,
+   * which an admin already has: a rejected comment is a removed one, and it
+   * records who removed it.
+   */
+  canApprove: boolean;
+
   /** Populated on top-level comments only; a reply cannot be replied to. */
   replies: CommentDto[];
 }

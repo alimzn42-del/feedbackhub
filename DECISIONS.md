@@ -324,6 +324,35 @@ on write. How the installation is run — who may register, how often anybody ma
 post — is not a fact every account is owed. It is not a secrecy guarantee and
 does not try to be: a setting whose effect is visible is visible.
 
+**A moderated comment is judged in the thread it was written in, and there is no
+queue.** A list of comments taken out of their discussions cannot be judged:
+"that is not what I meant" is fine or not depending entirely on what it answers.
+So approve and reject sit beside the words, and the comment carries `canApprove`
+the way every row carries `canVote` — the thread offers the control without ever
+being told who is reading.
+
+**Rejecting is deleting, deliberately not a second mechanism.** A rejected
+comment is a removed one: it records which admin removed it, and its author is
+told an admin did. A separate "rejected" state would be a third kind of hidden
+comment keeping no trail the other two do not already keep.
+
+**Discovery is a count in the header, and it is the only path there is.** Without
+one, a waiting comment sits in a thread nobody has a reason to open and the
+setting that held it back does nothing at all — the feature was non-functional
+before this. The count travels in the startup payload, links to the board
+filtered to requests carrying waiting comments, and is refetched after a decision
+so it falls without a reload.
+
+**The indicator is ABSENT, not zero, when the question does not apply** — the gate
+is down, or the reader cannot approve. A badge showing 0 and a header with
+nothing in it are different statements, so the server omits the field rather than
+sending a number.
+
+**`?pending=true` is admin-only and refused rather than ignored.** A filter that
+quietly did nothing would tell a regular user that no comments are waiting, which
+is a wrong answer to a question they were not allowed to ask. It narrows the
+board, so it counts as filtering in both implementations of that rule.
+
 **But the CONSEQUENCE of a withheld setting still reaches the person it affects.**
 Comment moderation is admin-only, and somebody whose comment will wait is told
 so before they write it and after they post it — as an answer about their own

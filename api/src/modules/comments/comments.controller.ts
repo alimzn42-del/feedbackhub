@@ -30,20 +30,6 @@ export const listComments: RequestHandler = async (req, res) => {
 };
 
 /**
- * The moderation queue. Admin only, and refused here rather than hidden.
- *
- * It carries a total alongside the rows because the list is capped: an admin
- * looking at a hundred comments needs to know whether that is all of them.
- */
-export const listPendingComments: RequestHandler = async (req, res) => {
-  authorize(commentPolicy.approve(req.actor));
-
-  const pending = await commentsService.listPending(req.actor);
-
-  res.status(200).json({ data: pending.comments, total: pending.total });
-};
-
-/**
  * Approving is a PUT on a sub-resource of the comment rather than a POST to an
  * action, matching the way a status default is set: it is a property of the
  * comment reaching a state, and repeating it is not a second approval.

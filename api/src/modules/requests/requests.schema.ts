@@ -209,6 +209,20 @@ export const listRequestsQuerySchema = paginationQuerySchema
         .optional(),
     ),
 
+    /**
+     * Requests that have a comment waiting for approval.
+     *
+     * Admin only, refused rather than ignored — see requestPolicy.filterPending.
+     * It is the discovery path for moderation: the header says how many are
+     * waiting and this is where that link goes, so an admin lands on the
+     * requests that need them rather than on a list of comments taken out of
+     * the discussions that give them their meaning.
+     */
+    pending: z.preprocess(
+      toFlag,
+      z.boolean({ error: 'The "pending" filter must be true or false.' }).optional(),
+    ),
+
     /** Free text, matched against title and description. */
     q: z.preprocess(
       toSearch,
@@ -260,6 +274,7 @@ export function isFiltered(query: ListRequestsQuery): boolean {
     (query.category?.length ?? 0) > 0 ||
     (query.status?.length ?? 0) > 0 ||
     query.mine === true ||
+    query.pending === true ||
     query.q !== undefined
   );
 }

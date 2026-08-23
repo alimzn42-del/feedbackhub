@@ -412,3 +412,57 @@ describe('GET /api/statuses', () => {
     expect(response.body.page).toBeUndefined();
   });
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Finding what is waiting for moderation.
+ *
+ * This filter is the discovery path for comment approval: the header says how
+ * many are waiting, and the link lands on the requests that carry them. It is
+ * admin-only, and refused rather than ignored — a filter that quietly did
+ * nothing would tell a regular user that nothing is waiting, which is a wrong
+ * answer to a question they were not allowed to ask.
+ * ──────────────────────────────────────────────────────────────────────────── */
+/** The moderation filter is the first thing on this board only an admin may ask. */
+const ADMIN: Actor = { ...REGULAR_USER, id: 1, displayName: 'Robin Alvarez', role: 'admin' };
+
+describe('GET /api/requests?pending=true', () => {
+  it('asks the repository for requests carrying a waiting comment', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    await request(app).get('/api/requests?pending=true').expect(200);
+
+    expect(requestsRepository.list).toHaveBeenCalledWith(
+      expect.objectContaining({ pendingOnly: true }),
+    );
+  });
+
+  it('403s a regular user, and reads nothing', async () => {
+    const response = await request(app).get('/api/requests?pending=true');
+
+    expect(response.status).toBe(403);
+    expect(requestsRepository.list).not.toHaveBeenCalled();
+  });
+
+  /**
+   * It narrows the board, so the pinned shelf folds in like it does for every
+   * other filter. The two implementations of "is this filtered" — one here, one
+   * in the web app — have to agree, or pinned rows appear twice or vanish.
+   */
+  it('counts as filtering, so the shelf is not asked for', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    await request(app).get('/api/requests?pending=true').expect(200);
+
+    expect(requestsRepository.list).toHaveBeenCalledWith(
+      expect.objectContaining({ includePinned: true }),
+    );
+  });
+
+  it('is absent from the query when nobody asked for it', async () => {
+    await request(app).get('/api/requests').expect(200);
+
+    expect(requestsRepository.list).toHaveBeenCalledWith(
+      expect.objectContaining({ pendingOnly: undefined }),
+    );
+  });
+});

@@ -24,7 +24,7 @@ Eight slices, schema version 12.
 | **Admin taxonomy** | one screen managing categories and statuses: add, rename, reorder, retire, set default |
 | **Settings** | two levels, resolved on the server; one startup request; a rate limit, a registration policy, a feature flag, and account deletion |
 
-**Tests: 401** — 209 API (vitest + supertest), 192 web (Angular + vitest, jsdom).
+**Tests: 416** — 220 API (vitest + supertest), 196 web (Angular + vitest, jsdom).
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
 `comments`, `app_settings`, `user_settings`.
@@ -118,6 +118,24 @@ Remove either half and you get a different bug: the first hides the entire
 history of the board the moment an admin tries the setting; the second strands
 comments invisible forever with nothing left to approve them from.
 
+### Moderation has exactly one discovery path, and it is the header count
+
+Without it the feature does not work: a waiting comment sits in a thread nobody
+has a reason to open. The count comes from the startup payload, links to
+`/requests?pending=true`, and is refetched after every approve or reject so it
+falls without a reload.
+
+**It is absent, not zero,** when the gate is down or the reader cannot approve.
+Do not "simplify" that into always sending a number — a badge showing 0 claims
+there is moderation here and nothing is waiting, which is a different statement
+from there being no moderation.
+
+**There is no queue screen, and adding one would be a regression.** Comments are
+approved and rejected in the thread they were written in, because judging one
+needs the discussion around it. Rejecting is the ordinary delete, which records
+who did it; a separate "rejected" state would be a third kind of hidden comment
+with no trail the other two do not already keep.
+
 ### One SQL fragment decides who sees which comment
 
 `APPROVED_FOR_VIEWER` in `comments.repository.ts`, imported by
@@ -199,7 +217,8 @@ Breaking any of these will look like a regression to a reviewer:
 - **One error envelope,** produced by one middleware. `400` unparseable, `422`
   parsed and wrong, `429` too soon and carrying how long.
 - **Two implementations of "is this filtered" have to agree** — `isFiltered` in
-  `api/.../requests.schema.ts` and in `web/.../board-filters.ts`.
+  `api/.../requests.schema.ts` and in `web/.../board-filters.ts`. `pending` is
+  one of them now.
 
 ## Things that bit, and will bite again
 

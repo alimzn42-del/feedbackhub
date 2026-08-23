@@ -11,6 +11,7 @@ import {
 } from '@angular/forms';
 import type { Observable } from 'rxjs';
 import { CommentsApi } from '../data/comments.api';
+import { ConfirmDialog } from '../../../shared/confirm-dialog/confirm-dialog';
 import { toApiError } from '../../../core/api/api-error';
 // Aliased: this component is also called CommentThread, and the payload it
 // renders is a different thing from the component that renders it.
@@ -36,7 +37,7 @@ function notBlank(control: AbstractControl): ValidationErrors | null {
 
 @Component({
   selector: 'app-comment-thread',
-  imports: [ReactiveFormsModule, DatePipe],
+  imports: [ReactiveFormsModule, DatePipe, ConfirmDialog],
   templateUrl: './comment-thread.html',
   styleUrl: './comment-thread.scss',
 })
@@ -59,6 +60,9 @@ export class CommentThread {
    * chose. This way changing the language takes effect without a reload.
    */
   protected readonly locale = inject(AppConfig).language;
+
+  /** Refetched after a moderation decision, so the header's count follows. */
+  private readonly config = inject(AppConfig);
 
   protected readonly thread = httpResource<CommentThreadPayload>(() => ({
     url: this.api.threadUrl(this.requestId()),
@@ -200,6 +204,58 @@ export class CommentThread {
   }
 
   /**
+   * Letting a waiting comment through, from where it was written.
+   *
+   * Judging a comment needs the discussion around it — "that is not what I
+   * meant" is fine or not depending entirely on what it answers — so the
+   * control is here rather than on a queue that lists comments out of their
+   * threads.
+   *
+   * The startup payload is refetched too: the header's waiting count came from
+   * there, and an admin who approves something has to see that number fall
+   * without reloading the page.
+   */
+  protected approve(comment: Comment): void {
+    if (this.busy()) return;
+
+    this.busy.set(true);
+    this.failure.set(null);
+
+    this.api.approve(comment.id).subscribe({
+      next: (approved) => {
+        this.replace(approved.data);
+        this.config.reload();
+        this.busy.set(false);
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.failure.set(toApiError(error).message);
+      },
+    });
+  }
+
+  /**
+   * Rejecting, which is deleting — and deliberately not a second mechanism.
+   *
+   * A rejected comment is a removed one: it records which admin removed it, and
+   * its author is told an admin did, which is exactly what the deletion path
+   * already does. A separate "rejected" state would be a third kind of hidden
+   * comment with no trail that the other two do not already keep.
+   *
+   * It asks first. Approving is reversible by nobody caring; rejecting takes
+   * somebody's words off the board.
+   */
+  protected readonly rejecting = signal<Comment | null>(null);
+
+  protected confirmReject(): void {
+    const comment = this.rejecting();
+    if (!comment) return;
+
+    this.rejecting.set(null);
+    this.remove(comment);
+  }
+
+  /**
    * Deleting is the one action that still refetches, and not for want of trying.
    * The server decides whether the row goes, becomes a tombstone, or takes
    * several replies down with it — three shapes, chosen by rules the browser
@@ -217,6 +273,8 @@ export class CommentThread {
         this.replyingTo.set(null);
         this.editing.set(null);
         this.thread.reload();
+        // A rejected comment was a waiting one, so the header's count is stale.
+        this.config.reload();
         this.changed()?.();
       },
       error: (error: unknown) => {

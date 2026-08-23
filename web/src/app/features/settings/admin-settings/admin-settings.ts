@@ -1,10 +1,9 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { httpResource, HttpClient } from '@angular/common/http';
+import { httpResource } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { AppConfig } from '../../../core/config/app-config';
-import { API_BASE_URL } from '../../../core/api/api-base-url';
 import { toApiError, type ApiError } from '../../../core/api/api-error';
-import type { PendingComment, SettingDescriptor, Wrapped } from '../../../core/api/api.types';
+import type { SettingDescriptor, Wrapped } from '../../../core/api/api.types';
 import { SettingControl } from '../setting-control/setting-control';
 import { SettingsApi } from '../data/settings.api';
 import { Translate } from '../../../core/i18n/translate';
@@ -31,8 +30,6 @@ export class AdminSettings {
   protected readonly t = inject(Translate).t;
 
   private readonly api = inject(SettingsApi);
-  private readonly http = inject(HttpClient);
-  private readonly baseUrl = inject(API_BASE_URL);
   private readonly config = inject(AppConfig);
 
   protected readonly settings = httpResource<Wrapped<SettingDescriptor[]>>(() => ({
@@ -67,35 +64,6 @@ export class AdminSettings {
   /** A 403 here is the ordinary case, not a fault: somebody typed the URL. */
   protected readonly refused = computed(() => this.loadFailure()?.status === 403);
 
-  /**
-   * Whether comments are currently held. Read from the settings document rather
-   * than from a second source, so the queue below cannot disagree with the
-   * control above it.
-   */
-  protected readonly approvalOn = computed(
-    () => this.rows().find((row) => row.key === 'comments.requireApproval')?.value === true,
-  );
-
-  /* ── The moderation queue ──────────────────────────────────────────────── */
-
-  private readonly queueAttempt = signal(0);
-
-  protected readonly pending = httpResource<{ data: PendingComment[]; total: number }>(() => {
-    this.queueAttempt();
-    // Fetched whatever the setting says: turning approval off releases what is
-    // waiting, but a comment written while it was on and never approved is
-    // still worth showing an admin until somebody deals with it.
-    return { url: `${this.baseUrl}/comments/pending` };
-  });
-
-  protected readonly pendingComments = computed<PendingComment[]>(() =>
-    this.pending.hasValue() ? (this.pending.value()?.data ?? []) : [],
-  );
-
-  protected readonly pendingTotal = computed(() =>
-    this.pending.hasValue() ? (this.pending.value()?.total ?? 0) : 0,
-  );
-
   protected readonly saving = signal(false);
   protected readonly failure = signal<ApiError | null>(null);
   protected readonly saved = signal(false);
@@ -113,22 +81,6 @@ export class AdminSettings {
         this.config.reload();
         this.saving.set(false);
         this.saved.set(true);
-      },
-      error: (error: unknown) => {
-        this.saving.set(false);
-        this.failure.set(toApiError(error));
-      },
-    });
-  }
-
-  protected approve(id: number): void {
-    this.saving.set(true);
-    this.failure.set(null);
-
-    this.http.put(`${this.baseUrl}/comments/${id}/approval`, {}).subscribe({
-      next: () => {
-        this.queueAttempt.update((n) => n + 1);
-        this.saving.set(false);
       },
       error: (error: unknown) => {
         this.saving.set(false);

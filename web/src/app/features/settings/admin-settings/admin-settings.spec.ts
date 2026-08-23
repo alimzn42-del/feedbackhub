@@ -28,21 +28,6 @@ const APPROVAL: SettingDescriptor = {
   control: { kind: 'toggle' },
 };
 
-const PENDING = {
-  data: [
-    {
-      id: 9,
-      requestId: 7,
-      requestTitle: 'Dark mode for the board',
-      parentId: null,
-      author: { id: 3, displayName: 'Sam Lindqvist' },
-      body: 'This would help in the evenings.',
-      createdAt: '2026-08-21T09:00:00.000Z',
-    },
-  ],
-  total: 1,
-};
-
 describe('AdminSettings', () => {
   let http: HttpTestingController;
 
@@ -66,12 +51,13 @@ describe('AdminSettings', () => {
     }
   });
 
-  async function render(rows: SettingDescriptor[] = [APPROVAL], pending = PENDING) {
+  async function render(rows: SettingDescriptor[] = [APPROVAL]) {
     const fixture = TestBed.createComponent(AdminSettings);
     fixture.detectChanges();
 
+    // One request. The waiting comments are not listed here any more: they are
+    // judged in the threads they were written in.
     http.expectOne('/api/settings').flush({ data: rows });
-    http.expectOne('/api/comments/pending').flush(pending);
 
     await fixture.whenStable();
     fixture.detectChanges();
@@ -93,19 +79,6 @@ describe('AdminSettings', () => {
       },
       { status: 403, statusText: 'Forbidden' },
     );
-    http
-      .expectOne('/api/comments/pending')
-      .flush(
-        {
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Only an admin can approve comments.',
-            requestId: 'abc-2',
-          },
-        },
-        { status: 403, statusText: 'Forbidden' },
-      );
-
     await fixture.whenStable();
     fixture.detectChanges();
 
@@ -130,36 +103,7 @@ describe('AdminSettings', () => {
     await settle(fixture);
   });
 
-  /**
-   * The words, not just a count. A moderation decision made without reading
-   * what is being decided is not a decision.
-   */
-  it('shows what is waiting, with the comment and the request it answers', async () => {
-    const fixture = await render();
-    const text = fixture.nativeElement.textContent as string;
 
-    expect(text).toContain('Waiting for approval');
-    expect(text).toContain('This would help in the evenings.');
-    expect(text).toContain('Sam Lindqvist');
-    expect(text).toContain('Dark mode for the board');
-  });
-
-  it('approves one comment and asks for the queue again', async () => {
-    const fixture = await render();
-
-    const approve = (
-      [...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[]
-    ).find((button) => button.textContent?.includes('Approve'))!;
-
-    approve.click();
-
-    const sent = http.expectOne((r) => r.url === '/api/comments/9/approval' && r.method === 'PUT');
-    sent.flush({ data: {} });
-
-    await settle(fixture, '/api/comments/pending', { data: [], total: 0 });
-
-    expect(fixture.nativeElement.textContent).toContain('Nothing is waiting');
-  });
 
   /**
    * This screen writes the installation's value, so it must never render

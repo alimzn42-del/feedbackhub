@@ -46,7 +46,7 @@
   <app-pinned-panel
     [items]="pinnedItems()"
     [total]="pinnedTotal()"
-    [pendingIds]="pending()"
+    [pendingIds]="voting()"
     (vote)="toggleVote($event)"
     (unpin)="togglePin($event)"
   />

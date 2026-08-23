@@ -26,6 +26,17 @@ export class CommentsApi {
     return this.http.post<Wrapped<Comment>>(this.threadUrl(requestId), body);
   }
 
+  /**
+   * Lets a waiting comment through, from the thread it is in.
+   *
+   * A PUT on a sub-resource rather than a POST to an action: approval is a
+   * state the comment reaches, and asking twice is not a second approval — the
+   * server answers 409.
+   */
+  approve(commentId: number): Observable<Wrapped<Comment>> {
+    return this.http.put<Wrapped<Comment>>(`${this.commentUrl(commentId)}/approval`, {});
+  }
+
   edit(commentId: number, body: string): Observable<Wrapped<Comment>> {
     return this.http.patch<Wrapped<Comment>>(this.commentUrl(commentId), { body });
   }

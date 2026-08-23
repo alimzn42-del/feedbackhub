@@ -223,6 +223,12 @@ async function resolveSlugs(
  * together. Neither runs at all when its filter is absent.
  */
 async function resolveFilters(actor: Actor, query: ListRequestsQuery): Promise<ListFilters> {
+  // Before any of it is resolved: a caller who may not ask this question does
+  // not get told how many rows would have answered it.
+  if (query.pending === true) {
+    authorize(requestPolicy.filterPending(actor));
+  }
+
   const [categoryIds, statusIds] = await Promise.all([
     resolveSlugs('category', query.category, categoriesRepository.findIdsBySlugs),
     resolveSlugs('status', query.status, statusesRepository.findIdsBySlugs),
@@ -235,6 +241,7 @@ async function resolveFilters(actor: Actor, query: ListRequestsQuery): Promise<L
     // parameter. The browser is not told who it is, so it cannot name an author
     // — and nobody can page through somebody else's requests by editing a URL.
     authorId: query.mine === true ? actor.id : undefined,
+    pendingOnly: query.pending,
     search: query.q,
   };
 }

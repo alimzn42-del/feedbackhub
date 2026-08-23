@@ -45,6 +45,8 @@ const english = {
   'nav.newRequest': 'New request',
   'nav.categories': 'Categories',
   'nav.settings': 'Settings',
+  'nav.pending': 'Waiting',
+  'nav.pendingLabel': '{count} comments waiting for approval',
 
   /* ── Words used on more than one screen ────────────────────────────────── */
   'common.tryAgain': 'Try again',
@@ -238,6 +240,12 @@ const english = {
   'comment.awaitingApproval':
     'Comments on this board are approved by an admin before anybody else sees them. Yours will be visible to you while it waits.',
   'comment.pending': 'Waiting for approval',
+  'comment.approve': 'Approve',
+  'comment.reject': 'Reject',
+  'comment.rejectTitle': 'Reject this comment?',
+  'comment.rejectBody':
+    'It is removed from the discussion and its author is told an admin removed it. This cannot be undone.',
+  'board.pendingFilter': 'Requests with comments waiting for approval.',
 
   'comment.emptyLong':
     'No comments yet. If this request needs detail or a counter-argument, this is where it goes.',
@@ -370,6 +378,8 @@ const french: Record<MessageKey, string> = {
   'nav.newRequest': 'Nouvelle demande',
   'nav.categories': 'Catégories',
   'nav.settings': 'Paramètres',
+  'nav.pending': 'En attente',
+  'nav.pendingLabel': '{count} commentaires en attente d’approbation',
 
   'common.tryAgain': 'Réessayer',
   'common.cancel': 'Annuler',
@@ -558,6 +568,12 @@ const french: Record<MessageKey, string> = {
   'comment.awaitingApproval':
     'Sur ce tableau, les commentaires sont approuvés par un administrateur avant que quiconque ne les voie. Le vôtre restera visible pour vous en attendant.',
   'comment.pending': 'En attente d’approbation',
+  'comment.approve': 'Approuver',
+  'comment.reject': 'Rejeter',
+  'comment.rejectTitle': 'Rejeter ce commentaire ?',
+  'comment.rejectBody':
+    'Il est retiré de la discussion et son auteur est informé qu’un administrateur l’a supprimé. Cette action est irréversible.',
+  'board.pendingFilter': 'Demandes dont des commentaires attendent une approbation.',
 
   'comment.emptyLong':
     'Aucun commentaire pour l’instant. Si cette demande a besoin de précisions ou d’un contre-argument, c’est ici.',

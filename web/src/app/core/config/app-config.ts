@@ -100,6 +100,16 @@ export class AppConfig {
       },
   );
 
+  /**
+   * How many comments are waiting, or null when the question does not apply —
+   * moderation is off, or this caller cannot approve anything.
+   *
+   * Null rather than 0, all the way through, because the header renders nothing
+   * for null and a badge for 0. "Nothing is waiting" is worth saying; "there is
+   * no moderation here" is not.
+   */
+  readonly pendingComments = computed<number | null>(() => this.data()?.pendingComments ?? null);
+
   readonly categories = computed<TaxonomyRef[]>(() => this.data()?.taxonomy.categories ?? []);
   readonly statuses = computed<TaxonomyRef[]>(() => this.data()?.taxonomy.statuses ?? []);
 

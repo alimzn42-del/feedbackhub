@@ -32,6 +32,18 @@ export class App {
     () => this.config.capabilities().canManageSettings,
   );
 
+  /**
+   * How many comments are waiting, or null when there is nothing to say.
+   *
+   * This is the whole discovery path for comment approval. Without it a waiting
+   * comment sits in a thread nobody has a reason to open, and the setting that
+   * held it back does nothing at all.
+   *
+   * Null when moderation is off or when this caller cannot approve — and the
+   * header then renders nothing, rather than a badge showing zero.
+   */
+  protected readonly pendingComments = this.config.pendingComments;
+
   /** Shown in the navigation, so it is obvious which account the board is being read as. */
   protected readonly displayName = computed(() => this.config.user()?.displayName ?? '');
 }

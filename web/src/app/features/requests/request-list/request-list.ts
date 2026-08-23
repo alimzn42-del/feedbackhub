@@ -69,6 +69,9 @@ export class RequestList {
   readonly status = input<string | string[]>();
   readonly category = input<string | string[]>();
   readonly mine = input<string>();
+
+  /** Admin only. The header's waiting count links here. */
+  readonly pending = input<string>();
   readonly q = input<string>();
   readonly sort = input<string>();
 
@@ -101,6 +104,7 @@ export class RequestList {
     statuses: parseSlugs(this.status()),
     categories: parseSlugs(this.category()),
     mine: parseFlag(this.mine()),
+    pending: parseFlag(this.pending()),
     q: (this.q() ?? '').trim(),
     sort: parseSort(this.sort()),
   }));
@@ -159,6 +163,7 @@ export class RequestList {
       this.status() !== undefined ||
       this.category() !== undefined ||
       this.mine() !== undefined ||
+      this.pending() !== undefined ||
       this.q() !== undefined,
   );
 
@@ -218,6 +223,7 @@ export class RequestList {
       statuses: narrowed ? current.statuses : this.config.defaultStatuses(),
       categories: narrowed ? current.categories : this.config.defaultCategories(),
       mine: current.mine,
+      pending: current.pending,
       q: current.q,
       sort: this.sort() === undefined ? this.config.defaultSort() : current.sort,
     };
@@ -392,12 +398,12 @@ export class RequestList {
   /* ── Voting ────────────────────────────────────────────────────────────── */
 
   /** Ids with a vote in flight, so a card cannot be double-submitted. */
-  protected readonly pending = signal<ReadonlySet<number>>(new Set<number>());
+  protected readonly voting = signal<ReadonlySet<number>>(new Set<number>());
 
   protected readonly voteFailure = signal<string | null>(null);
 
   protected isVoting(id: number): boolean {
-    return this.pending().has(id);
+    return this.voting().has(id);
   }
 
   /**
@@ -458,7 +464,7 @@ export class RequestList {
   }
 
   private setPending(id: number, active: boolean): void {
-    this.pending.update((current) => {
+    this.voting.update((current) => {
       const next = new Set(current);
       if (active) {
         next.add(id);
