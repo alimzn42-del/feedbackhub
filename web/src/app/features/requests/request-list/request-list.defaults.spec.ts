@@ -44,6 +44,94 @@ describe('RequestList opening defaults', () => {
     TestBed.resetTestingModule();
   });
 
+  /**
+   * The case the first version of this rule got wrong, and the one that was
+   * reported.
+   *
+   * Somebody whose default ORDERING is oldest lands on /requests?sort=oldest.
+   * That address is not bare, so the old rule never fired again — and a default
+   * STATUS chosen afterwards could never take effect. The setting saved, the
+   * payload carried it, the board ignored it.
+   */
+  it('applies a default filter even when the address already carries an ordering', async () => {
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate');
+
+    const fixture = TestBed.createComponent(RequestList);
+    // As if arrived at /requests?sort=oldest — an ordering asked for, no filter.
+    fixture.componentRef.setInput('sort', 'oldest');
+    fixture.detectChanges();
+
+    http.match(() => true).forEach((request) => request.flush(EMPTY_PAGE));
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    expect(navigate).toHaveBeenCalledWith(
+      ['/requests'],
+      expect.objectContaining({
+        queryParams: { status: 'new', category: 'bug', sort: 'oldest' },
+        replaceUrl: true,
+      }),
+    );
+  });
+
+  /**
+   * The other half of the same rule: an address that DOES narrow the board is
+   * somebody asking for something specific, and a preference does not overrule
+   * a shared link.
+   */
+  it('leaves an address that already narrows the board alone', async () => {
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate');
+
+    const fixture = TestBed.createComponent(RequestList);
+    fixture.componentRef.setInput('status', 'done');
+    fixture.detectChanges();
+
+    http.match(() => true).forEach((request) => request.flush(EMPTY_PAGE));
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    // The ordering it did not ask for is still filled in; the filter is not.
+    const [, extras] = navigate.mock.calls[0] ?? [];
+    const params = (extras as { queryParams?: Record<string, string> })?.queryParams ?? {};
+
+    expect(params['status']).toBeUndefined();
+    expect(params['category']).toBeUndefined();
+  });
+
+  /**
+   * Clearing the filters happens while somebody is already on the board, and
+   * this component is reused across that navigation — so the defaults do not
+   * come back and re-narrow what they just cleared.
+   */
+  it('does not re-apply once somebody is working on the board', async () => {
+    const router = TestBed.inject(Router);
+
+    const fixture = TestBed.createComponent(RequestList);
+    fixture.detectChanges();
+
+    http.match(() => true).forEach((request) => request.flush(EMPTY_PAGE));
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const navigate = vi.spyOn(router, 'navigate');
+
+    // The same instance, now told the address has been cleared.
+    fixture.componentRef.setInput('status', '');
+    fixture.componentRef.setInput('category', '');
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    http.match(() => true).forEach((request) => request.flush(EMPTY_PAGE));
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('replaces a bare address with one carrying the saved defaults', async () => {
     const router = TestBed.inject(Router);
     const navigate = vi.spyOn(router, 'navigate');

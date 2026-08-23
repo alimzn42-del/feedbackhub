@@ -146,44 +146,88 @@ export class RequestList {
    * cleared, and it must stay cleared. This is the narrower question: did they
    * arrive at /requests with nothing after it.
    */
-  private readonly addressIsBare = computed(
+  /**
+   * Whether the address narrows the board.
+   *
+   * Sorting is not filtering — the same distinction the pinned shelf already
+   * draws, and `isFiltered` with it. Somebody who arrived on `?sort=oldest` has
+   * asked for an ORDER and has not asked to see fewer requests, so their
+   * default filters still apply.
+   */
+  private readonly addressNarrows = computed(
     () =>
-      this.status() === undefined &&
-      this.category() === undefined &&
-      this.mine() === undefined &&
-      this.q() === undefined &&
-      this.sort() === undefined,
+      this.status() !== undefined ||
+      this.category() !== undefined ||
+      this.mine() !== undefined ||
+      this.q() !== undefined,
   );
+
+  /**
+   * One attempt per arrival, and this is the whole of what "arrival" means.
+   *
+   * Angular destroys and rebuilds this component when you come to the board
+   * from another screen, and REUSES it while you stay — paging, filtering,
+   * clearing. So a flag on the instance separates "I have just got here" from
+   * "I am working on the board", which is the distinction the rule below needs
+   * and the URL cannot express.
+   */
+  private applied = false;
 
   /**
    * A saved preference decides where you LAND; the URL still says where you
    * are.
    *
    * This is how the board's default ordering and filters coexist with the rule
-   * that list state lives in query parameters. Arriving with a bare address
-   * replaces it with one that spells the preference out — so the view is
+   * that list state lives in query parameters. Arriving fills in the parts of
+   * the address you did not ask for, and spells them out, so the view is
    * shareable, survives a refresh, and means the same thing to somebody whose
    * defaults are different.
    *
-   * replaceUrl, so the Back button does not have to walk through a redirect
-   * nobody asked for. It fires only on a bare address, so nothing here can
-   * re-narrow a board that has been deliberately cleared, and it cannot loop:
-   * the navigation it performs is not bare.
+   * ─────────────────────────────────────────────────────────────────────────
+   * WHY THIS IS NOT "ONLY ON A BARE ADDRESS", WHICH IS WHAT IT WAS
+   *
+   * Because the redirect makes the address non-bare, and then never fires
+   * again. Somebody whose default ORDERING is `oldest` lands on
+   * `/requests?sort=oldest`; every later arrival at that address — a Back, a
+   * bookmark, a reload — carried a `sort`, so the board was no longer "bare",
+   * so a default STATUS chosen afterwards could never take effect. The setting
+   * saved, the payload carried it, and the board ignored it. Reported, exactly
+   * so, as choosing a status default and nothing happening.
+   *
+   * The two questions are separate and are now asked separately: did you ask
+   * for an ordering, and did you ask to narrow the board. Whichever you did not
+   * ask for, your preference answers.
+   * ─────────────────────────────────────────────────────────────────────────
+   *
+   * It cannot re-narrow a board somebody deliberately cleared, because clearing
+   * happens while they are already here and this has run once by then. And it
+   * cannot loop: the navigation it performs answers both questions, so a second
+   * run would have nothing left to fill in.
    */
   private readonly applyDefaults = effect(() => {
-    if (!this.config.isReady() || !this.addressIsBare()) return;
+    if (this.applied || !this.config.isReady()) return;
 
-    const defaults: BoardFilters = {
-      statuses: this.config.defaultStatuses(),
-      categories: this.config.defaultCategories(),
-      mine: false,
-      q: '',
-      sort: this.config.defaultSort(),
+    // Marked before navigating, not after: the navigation re-runs this effect
+    // through the rebound inputs, and a second pass would fight the first.
+    this.applied = true;
+
+    const current = this.filters();
+    const narrowed = this.addressNarrows();
+
+    const wanted: BoardFilters = {
+      statuses: narrowed ? current.statuses : this.config.defaultStatuses(),
+      categories: narrowed ? current.categories : this.config.defaultCategories(),
+      mine: current.mine,
+      q: current.q,
+      sort: this.sort() === undefined ? this.config.defaultSort() : current.sort,
     };
 
-    const params = toQueryParams(defaults, 1, DEFAULT_PAGE_SIZE);
+    const params = toQueryParams(wanted, this.currentPage(), this.currentPageSize());
+    const now = toQueryParams(current, this.currentPage(), this.currentPageSize());
 
-    if (Object.keys(params).length === 0) return;
+    // Nothing to fill in: they asked for everything, or their preferences are
+    // what the board would have shown anyway.
+    if (JSON.stringify(params) === JSON.stringify(now)) return;
 
     void this.router.navigate(['/requests'], { queryParams: params, replaceUrl: true });
   });

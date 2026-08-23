@@ -1436,3 +1436,40 @@ double quotes and 80 columns. Reverted with `git checkout -- api/src` and the
 three intended files re-applied from the scripts that made them, which is the
 argument for making changes with a script you can re-run rather than by hand.
 **Format the web workspace from inside it, and leave the API alone.**
+
+## 2026-08-23 — The default filter that never applied
+
+Reported as: choose a status under "How the board opens for you", go to the
+board, nothing happens.
+
+The server was fine — the setting saved, and the startup payload carried it. The
+board's rule for WHEN to apply it was wrong, and wrong in the way that is hardest
+to see: it worked the first time and never again.
+
+The rule was "apply the defaults when the address is bare". The redirect it
+performs makes the address non-bare. So somebody whose default ORDERING is
+`oldest` lands on `/requests?sort=oldest`, and every later arrival at that
+address — Back, a bookmark, a reload — carries a `sort` and is therefore not
+bare. A default STATUS chosen afterwards could never take effect.
+
+My first pass at this had a whole-chain test that passed, which is why I did not
+find it by reasoning: the test arrived at a genuinely bare address, because that
+was the only case I had thought about. The bug lived entirely in the second
+visit.
+
+The fix separates two questions that were being asked as one — did you ask for an
+ordering, and did you ask to narrow the board — and answers each from the
+preference if the address did not. That distinction is not new here: the pinned
+shelf already rules that sorting is not filtering, and `isFiltered` excludes
+`sort` for the same reason.
+
+The other half is knowing when somebody has "arrived" rather than "is working".
+That cannot live in the URL, because an address with no filters is the same
+address whether it was cleared or arrived at. It lives on the component instance
+instead: Angular rebuilds the board when you come to it from another screen and
+reuses it while you stay, so the instance IS the distinction. One attempt per
+arrival, and clearing the filters a moment later is not one.
+
+**Worth remembering: a rule whose own action changes the condition it tests will
+work once.** The bare-address check read as obviously correct and was, for the
+first visit only.

@@ -24,7 +24,7 @@ Eight slices, schema version 12.
 | **Admin taxonomy** | one screen managing categories and statuses: add, rename, reorder, retire, set default |
 | **Settings** | two levels, resolved on the server; one startup request; a rate limit, a registration policy, a feature flag, and account deletion |
 
-**Tests: 398** — 209 API (vitest + supertest), 189 web (Angular + vitest, jsdom).
+**Tests: 401** — 209 API (vitest + supertest), 192 web (Angular + vitest, jsdom).
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
 `comments`, `app_settings`, `user_settings`.
@@ -177,8 +177,11 @@ Breaking any of these will look like a regression to a reviewer:
 - **Counts are derived, never stored.** Votes and comments are counted on read.
   A counter column is the thing this schema has refused four times.
 - **List state lives in URL query parameters.** A saved default decides where you
-  land — the board replaces a bare address with one carrying it — and the URL
-  still says where you are.
+  land — arriving at the board fills in what the address did not ask for — and
+  the URL still says where you are. Ordering and filtering are asked separately,
+  and it applies once per arrival, tracked on the component instance. Do not put
+  that condition back in the URL: an address with no filters is the same address
+  whether it was cleared or arrived at, which is the bug this replaced.
 - **Never add an endpoint that clears the default status.**
 - **Never add a way to change a slug.** It is in URLs people have shared.
 - **Retiring is not deleting, and statuses are not retired at all.**

@@ -694,11 +694,32 @@ on hardcoded fallbacks, because nothing renders at all until the server has
 answered.
 
 **A saved preference decides where you LAND; the URL still says where you are.**
-Arriving at `/requests` with a bare address replaces it with one carrying the
-person's default ordering and filters, so the view stays shareable and survives a
-refresh. It fires only on a bare address — a board somebody has actively cleared
-stays cleared — and `replaceUrl`, so Back does not walk through a redirect nobody
-asked for.
+Arriving at the board fills in the parts of the address you did not ask for and
+spells them out, so the view stays shareable, survives a refresh, and means the
+same thing to somebody whose defaults are different. `replaceUrl`, so Back does
+not walk through a redirect nobody asked for.
+
+**The two questions are asked separately: did you ask for an ORDERING, and did
+you ask to NARROW the board.** Whichever you did not ask for, your preference
+answers. Sorting is not filtering — the same distinction the pinned shelf already
+draws — so somebody who arrived on `?sort=oldest` still gets their default
+filters.
+
+**Reversed.** This first fired only on a completely bare address, which was
+wrong in a way that looked exactly like the feature not working: the redirect
+itself makes the address non-bare. Somebody whose default ordering was `oldest`
+landed on `/requests?sort=oldest`, and from then on every arrival at that address
+carried a `sort`, so the board was never "bare" again and a default STATUS chosen
+afterwards could never take effect. The setting saved, the payload carried it,
+and the board ignored it.
+
+**It applies once per arrival, tracked on the component instance rather than in
+the URL.** Angular rebuilds this component when you come to the board from
+another screen and reuses it while you stay — paging, filtering, clearing — so
+the instance is exactly the line between "I have just got here" and "I am working
+on the board". That is what keeps a board somebody deliberately cleared from
+being re-narrowed a moment later, which the URL alone cannot express: an address
+with no filters is the same address whether it was cleared or arrived at.
 
 **The colour scheme is applied to the document element, and `system` removes the
 attribute rather than writing a third value.** The stylesheet's own
