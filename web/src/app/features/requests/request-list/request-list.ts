@@ -1,8 +1,17 @@
-import { Component, computed, inject, input, numberAttribute, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  numberAttribute,
+  signal,
+} from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { RequestsApi } from '../data/requests.api';
+import { AppConfig } from '../../../core/config/app-config';
 import { toApiError } from '../../../core/api/api-error';
 import type {
   FeedbackRequestListItem,
@@ -33,8 +42,15 @@ import { PinnedPanel } from '../pinned-panel/pinned-panel';
   styleUrl: './request-list.scss',
 })
 export class RequestList {
+  /**
+   * The locale dates are written in. Passed to the pipe rather than provided
+   * as LOCALE_ID, which is fixed before the person's preference has arrived.
+   */
+  protected readonly locale = inject(AppConfig).language;
+
   private readonly api = inject(RequestsApi);
   private readonly router = inject(Router);
+  private readonly config = inject(AppConfig);
 
   /**
    * Bound from the URL by withComponentInputBinding. List state lives in query
@@ -110,25 +126,66 @@ export class RequestList {
   }));
 
   /**
-   * The filter options, from the taxonomy endpoints an admin curates. Neither
-   * depends on a signal, so each is fetched once and reused as the board is
-   * filtered and paged.
+   * The filter options, from the bootstrap payload rather than from two
+   * requests of this screen's own.
+   *
+   * They used to be fetched here, and again by the create form, the edit form
+   * and the detail page — six requests for two bounded lists that every screen
+   * needs. They arrive once now, before anything is drawn, which is also why
+   * the filter bar can render its chips on the first frame instead of after
+   * them.
    */
-  private readonly statusOptions = httpResource<Wrapped<TaxonomyRef[]>>(() => ({
-    url: this.api.statusesUrl,
-  }));
+  protected readonly statusChoices = this.config.statuses;
+  protected readonly categoryChoices = this.config.categories;
 
-  private readonly categoryOptions = httpResource<Wrapped<TaxonomyRef[]>>(() => ({
-    url: this.api.categoriesUrl,
-  }));
-
-  protected readonly statusChoices = computed<TaxonomyRef[]>(
-    () => this.statusOptions.value()?.data ?? [],
+  /**
+   * Whether the address carries no list state at all.
+   *
+   * Not "the filters are empty" — that is a board somebody has actively
+   * cleared, and it must stay cleared. This is the narrower question: did they
+   * arrive at /requests with nothing after it.
+   */
+  private readonly addressIsBare = computed(
+    () =>
+      this.status() === undefined &&
+      this.category() === undefined &&
+      this.mine() === undefined &&
+      this.q() === undefined &&
+      this.sort() === undefined,
   );
 
-  protected readonly categoryChoices = computed<TaxonomyRef[]>(
-    () => this.categoryOptions.value()?.data ?? [],
-  );
+  /**
+   * A saved preference decides where you LAND; the URL still says where you
+   * are.
+   *
+   * This is how the board's default ordering and filters coexist with the rule
+   * that list state lives in query parameters. Arriving with a bare address
+   * replaces it with one that spells the preference out — so the view is
+   * shareable, survives a refresh, and means the same thing to somebody whose
+   * defaults are different.
+   *
+   * replaceUrl, so the Back button does not have to walk through a redirect
+   * nobody asked for. It fires only on a bare address, so nothing here can
+   * re-narrow a board that has been deliberately cleared, and it cannot loop:
+   * the navigation it performs is not bare.
+   */
+  private readonly applyDefaults = effect(() => {
+    if (!this.config.isReady() || !this.addressIsBare()) return;
+
+    const defaults: BoardFilters = {
+      statuses: this.config.defaultStatuses(),
+      categories: this.config.defaultCategories(),
+      mine: false,
+      q: '',
+      sort: this.config.defaultSort(),
+    };
+
+    const params = toQueryParams(defaults, 1, DEFAULT_PAGE_SIZE);
+
+    if (Object.keys(params).length === 0) return;
+
+    void this.router.navigate(['/requests'], { queryParams: params, replaceUrl: true });
+  });
 
   /** What the filter bar reports as matched. Null while the count is unknown. */
   protected readonly matchCount = computed(() => this.meta()?.total ?? null);

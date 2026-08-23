@@ -1,0 +1,131 @@
+<p class="account__back">
+  <a routerLink="/requests">← Back to the board</a>
+</p>
+
+<h1 class="account__title">Your account</h1>
+
+@if (settings.isLoading() && rows().length === 0) {
+  <div class="account__state">Loading your settings…</div>
+} @else if (loadFailure(); as failure) {
+  <div class="account__state account__state--error" role="alert">
+    <h2 class="account__state-title">Your settings could not be loaded</h2>
+    <p>{{ failure.message }}</p>
+    @if (failure.requestId) {
+      <p class="account__reference">Reference: {{ failure.requestId }}</p>
+    }
+    <button type="button" class="button button--secondary" (click)="retry()">Try again</button>
+  </div>
+} @else {
+  <div class="visually-hidden" role="status" aria-live="polite">
+    @if (saving()) {
+      Saving.
+    } @else if (saved()) {
+      Saved.
+    }
+  </div>
+
+  @if (saveFailure(); as failure) {
+    <p class="setting__error" role="alert">{{ failure.message }}</p>
+  }
+
+  <section class="account__section">
+    <h2>Who you are</h2>
+
+    <!-- (submit) with preventDefault, not (ngSubmit): this is a bare form with
+         standalone controls, and ngSubmit is an output of NgForm that nothing
+         here raises — binding it would let the browser submit natively and
+         reload the page. -->
+    <form class="account__name" (submit)="$event.preventDefault(); saveName()">
+      <div class="field">
+        <label class="field__label" for="displayName">Display name</label>
+        <input
+          id="displayName"
+          class="field__input"
+          type="text"
+          [formControl]="displayName"
+          [maxlength]="limits.DISPLAY_NAME_MAX"
+          [attr.aria-invalid]="displayName.touched && displayName.invalid ? 'true' : null"
+        />
+        @if (displayName.touched && displayName.hasError('required')) {
+          <p class="field__error">A display name is required.</p>
+        }
+      </div>
+
+      <p class="setting__description">
+        Your email is {{ config.user()?.email }}. It comes from the account you signed in with and
+        is not editable here.
+      </p>
+
+      <button type="submit" class="button" [disabled]="saving()">Save name</button>
+    </form>
+  </section>
+
+  <section class="account__section">
+    <h2>How the board looks and opens</h2>
+
+    @for (setting of presentation(); track setting.key) {
+      <app-setting-control
+        [setting]="setting"
+        [busy]="saving()"
+        (changed)="change(setting.key, $event)"
+      />
+    }
+  </section>
+
+  <section class="account__section">
+    <h2>Email</h2>
+
+    <p class="setting__description">
+      These are recorded against the day this application can send mail. Nothing sends any today,
+      and this screen would rather say so than imply otherwise.
+    </p>
+
+    @for (setting of notifications(); track setting.key) {
+      <app-setting-control
+        [setting]="setting"
+        [busy]="saving()"
+        (changed)="change(setting.key, $event)"
+      />
+    }
+  </section>
+
+  <section class="account__section account__section--danger">
+    <h2>Delete your account</h2>
+
+    <!--
+      Said plainly, before the button, and again in the dialog. This is
+      irreversible and it does NOT remove what they wrote — somebody who expects
+      deletion to erase their comments and finds them still there has been
+      misled by an interface that was too brief to be honest.
+    -->
+    <p>Deleting your account cannot be undone. Here is exactly what happens:</p>
+
+    <ul class="account__consequences">
+      <li>Your name and email are erased from this board.</li>
+      <li>Your requests and comments stay, shown as written by a deleted user.</li>
+      <li>Votes you cast stay counted.</li>
+      <li>Your preferences on this screen are deleted.</li>
+      <li>You cannot sign in again with this account.</li>
+    </ul>
+
+    <button
+      type="button"
+      class="button button--danger"
+      [disabled]="saving()"
+      (click)="confirmingDeletion.set(true)"
+    >
+      Delete my account
+    </button>
+  </section>
+
+  @if (confirmingDeletion()) {
+    <app-confirm-dialog
+      title="Delete your account?"
+      body="Your name and email are erased and you cannot sign in again. Your requests and comments stay on the board, shown as written by a deleted user, and your votes stay counted. This cannot be undone."
+      confirmLabel="Delete my account"
+      [busy]="saving()"
+      (confirmed)="confirmDeletion()"
+      (cancelled)="confirmingDeletion.set(false)"
+    />
+  }
+}

@@ -20,9 +20,41 @@ import {
  */
 export const listComments: RequestHandler = async (req, res) => {
   const { id } = parseOrThrow(requestIdParamsSchema, req.params, 'params');
-  const comments = await commentsService.listForRequest(req.actor, id);
+  const thread = await commentsService.listForRequest(req.actor, id);
 
-  res.status(200).json({ data: comments });
+  // The thread and one fact about the composer above it: whether a comment
+  // posted now will wait for approval. That is the moderation setting's
+  // consequence, not the setting -- the setting is administrative and is never
+  // sent to somebody who cannot manage it.
+  res.status(200).json({ data: thread.comments, awaitsApproval: thread.awaitsApproval });
+};
+
+/**
+ * The moderation queue. Admin only, and refused here rather than hidden.
+ *
+ * It carries a total alongside the rows because the list is capped: an admin
+ * looking at a hundred comments needs to know whether that is all of them.
+ */
+export const listPendingComments: RequestHandler = async (req, res) => {
+  authorize(commentPolicy.approve(req.actor));
+
+  const pending = await commentsService.listPending(req.actor);
+
+  res.status(200).json({ data: pending.comments, total: pending.total });
+};
+
+/**
+ * Approving is a PUT on a sub-resource of the comment rather than a POST to an
+ * action, matching the way a status default is set: it is a property of the
+ * comment reaching a state, and repeating it is not a second approval.
+ */
+export const approveComment: RequestHandler = async (req, res) => {
+  authorize(commentPolicy.approve(req.actor));
+
+  const { id } = parseOrThrow(commentIdParamsSchema, req.params, 'params');
+  const approved = await commentsService.approve(req.actor, id);
+
+  res.status(200).json({ data: approved });
 };
 
 export const createComment: RequestHandler = async (req, res) => {

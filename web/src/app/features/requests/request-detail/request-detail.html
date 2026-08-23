@@ -66,7 +66,7 @@
       <p class="detail__byline">
         {{ detail.author.displayName }}
         <span aria-hidden="true">·</span>
-        <time [attr.datetime]="detail.createdAt">{{ detail.createdAt | date: 'medium' }}</time>
+        <time [attr.datetime]="detail.createdAt">{{ detail.createdAt | date: 'medium' : undefined : locale() }}</time>
         <!-- Read from its own field, not from updatedAt: pinning and status
              changes move that too, and neither is somebody rewriting their own
              words. Same marker the comments use. -->
@@ -74,7 +74,7 @@
           <span aria-hidden="true">·</span>
           <span class="detail__edited">
             edited
-            <time [attr.datetime]="detail.editedAt">{{ detail.editedAt | date: 'medium' }}</time>
+            <time [attr.datetime]="detail.editedAt">{{ detail.editedAt | date: 'medium' : undefined : locale() }}</time>
           </span>
         }
       </p>
@@ -84,7 +84,7 @@
           Pinned by {{ detail.pinnedBy.displayName }}
           @if (detail.pinnedAt) {
             <span aria-hidden="true">·</span>
-            <time [attr.datetime]="detail.pinnedAt">{{ detail.pinnedAt | date: 'medium' }}</time>
+            <time [attr.datetime]="detail.pinnedAt">{{ detail.pinnedAt | date: 'medium' : undefined : locale() }}</time>
           }
         </p>
       }

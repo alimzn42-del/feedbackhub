@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { RequestCreate } from './request-create';
+import { provideStubbedConfig } from '../../../core/config/app-config.testing';
 
 const CATEGORIES = {
   data: [
@@ -21,6 +22,7 @@ describe('RequestCreate', () => {
       // unroutable navigation surfaces as an unhandled rejection rather than a
       // test failure, which is worse than a failure.
       providers: [
+        provideStubbedConfig(),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -41,15 +43,11 @@ describe('RequestCreate', () => {
    * A resource propagates its response over a microtask, so flushing alone is
    * not enough — the fixture has to settle before the options exist.
    */
-  async function render(withCategories = true) {
+  async function render() {
     const fixture = TestBed.createComponent(RequestCreate);
     fixture.detectChanges();
-
-    if (withCategories) {
-      http.expectOne('/api/categories').flush(CATEGORIES);
-      await fixture.whenStable();
-      fixture.detectChanges();
-    }
+    await fixture.whenStable();
+    fixture.detectChanges();
 
     return fixture;
   }
@@ -63,15 +61,44 @@ describe('RequestCreate', () => {
     return component;
   }
 
-  it('loads its categories from the server rather than hardcoding them', async () => {
+  /**
+   * The categories are still the server's, and this form still does not know
+   * any of their names — it just no longer asks for them itself. They arrive
+   * with the application, before this screen exists, which is why there is no
+   * request to flush here and no loading state left to render.
+   */
+  it('offers the categories the application was configured with', async () => {
     const fixture = await render();
 
     const options = fixture.nativeElement.querySelectorAll('option');
 
-    // The placeholder plus the two the server returned.
+    // The placeholder plus the two the application was started with.
     expect(options.length).toBe(3);
     expect(fixture.nativeElement.textContent).toContain('Bug');
     expect(fixture.nativeElement.textContent).toContain('Feature');
+  });
+
+  /**
+   * The replacement for the old "disabled while the categories are unknown"
+   * test. There is no unknown state any more — but there is still a board with
+   * no categories on it, and a form that cannot be filled in should not invite
+   * a submission that is certain to fail.
+   */
+  it('keeps submission disabled when there are no categories to choose from', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideStubbedConfig({ categories: [] }),
+        provideRouter([{ path: '**', children: [] }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
+    });
+    http = TestBed.inject(HttpTestingController);
+
+    const fixture = await render();
+
+    expect(fixture.nativeElement.querySelector('button[type="submit"]').disabled).toBe(true);
   });
 
   it('shows every validation message at once instead of one per attempt', async () => {
@@ -189,15 +216,4 @@ describe('RequestCreate', () => {
     expect(alert?.textContent).toContain('abc-999');
   });
 
-  it('keeps submission disabled while the categories are still unknown', async () => {
-    const fixture = await render(false);
-
-    expect(fixture.nativeElement.querySelector('button[type="submit"]').disabled).toBe(true);
-
-    http.expectOne('/api/categories').flush(CATEGORIES);
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    expect(fixture.nativeElement.querySelector('button[type="submit"]').disabled).toBe(false);
-  });
 });

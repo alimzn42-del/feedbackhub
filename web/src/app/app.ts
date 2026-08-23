@@ -1,8 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
-import { httpResource } from '@angular/common/http';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { API_BASE_URL } from './core/api/api-base-url';
-import type { Capabilities, Wrapped } from './core/api/api.types';
+import { AppConfig } from './core/config/app-config';
 
 @Component({
   selector: 'app-root',
@@ -11,27 +9,25 @@ import type { Capabilities, Wrapped } from './core/api/api.types';
   styleUrl: './app.scss',
 })
 export class App {
-  private readonly baseUrl = inject(API_BASE_URL);
-
   /**
-   * What this caller may do that is not attached to a row.
+   * The one request the application makes before it can draw anything.
    *
-   * Asked once, for the navigation. Every list item already carries its own
-   * answers because there is a row to hang them on; a whole screen has none,
-   * and the menu still has to decide whether to offer it.
-   *
-   * This is not what protects the screen. The endpoints behind it refuse on
-   * their own, and the route renders that refusal — so this being wrong, or
-   * failing, costs a menu item and nothing else.
+   * The shell renders around it: while it is in flight there is a loading
+   * state, if it fails there is an error with a retry, and the outlet exists
+   * only once it has answered. Nothing below here runs on a hardcoded fallback,
+   * because nothing below here is mounted until there is a real answer.
    */
-  private readonly capabilities = httpResource<Wrapped<Capabilities>>(() => ({
-    url: `${this.baseUrl}/capabilities`,
-  }));
+  protected readonly config = inject(AppConfig);
 
   protected readonly canManageTaxonomy = computed(() => {
-    if (!this.capabilities.hasValue()) return false;
-
-    const answers = this.capabilities.value()?.data;
-    return (answers?.canManageCategories ?? false) || (answers?.canManageStatuses ?? false);
+    const may = this.config.capabilities();
+    return may.canManageCategories || may.canManageStatuses;
   });
+
+  protected readonly canManageSettings = computed(
+    () => this.config.capabilities().canManageSettings,
+  );
+
+  /** Shown in the navigation, so it is obvious which account the board is being read as. */
+  protected readonly displayName = computed(() => this.config.user()?.displayName ?? '');
 }

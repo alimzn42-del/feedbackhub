@@ -46,7 +46,21 @@ const statusesRepository = vi.hoisted(() => ({
   setDefault: vi.fn(),
 }));
 
+/**
+ * Settings, stored nowhere: both tables read back empty, so everything resolves
+ * to the fallback in the registry — the state a fresh installation is in.
+ */
+const settingsRepository = vi.hoisted(() => ({
+  readGlobal: vi.fn(),
+  readForUser: vi.fn(),
+  applyGlobal: vi.fn(),
+  applyForUser: vi.fn(),
+  clearAllForUser: vi.fn(),
+  RESET: Symbol('reset'),
+}));
+
 vi.mock('../users/users.repository.js', () => usersRepository);
+vi.mock('../settings/settings.repository.js', () => settingsRepository);
 vi.mock('../categories/categories.repository.js', () => categoriesRepository);
 vi.mock('../statuses/statuses.repository.js', () => statusesRepository);
 
@@ -81,6 +95,8 @@ const STATUS_ROWS = [
 const app = createApp();
 
 beforeEach(() => {
+  settingsRepository.readGlobal.mockResolvedValue(new Map());
+  settingsRepository.readForUser.mockResolvedValue(new Map());
   usersRepository.findByEmail.mockResolvedValue(REGULAR_USER);
 
   categoriesRepository.listAll.mockResolvedValue(CATEGORY_ROWS);
@@ -222,35 +238,67 @@ describe('a regular user, refused at every status mutation', () => {
 
 describe('what the interface is told it may do', () => {
   it('tells a regular user it may manage nothing', async () => {
-    const response = await request(app).get('/api/capabilities').expect(200);
+    const response = await request(app).get('/api/bootstrap').expect(200);
 
-    expect(response.body.data).toEqual({
+    expect(response.body.data.capabilities).toEqual({
       canManageCategories: false,
       canManageStatuses: false,
+      canManageSettings: false,
     });
   });
 
-  it('tells an admin it may manage both', async () => {
+  it('tells an admin it may manage all three', async () => {
     usersRepository.findByEmail.mockResolvedValue(ADMIN);
 
-    const response = await request(app).get('/api/capabilities').expect(200);
+    const response = await request(app).get('/api/bootstrap').expect(200);
 
-    expect(response.body.data).toEqual({
+    expect(response.body.data.capabilities).toEqual({
       canManageCategories: true,
       canManageStatuses: true,
+      canManageSettings: true,
     });
   });
 
-  it('never says who the caller is', async () => {
+  /**
+   * The rule, restated where this slice changed it.
+   *
+   * Until now the browser was told nothing about itself at all. It is now told
+   * WHO it is — id, name, email — because it edits those on the settings screen
+   * and writes them back to an address that names the account.
+   *
+   * What has not changed is the half that mattered: it is never told WHAT it
+   * is. There is no role in this payload, and every permission still arrives as
+   * an answer the server worked out. A client cannot derive a single one of
+   * them from what it is given here, which is the property the rule was
+   * protecting.
+   */
+  it('says who the caller is, and never what they are', async () => {
     usersRepository.findByEmail.mockResolvedValue(ADMIN);
 
-    const response = await request(app).get('/api/capabilities').expect(200);
-    const body = JSON.stringify(response.body);
+    const response = await request(app).get('/api/bootstrap').expect(200);
 
-    // The browser is told what it may DO. Not its id, its name, its email or
-    // its role — none of which it has ever needed and none of which it gets.
-    expect(body).not.toContain('admin@feedbackhub.local');
-    expect(body).not.toContain('Robin Alvarez');
-    expect(body).not.toContain('"role"');
+    expect(response.body.data.user).toEqual({
+      id: ADMIN.id,
+      email: ADMIN.email,
+      displayName: ADMIN.displayName,
+    });
+
+    expect(JSON.stringify(response.body)).not.toContain('"role"');
+  });
+
+  /**
+   * The administrative settings are withheld, not merely uneditable.
+   *
+   * This is the one place on this board where a field is hidden rather than
+   * refused on write, so it is asserted directly: the rate limit and the
+   * registration policy are absent from a regular user's payload, by name.
+   */
+  it('withholds the administrative settings from a regular user', async () => {
+    const response = await request(app).get('/api/bootstrap').expect(200);
+    const keys = Object.keys(response.body.data.settings);
+
+    expect(keys).not.toContain('submissions.perUserPerDay');
+    expect(keys).not.toContain('registration.policy');
+    expect(keys).not.toContain('comments.requireApproval');
   });
 });

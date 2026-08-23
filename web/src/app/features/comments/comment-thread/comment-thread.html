@@ -12,6 +12,17 @@
 
   <form class="composer" (submit)="submitComment($event)" novalidate>
     <label class="visually-hidden" for="new-comment">Add a comment</label>
+
+    @if (awaitsApproval()) {
+      <!-- Said before they write it, not after they post it. Being told your
+           comment is waiting only once it has vanished from the page reads as a
+           failure rather than as a rule. -->
+      <p class="composer__notice">
+        Comments on this board are approved by an admin before anybody else sees them. Yours will
+        be visible to you while it waits.
+      </p>
+    }
+
     <textarea
       id="new-comment"
       class="composer__input"
@@ -59,10 +70,15 @@
               <strong>{{ comment.author?.displayName }}</strong>
               <span aria-hidden="true">·</span>
               <time [attr.datetime]="comment.createdAt">{{
-                comment.createdAt | date: 'medium'
+                comment.createdAt | date: 'medium' : undefined : locale()
               }}</time>
               @if (comment.editedAt) {
                 <span class="comment__edited" title="This comment was edited">edited</span>
+              }
+              <!-- Only ever true on your own, or to an admin: nobody else is
+                   sent a comment that is still waiting. -->
+              @if (comment.isPending) {
+                <span class="pending-flag">Waiting for approval</span>
               }
             </p>
 
@@ -150,10 +166,13 @@
                       <strong>{{ reply.author?.displayName }}</strong>
                       <span aria-hidden="true">·</span>
                       <time [attr.datetime]="reply.createdAt">{{
-                        reply.createdAt | date: 'medium'
+                        reply.createdAt | date: 'medium' : undefined : locale()
                       }}</time>
                       @if (reply.editedAt) {
                         <span class="comment__edited" title="This reply was edited">edited</span>
+                      }
+                      @if (reply.isPending) {
+                        <span class="pending-flag">Waiting for approval</span>
                       }
                     </p>
 

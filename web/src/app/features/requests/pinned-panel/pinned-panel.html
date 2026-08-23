@@ -31,7 +31,7 @@
               {{ request.author.displayName }}
               <span aria-hidden="true">·</span>
               <time [attr.datetime]="request.createdAt">{{
-                request.createdAt | date: 'mediumDate'
+                request.createdAt | date: 'mediumDate' : undefined : locale()
               }}</time>
             </p>
 
@@ -48,7 +48,7 @@
               @if (request.pinnedAt) {
                 <span aria-hidden="true">·</span>
                 <time [attr.datetime]="request.pinnedAt">{{
-                  request.pinnedAt | date: 'mediumDate'
+                  request.pinnedAt | date: 'mediumDate' : undefined : locale()
                 }}</time>
               }
             </p>

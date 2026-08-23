@@ -15,17 +15,32 @@ const commentsRepository = vi.hoisted(() => ({
   insert: vi.fn(),
   updateBody: vi.fn(),
   countReplies: vi.fn(),
+  approve: vi.fn(),
+  listPending: vi.fn(),
+  countPending: vi.fn(),
   hardDelete: vi.fn(),
   softDelete: vi.fn(),
   softDeleteReplies: vi.fn(),
 }));
 const requestsRepository = vi.hoisted(() => ({ exists: vi.fn() }));
 
+/**
+ * The moderation gate, stubbed shut by default.
+ *
+ * Every test below predates the setting and describes behaviour that has
+ * nothing to do with it, so they run in the state the application ships in:
+ * approval off. The tests that care turn it on explicitly.
+ */
+const settings = vi.hoisted(() => ({ globalValue: vi.fn() }));
+
 vi.mock('./comments.repository.js', () => commentsRepository);
 vi.mock('../requests/requests.repository.js', () => requestsRepository);
+vi.mock('../settings/settings.service.js', () => settings);
 
 const service = await import('./comments.service.js');
-const { ForbiddenError, NotFoundError, ValidationError } = await import('../../http/errors.js');
+const { ConflictError, ForbiddenError, NotFoundError, ValidationError } = await import(
+  '../../http/errors.js'
+);
 
 const DANA: Actor = {
   id: 2,
@@ -49,6 +64,7 @@ function record(overrides: Record<string, unknown> = {}) {
     body: 'A comment',
     createdAt: new Date('2026-08-21T09:00:00.000Z'),
     editedAt: null,
+    approvedAt: new Date('2026-08-21T09:00:00.000Z'),
     isDeleted: false,
     deletedBy: null,
     hiddenWithParent: false,
@@ -58,6 +74,7 @@ function record(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  settings.globalValue.mockResolvedValue(false);
   requestsRepository.exists.mockResolvedValue(true);
   commentsRepository.findById.mockResolvedValue(record());
   commentsRepository.countReplies.mockResolvedValue(0);
@@ -227,10 +244,10 @@ describe('reading a thread', () => {
       }),
     ]);
 
-    const thread = await service.listForRequest(SAM, 7);
+    const { comments } = await service.listForRequest(SAM, 7);
 
-    expect(thread).toHaveLength(1);
-    expect(thread[0]?.replies.map((r) => r.deletedReason)).toEqual([
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.replies.map((r) => r.deletedReason)).toEqual([
       'author',
       'moderator',
       'with-parent',
@@ -242,7 +259,7 @@ describe('reading a thread', () => {
       record({ id: 1, isDeleted: true, deletedBy: ADMIN.id }),
     ]);
 
-    const [comment] = await service.listForRequest(SAM, 7);
+    const [comment] = (await service.listForRequest(SAM, 7)).comments;
 
     expect(comment?.body).toBeNull();
     expect(comment?.author).toBeNull();
@@ -256,16 +273,139 @@ describe('reading a thread', () => {
       record({ id: 3, isDeleted: true, deletedBy: ADMIN.id }),
     ]);
 
-    const thread = await service.listForRequest(SAM, 7);
+    const { comments } = await service.listForRequest(SAM, 7);
 
-    expect(thread[0]?.canReply).toBe(true);
-    expect(thread[0]?.replies[0]?.canReply).toBe(false);
-    expect(thread[1]?.canReply).toBe(false);
+    expect(comments[0]?.canReply).toBe(true);
+    expect(comments[0]?.replies[0]?.canReply).toBe(false);
+    expect(comments[1]?.canReply).toBe(false);
   });
 
   it('404s for a request that does not exist', async () => {
     requestsRepository.exists.mockResolvedValue(false);
 
     await expect(service.listForRequest(SAM, 7)).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The moderation gate.
+ *
+ * The setting is administrative and withheld; what is tested here is its
+ * consequence, which is the only part anybody outside the admin screen ever
+ * sees. Two directions matter and they are not symmetric:
+ *
+ *   switching it ON  must not touch anything already written
+ *   switching it OFF must release whatever is waiting
+ *
+ * Both are properties of how a comment is stamped and how it is read, so both
+ * are testable without a database.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('comment approval', () => {
+  it('stamps a new comment as published while the gate is open', async () => {
+    settings.globalValue.mockResolvedValue(false);
+    commentsRepository.insert.mockResolvedValue(11);
+
+    await service.create(DANA, 7, { body: 'A comment worth reading' });
+
+    expect(commentsRepository.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ approved: 1 }),
+    );
+  });
+
+  /**
+   * The half that stops switching moderation on from hiding the whole board:
+   * everything written while it was off already carries an approval, so the
+   * gate only ever applies to what comes after it.
+   */
+  it('leaves a new comment unstamped while the gate is up', async () => {
+    settings.globalValue.mockResolvedValue(true);
+    commentsRepository.insert.mockResolvedValue(11);
+
+    await service.create(DANA, 7, { body: 'A comment worth reading' });
+
+    expect(commentsRepository.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ approved: 0 }),
+    );
+  });
+
+  it('tells the composer that a comment posted now will wait', async () => {
+    settings.globalValue.mockResolvedValue(true);
+    commentsRepository.listForRequest.mockResolvedValue([]);
+
+    const thread = await service.listForRequest(DANA, 7);
+
+    expect(thread.awaitsApproval).toBe(true);
+  });
+
+  it('marks a waiting comment as pending, and a published one as not', async () => {
+    settings.globalValue.mockResolvedValue(true);
+    commentsRepository.listForRequest.mockResolvedValue([
+      record({ id: 1, approvedAt: null }),
+      record({ id: 2, approvedAt: new Date('2026-08-21T09:00:00.000Z') }),
+    ]);
+
+    const { comments } = await service.listForRequest(DANA, 7);
+
+    expect(comments.map((c) => c.isPending)).toEqual([true, false]);
+  });
+
+  /**
+   * An admin reads the thread with the pending ones in it, because judging them
+   * out of context is not judging them at all. Everybody else reads it without
+   * — except for their own, which the SQL keeps visible to its author.
+   */
+  it('shows an admin what is waiting, and a regular user what is not', async () => {
+    settings.globalValue.mockResolvedValue(true);
+    commentsRepository.listForRequest.mockResolvedValue([]);
+
+    await service.listForRequest(ADMIN, 7);
+    expect(commentsRepository.listForRequest).toHaveBeenLastCalledWith(
+      7,
+      expect.objectContaining({ seesPending: true }),
+    );
+
+    await service.listForRequest(DANA, 7);
+    expect(commentsRepository.listForRequest).toHaveBeenLastCalledWith(
+      7,
+      expect.objectContaining({ seesPending: false }),
+    );
+  });
+
+  /** With the gate open there is nothing waiting on anybody's judgement. */
+  it('shows everybody everything once the gate is open', async () => {
+    settings.globalValue.mockResolvedValue(false);
+    commentsRepository.listForRequest.mockResolvedValue([]);
+
+    await service.listForRequest(DANA, 7);
+
+    expect(commentsRepository.listForRequest).toHaveBeenLastCalledWith(
+      7,
+      expect.objectContaining({ seesPending: true }),
+    );
+  });
+
+  it('refuses to let a regular user approve anything', async () => {
+    await expect(service.approve(DANA, 1)).rejects.toBeInstanceOf(ForbiddenError);
+    expect(commentsRepository.approve).not.toHaveBeenCalled();
+  });
+
+  it('lets an admin approve, and reports a second approval as a conflict', async () => {
+    commentsRepository.findById.mockResolvedValue(record({ id: 1, approvedAt: null }));
+    commentsRepository.approve.mockResolvedValue(true);
+
+    await service.approve(ADMIN, 1);
+    expect(commentsRepository.approve).toHaveBeenCalledWith(1);
+
+    commentsRepository.approve.mockResolvedValue(false);
+    await expect(service.approve(ADMIN, 1)).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('refuses to approve a comment that has been removed', async () => {
+    commentsRepository.findById.mockResolvedValue(
+      record({ id: 1, approvedAt: null, isDeleted: true, deletedBy: ADMIN.id }),
+    );
+
+    await expect(service.approve(ADMIN, 1)).rejects.toBeInstanceOf(ConflictError);
+    expect(commentsRepository.approve).not.toHaveBeenCalled();
   });
 });

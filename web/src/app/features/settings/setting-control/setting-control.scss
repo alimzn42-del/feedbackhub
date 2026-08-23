@@ -1,0 +1,45 @@
+/* Angular scopes component styles, so a class defined in another component's
+   stylesheet does not apply here — the markup matches, the styling silently
+   does not arrive, and nothing warns. `.setting`, `.setting__label` and the
+   rest of that family live in the global sheet for that reason; what is left
+   here is what only this component draws. */
+
+.field__input {
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.field__input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.field__input:disabled {
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+}
+
+textarea.field__input {
+  width: 100%;
+  max-width: 28rem;
+  resize: vertical;
+}
+
+.setting__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.setting__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}

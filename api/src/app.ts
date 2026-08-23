@@ -4,11 +4,13 @@ import helmet from 'helmet';
 import { env } from './config/env.js';
 import { attachCurrentUser } from './auth/current-user.js';
 import { attachRequestId, errorHandler, notFoundHandler } from './http/error-handler.js';
-import { capabilitiesRouter } from './modules/capabilities/capabilities.routes.js';
+import { bootstrapRouter } from './modules/bootstrap/bootstrap.routes.js';
 import { categoriesRouter } from './modules/categories/categories.routes.js';
 import { commentsRouter } from './modules/comments/comments.routes.js';
 import { requestsRouter } from './modules/requests/requests.routes.js';
+import { settingsRouter } from './modules/settings/settings.routes.js';
 import { statusesRouter } from './modules/statuses/statuses.routes.js';
+import { usersRouter } from './modules/users/users.routes.js';
 
 export function createApp() {
   const app = express();
@@ -32,11 +34,17 @@ export function createApp() {
 
   // Everything under /api has an identity before it reaches a handler.
   app.use('/api', attachCurrentUser);
-  app.use('/api/capabilities', capabilitiesRouter);
+  // One request, answering everything the shell needs to draw itself. It
+  // replaces GET /api/capabilities, which answered a third of the same question
+  // and has been removed rather than left as a second way to ask it.
+  app.use('/api/bootstrap', bootstrapRouter);
+
   app.use('/api/categories', categoriesRouter);
   app.use('/api/statuses', statusesRouter);
   app.use('/api/requests', requestsRouter);
   app.use('/api/comments', commentsRouter);
+  app.use('/api/settings', settingsRouter);
+  app.use('/api/users', usersRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

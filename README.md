@@ -36,6 +36,7 @@ npm install
 npm run db:up            # start MySQL 8.4 (docker compose)
 npm run migrate          # create the schema
 npm run seed             # one admin, two users, categories and statuses
+                         # (no settings rows: the defaults live in code)
 
 npm run demo             # optional: a populated board to click around
 npm run dev:api          # http://localhost:3000
@@ -71,7 +72,9 @@ single replaceable function — [`api/src/auth/current-user.ts`](api/src/auth/cu
 
 To act as somebody else, change `DEV_CURRENT_USER_EMAIL` in `.env` and restart
 the API — worth doing, since admins and regular users now see different
-controls. The seeded users are:
+controls. Pointing it at an address **nobody has used** exercises the
+registration policy instead: an open board provisions the account on the spot,
+a restricted one refuses by name. The seeded users are:
 
 | Email | Name | Role |
 |---|---|---|
@@ -100,13 +103,16 @@ api/                     Node + TypeScript + Express
   src/config/            the only module that reads process.env
   src/db/migrations/     plain .sql, run by postgrator
   src/db/seeds/          idempotent baseline data
-  src/auth/              the identity seam — one replaceable function
+  src/auth/              the identity seam, and the provisioning check behind it
   src/policy/            every permission rule, and nowhere else
   src/http/              error taxonomy, error middleware, validation mapping
   src/modules/*/         routes → controller → service → repository
                          (SQL appears only in *.repository.ts)
+  src/modules/settings/  the setting registry: one entry per setting, holding
+                         its validator, default, scope, visibility and control
 web/                     Angular, standalone components, typed reactive forms
   src/app/core/api/      API types and error mapping
+  src/app/core/config/   the startup payload, and everything drawn from it
   src/app/features/      one directory per screen
 notes/ai-log.md          raw working log of the AI collaboration
 DECISIONS.md             what was decided and why
@@ -136,9 +142,109 @@ a single envelope; see [DECISIONS.md](DECISIONS.md#error-shape).
 | `POST /api/requests/:id/comments` | `{ body, parentId? }` — a reply cannot be replied to |
 | `PATCH /api/comments/:id` | **author only**; an admin cannot reword somebody |
 | `DELETE /api/comments/:id` | author or admin; removes or hides, see below |
-| `GET /api/capabilities` | what the caller may do that is not attached to a row |
-| `GET /api/categories` | the active categories, for the create form and the filter bar |
-| `GET /api/statuses` | the active statuses, for the filter bar |
+| `PUT /api/comments/:id/approval` | **admin only**; lets a waiting comment through |
+| `GET /api/comments/pending` | **admin only**; the moderation queue |
+| `GET /api/categories` | the active categories |
+| `GET /api/statuses` | the active statuses |
+| `GET /api/bootstrap` | everything the application needs to draw itself — see below |
+| `GET /api/settings` | **admin only**; the application settings |
+| `PATCH /api/settings` | **admin only**; a partial patch, `null` resets a key |
+| `GET /api/users/:id/settings` | **yourself only**; the full preference document |
+| `PATCH /api/users/:id/settings` | **yourself only**; a partial patch |
+| `PATCH /api/users/:id` | **yourself only**; `{ displayName }` |
+| `DELETE /api/users/:id` | **yourself only**; anonymises — see below |
+
+### Startup, and where configuration lives
+
+The application makes **one** request before it draws anything:
+
+```
+GET /api/bootstrap
+{ data: {
+    user:         { id, email, displayName },        // never a role
+    capabilities: { canManageCategories, canManageStatuses, canManageSettings },
+    settings:     { "profile.theme": { value, source, editable }, ... },
+    taxonomy:     { categories: [...], statuses: [...] }
+} }
+```
+
+Each piece is there because the first paint would be drawn **wrong** without it
+and would then visibly change: the colour scheme, the language, the ordering and
+filters the board opens on, and the two taxonomy lists the filter bar and both
+forms need. Notification preferences, the administrative settings document and
+the `?scope=all` taxonomy are deliberately absent — nothing paints from them, so
+the screens that need them fetch them when they open.
+
+If it fails, the application says so and offers a retry. It does not draw a board
+on guessed defaults: the outlet is not mounted until the server has answered.
+
+**Settings resolve on the server, across three layers**, nearest wins:
+
+| source | means |
+|---|---|
+| `user` | a row in `user_settings` — you chose this |
+| `global` | a row in `app_settings` — an admin chose it for everybody |
+| `default` | the registry's fallback — nobody has ever chosen |
+
+The client is told which layer it got, because "using the default" and an
+explicit choice that happens to match are different states and only one of them
+has anything to reset. The merge exists in exactly one place; a client that
+merged too would be a second implementation of the same rules.
+
+**A setting is defined in one file** — `api/src/modules/settings/settings.registry.ts`
+— which holds its validator, its default, the levels it may live at, who may see
+it, whether it is needed at first paint, and which control edits it. **Adding a
+setting is an entry in that file and nothing else: no migration, no schema
+change, and no second edit in the web app.**
+
+Administrative settings (registration policy, comment approval, the submission
+limit) are **withheld** from a non-admin rather than sent and made read-only.
+Their consequences are not withheld: somebody whose comment will wait is told so
+by the endpoint that owns the action, never by being handed the setting.
+
+### The feature flag
+
+`comments.requireApproval`. When it is on, a new comment is visible to its author
+and to admins and to nobody else until an admin approves it, from the queue on
+`/admin/settings`. It changes what the application *does* rather than what it
+shows, and the change is visible without a reload.
+
+Turning it **on** affects comments written from then on and nothing already on
+screen; turning it **off** releases whatever is waiting. Comment counts follow
+the same visibility rule as the thread — they are the same SQL fragment, so a
+badge cannot promise three comments above a thread showing one.
+
+### The submission limit
+
+`submissions.perUserPerDay`, counted over a rolling 24 hours rather than a
+calendar day. Over it, `POST /api/requests` answers `429` with
+`retryAfterSeconds` in the body and `Retry-After` in the header — how long until
+they may post again, not a generic refusal. The limit is a setting, so changing
+it is not a deploy.
+
+### Deleting an account
+
+Anonymisation. The person's name, email and `external_id` are cleared, the
+account is marked deleted and can never sign in again, and their preferences are
+removed. **Their contributions stay** — requests and comments render as written
+by a deleted user, and votes they cast stay counted. The interface says all of
+this before it asks, and again in the confirmation.
+
+The last remaining admin is refused, with a `409`: nothing in this application
+promotes anybody, so a board that reaches zero admins could never have one again.
+
+### Who may create an account
+
+`registration.policy` is `open` or `domains`, checked in
+`api/src/auth/provision.ts` when somebody arrives with no local row. That check
+lives in this application and not in the identity provider: when Keycloak lands,
+a person will be able to authenticate perfectly and still be refused an account
+here. Point `DEV_CURRENT_USER_EMAIL` at an address nobody has used to see it —
+an open board admits you, a restricted one refuses by name.
+
+`invite-only` is deliberately not offered. There are no invitations to check
+against, so it would mean "closed" while claiming to mean something else.
+
 
 ### Managing the taxonomy
 
@@ -207,13 +313,17 @@ counted in the total. Sorting alone is not filtering and keeps the shelf.
 
 ## What is and is not built
 
-**Built:** six tables and their seed data; an admin screen managing the two
-taxonomies; request creation, editing, deletion and status changes; listing with server-side pagination, filtering, search and
-sort switching; voting, with the board ordered by vote count and counts
-derived rather than stored; admin pinning, recorded with actor and time, shown
-on a shelf above the board and excluded from the list; comment threads one reply
-deep; the identity seam; the policy module; one error shape with one middleware
-producing it; and three screens with real loading, empty and error states.
+**Built:** eight tables and their seed data; two admin screens — the taxonomies,
+and the application settings with the moderation queue; a personal account screen
+with preferences and account deletion; one startup request that configures the
+whole application; request creation, editing, deletion and status changes;
+listing with server-side pagination, filtering, search and sort switching;
+voting, with counts derived rather than stored; admin pinning, recorded with
+actor and time; comment threads one reply deep, with optional approval before
+publication; a submission rate limit and a registration policy, both settings
+rather than constants; the identity seam and the provisioning check behind it;
+the policy module; one error shape with one middleware producing it; and six
+screens with real loading, empty and error states.
 
 **Deleting a comment** does one of two things, and which one is a judgement the
 server makes rather than the browser:
@@ -235,6 +345,11 @@ routes above, and the two route-level authorization tests outstanding since
 slice 1 are written: a non-owner refused an edit, and a regular user refused a
 status change.
 
-**Not built, by design:** comment moderation before publication,
-application-wide settings (registration policy, rate limits, feature flags),
-user administration, Keycloak, and deployment beyond the database container.
+**Not built, by design:** user administration — nothing creates, promotes,
+demotes or deactivates anybody else, which is why the last admin cannot leave;
+invitations, which is why `invite-only` is not a registration policy this
+application offers; avatar uploads, there being no file storage; sending email,
+so the notification preferences are recorded and consumed by nothing;
+translation of the interface copy, the language setting covering the document
+language and date formatting only; Keycloak; and deployment beyond the database
+container.

@@ -6,6 +6,14 @@
 </div>
 
 @if (submitFailure(); as failure) {
+  @if (failure.retryAfterSeconds !== null) {
+    <!-- A refusal that says when, not just no. The number comes from the
+         server, which is the only thing that knows what the limit is and how
+         much of it has been used. -->
+    <p class="form__error" role="alert">
+      {{ failure.message }} You can file another {{ waitInWords(failure.retryAfterSeconds) }}.
+    </p>
+  }
   @if (failure.status !== 422 || unattachedIssues().length > 0) {
     <div class="banner banner--error" role="alert" tabindex="-1">
       <h2 class="banner__title">The request was not saved</h2>
@@ -71,21 +79,14 @@
   <div class="field">
     <label class="field__label" for="categoryId">Category</label>
 
-    @if (categories.isLoading()) {
-      <p class="field__hint" id="category-hint">Loading categories…</p>
-    } @else if (categoriesError(); as failure) {
-      <p class="field__error" id="category-error">
-        Categories could not be loaded: {{ failure.message }}
-      </p>
-    }
-
+    <!-- No loading or error state: the categories arrived with the application,
+         and if they had not, this screen would never have been mounted. -->
     <select
       id="categoryId"
       class="field__input field__input--select"
       formControlName="categoryId"
       [attr.aria-invalid]="errorFor('categoryId') ? 'true' : null"
       [attr.aria-describedby]="errorFor('categoryId') ? 'categoryId-error' : null"
-      [disabled]="!categories.hasValue()"
     >
       <option [ngValue]="null" disabled>Choose a category</option>
       @for (category of categoryOptions(); track category.id) {

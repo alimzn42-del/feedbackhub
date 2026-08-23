@@ -5,6 +5,7 @@ import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdminTaxonomy } from './admin-taxonomy';
 import type { CategoryAdminRow, StatusAdminRow } from '../../../core/api/api.types';
+import { provideStubbedConfig } from '../../../core/config/app-config.testing';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * The admin screen, end to end through the DOM.
@@ -32,6 +33,7 @@ describe('AdminTaxonomy', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        provideStubbedConfig(),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),

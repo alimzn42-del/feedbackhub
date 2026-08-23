@@ -9,25 +9,12 @@ Each entry moves into `DECISIONS.md` in the slice that builds the thing it
 describes. Nothing here is a plan or a backlog; these are commitments already
 argued out, parked until they are true.
 
+Comment moderation before publication left this file in slice 8. It was built
+attached to the setting that switches it on rather than in a moderation slice of
+its own, and the shape predicted here — a nullable `approved_at` on `comments`
+plus a settings table for the toggle — is the shape it took.
+
 ---
-
-## Comment moderation before publication
-
-An admin setting, not yet designed and deliberately not yet in the schema: when
-enabled, a new comment is visible to its author but not to anybody else until an
-admin approves it.
-
-No column was added for this. It follows the ruling made when `preferences` was
-deferred in slice 1 — a column nothing reads or writes is dead weight, and
-having migrations is precisely what lets it arrive when it is needed. The shape
-it will take is a nullable `approved_at` on `comments` plus a settings table for
-the toggle itself, which is one small migration.
-
-Worth noting now because it changes a query that does not exist yet: every
-listing and every count will need "visible to me" rather than "not deleted", and
-that condition is easier to write once than to retrofit into three places.
-
-*Moves to `DECISIONS.md` with the moderation slice.*
 
 ## Role changes
 

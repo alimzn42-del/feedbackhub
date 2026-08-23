@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CommentThread } from './comment-thread';
 import type { Comment } from '../../../core/api/api.types';
+import { provideStubbedConfig } from '../../../core/config/app-config.testing';
 
 function comment(overrides: Partial<Comment> = {}): Comment {
   return {
@@ -18,6 +19,7 @@ function comment(overrides: Partial<Comment> = {}): Comment {
     canEdit: false,
     canDelete: false,
     canReply: true,
+    isPending: false,
     replies: [],
     ...overrides,
   };
@@ -28,7 +30,7 @@ describe('CommentThread', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideStubbedConfig(), provideHttpClient(), provideHttpClientTesting()],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -41,11 +43,11 @@ describe('CommentThread', () => {
     }
   });
 
-  async function render(comments: Comment[]) {
+  async function render(comments: Comment[], awaitsApproval = false) {
     const fixture = TestBed.createComponent(CommentThread);
     fixture.componentRef.setInput('requestId', 7);
     fixture.detectChanges();
-    http.expectOne('/api/requests/7/comments').flush({ data: comments });
+    http.expectOne('/api/requests/7/comments').flush({ data: comments, awaitsApproval });
     await fixture.whenStable();
     fixture.detectChanges();
     return fixture;
@@ -340,5 +342,66 @@ describe('CommentThread', () => {
     const fixture = await render([comment({ editedAt: '2026-08-21T10:00:00.000Z' })]);
 
     expect(text(fixture)).toContain('edited');
+  });
+
+  /* ──────────────────────────────────────────────────────────────────────────
+   * Moderation, as it reaches somebody who cannot read the setting.
+   *
+   * The setting itself is administrative and is never sent here. What arrives
+   * is its consequence for this caller on this screen, which is the only part
+   * they need — and the only part that would make the interface dishonest if it
+   * were missing.
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  it('says a comment will wait BEFORE anybody writes one', async () => {
+    const fixture = await render([], true);
+
+    const composer = fixture.nativeElement.querySelector('.composer');
+    expect(composer.textContent).toContain('approved by an admin');
+
+    // And says nothing of the sort when the gate is open.
+    const open = await render([]);
+    expect(open.nativeElement.querySelector('.composer').textContent).not.toContain(
+      'approved by an admin',
+    );
+  });
+
+  it('marks a waiting comment as waiting, and leaves a published one alone', async () => {
+    const fixture = await render(
+      [comment({ id: 1, isPending: true }), comment({ id: 2, isPending: false })],
+      true,
+    );
+
+    const flags = fixture.nativeElement.querySelectorAll('.pending-flag');
+
+    expect(flags.length).toBe(1);
+    expect(flags[0].textContent).toContain('Waiting for approval');
+  });
+
+  /**
+   * A comment that vanishes on posting reads as a failure, and the author posts
+   * it again. It stays on screen, marked.
+   */
+  it('keeps a newly posted comment on screen while it waits', async () => {
+    const fixture = await render([], true);
+
+    const box = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    box.value = 'Something worth saying';
+    box.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector('.composer') as HTMLFormElement).dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true }),
+    );
+
+    http
+      .expectOne((r) => r.url === '/api/requests/7/comments' && r.method === 'POST')
+      .flush({ data: comment({ id: 9, body: 'Something worth saying', isPending: true }) });
+
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Something worth saying');
+    expect(fixture.nativeElement.querySelector('.pending-flag')).not.toBeNull();
   });
 });

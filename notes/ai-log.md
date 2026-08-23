@@ -1275,3 +1275,105 @@ most about retirement: a category with two requests on it was retired, vanished
 from `GET /api/categories` — the list every form and the filter bar reads — and
 both requests went on rendering it, with the filter link by its slug still
 matching them. Then restored, and the order put back.
+
+## 2026-08-23 — Slice 8: settings, and the configured application
+
+### The two-table shape came from an old scar
+
+The obvious storage for two-level settings is one table with a nullable
+`user_id`, NULL meaning "global". I nearly wrote it and then checked what the
+uniqueness would actually be: MySQL permits many NULLs under a `UNIQUE` key, so
+`UNIQUE (user_id, setting_key)` would allow two global rows for one setting and
+the resolver would have to pick between them. Making it illegal needs a STORED
+generated column over `IFNULL(user_id, 0)` — the same device that cost this
+schema a cascade in migration 007, where MySQL refused `ON DELETE CASCADE` on a
+foreign key involving generated columns (error 1215).
+
+Two tables, both primary keys NOT NULL, and the constraint is real without a
+trick. The scopes turned out not to share columns anyway: a global row records
+which admin last changed it, and a personal row has nobody to name.
+
+### The default not being in the database is what makes "reset" answerable
+
+The nice property fell out of putting defaults in code rather than seeding rows:
+the absence of a row IS the answer to "is this the default". A row holding the
+default value would say somebody chose it, and the screen would then offer a
+reset against something with nothing behind it, and stop offering one against a
+choice that happens to match. That distinction is now tested at three levels —
+the resolver, the payload, and the rendered "Using the default" against "Your
+choice".
+
+It is also what makes the promise "adding a setting needs no migration" true
+rather than nearly true. Nothing has to be inserted for a new setting to work.
+
+### Probing before building, again, and it paid
+
+Five probes against real MySQL before any of this was built on:
+
+* JSON round-trip — booleans come back as booleans, numbers as numbers, arrays
+  as arrays. mysql2 parses a JSON column on read, so nothing has to `JSON.parse`
+  at a call site. Writes still need `CAST(:value AS JSON)` over a stringified
+  value.
+* The upsert updates rather than duplicating: one row, new value.
+* The `CHECK` on `users` refused a deleted account that kept an `external_id` —
+  error 3819. Worth checking specifically, because migration 007 was refused a
+  CHECK (error 3818) for touching a column with a referential action; neither
+  column here carries one, and it was not safe to assume that generalised.
+* The 012 backfill left zero comments pending, so turning moderation on for the
+  first time cannot hide the history.
+* All three down-migrations run and re-apply.
+
+### The feature flag had a premise that was wrong about this repository
+
+The brief suggested comment approval "already has its column and its states from
+the comments slice". It does not: `notes/decisions-pending.md` records the
+opposite — the column was deliberately kept out, and the note warned that the
+visibility condition would have to hold in more than one place. That warning was
+the most useful thing in the file. The condition is now one exported SQL
+fragment, `APPROVED_FOR_VIEWER`, imported by the requests repository for its
+comment count, so a badge cannot promise three comments above a thread showing
+one. Verified: the same request reports a count of 1 to the comment's author and
+0 to somebody else, with the thread agreeing in both directions.
+
+The direction that is easy to get wrong is switching the flag OFF. Stamping
+`approved_at` at insert whenever the gate is down handles switching it on
+without rewriting history; without the second half — the visibility test asking
+whether the gate is up NOW — comments written during a moderated spell would be
+stranded invisible forever the moment an admin changed their mind, with nothing
+left in the interface to approve them from.
+
+### Things that cost time
+
+**`whenStable()` deadlocks on an unanswered `httpResource` request.** An
+outstanding resource request is a pending task, so awaiting stability before
+flushing waits for a response the test has not sent yet, and the test dies at the
+5-second timeout rather than at an assertion. The fix is the opposite order from
+the one that reads naturally: flush first, then await. An `HttpClient.subscribe`
+in a click handler does not have the problem, which is why the same pattern
+worked in earlier specs and made this look like a mystery.
+
+**Every component that injects a root service making an HTTP call adds a request
+to every one of its tests.** Moving the taxonomy and capabilities into one
+startup request meant six specs suddenly had an unflushed `GET /api/bootstrap`.
+A shared `provideStubbedConfig()` fixes it once; the alternative was flushing the
+same request in fifty tests that have nothing to say about it.
+
+**A component and a payload type sharing a name.** `CommentThread` is the
+component; `CommentThread` was also the natural name for what the thread
+endpoint returns. The auto-import resolved it to `rxjs` and the error was
+"Individual declarations in merged declaration must be all exported or all
+local", which says nothing about the actual problem. The payload is imported
+aliased now.
+
+**`LOCALE_ID` is fixed when the injector is created.** A language preference
+that arrives with the startup response therefore cannot use it. The date pipe
+takes a locale as its fourth argument instead, which also means changing the
+language takes effect without a reload — better than the thing I was trying to
+do.
+
+**Replacing an error changes tests that were about the error.** The seam used to
+throw a misconfiguration error when `DEV_CURRENT_USER_EMAIL` named nobody; that
+branch is now where the registration policy runs. The old test asserted the 500.
+Rewriting it turned one test into three better ones — a stranger provisioned on
+an open board, a stranger refused on a restricted one, and the seam still failing
+loudly when it is the server that is misconfigured.

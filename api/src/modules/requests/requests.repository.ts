@@ -1,5 +1,6 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { pool } from '../../db/pool.js';
+import { VISIBLE_COMMENT } from '../comments/comments.repository.js';
 import {
   EXCERPT_LENGTH,
   type FeedbackRequestDetail,
@@ -58,9 +59,16 @@ const COUNTS_CTE = `
   comment_counts AS (
     -- Hidden comments are not counted: the number is what a reader can open,
     -- not how many rows the table happens to keep for the audit trail.
+    --
+    -- Neither are comments still waiting for approval, by the same rule and
+    -- with the same consequence if it is got wrong — a badge promising three
+    -- comments above a thread showing one. The condition is not written out
+    -- here: it is VISIBLE_COMMENT, imported from the comments repository, so
+    -- the count and the thread cannot come to disagree about what a reader can
+    -- see. They are the two places the pending decision warned would drift.
     SELECT request_id, COUNT(*) AS comments
-    FROM comments
-    WHERE deleted_at IS NULL
+    FROM comments c
+    WHERE ${VISIBLE_COMMENT}
     GROUP BY request_id
   )
 `;
@@ -250,6 +258,12 @@ export interface ListParams extends ListFilters {
   offset: number;
   /** Whose "have I voted" flag to compute. */
   viewerId: number;
+
+  /**
+   * Whether comments still awaiting approval count for this viewer — the gate
+   * is open, or they are an admin. Their own always do.
+   */
+  seesPendingComments: boolean;
   sort: SortOption;
 
   /**
@@ -344,6 +358,7 @@ export async function list({
   limit,
   offset,
   viewerId,
+  seesPendingComments,
   sort,
   includePinned,
   ...filters
@@ -363,7 +378,14 @@ export async function list({
     ${orderBy(sort, includePinned)}
     LIMIT :limit OFFSET :offset
     `,
-    { ...params, excerptLength: EXCERPT_LENGTH, viewerId, limit, offset },
+    {
+      ...params,
+      excerptLength: EXCERPT_LENGTH,
+      viewerId,
+      seesPending: seesPendingComments ? 1 : 0,
+      limit,
+      offset,
+    },
   );
 
   const first = rows[0];
@@ -404,6 +426,7 @@ export interface PinnedPage {
  */
 export async function listPinned(
   viewerId: number,
+  seesPendingComments: boolean,
   limit: number,
   sort?: SortOption,
 ): Promise<PinnedPage> {
@@ -420,7 +443,7 @@ export async function listPinned(
     ${pinnedOrderBy(sort)}
     LIMIT :limit
     `,
-    { excerptLength: EXCERPT_LENGTH, viewerId, limit },
+    { excerptLength: EXCERPT_LENGTH, viewerId, seesPending: seesPendingComments ? 1 : 0, limit },
   );
 
   const first = rows[0];
@@ -435,6 +458,7 @@ export async function listPinned(
 export async function findById(
   id: number,
   viewerId: number,
+  seesPendingComments: boolean,
 ): Promise<Omit<FeedbackRequestDetail, RequestPermissionFlags> | null> {
   const [rows] = await pool.query<DetailRow[]>(
     `
@@ -444,7 +468,7 @@ export async function findById(
     WHERE r.id = :id
     LIMIT 1
     `,
-    { id, viewerId },
+    { id, viewerId, seesPending: seesPendingComments ? 1 : 0 },
   );
   const row = rows[0];
   return row ? toDetail(row) : null;
@@ -454,6 +478,7 @@ export async function findById(
 export async function findListItemById(
   id: number,
   viewerId: number,
+  seesPendingComments: boolean,
 ): Promise<ListItemRow | null> {
   const [rows] = await pool.query<ListRow[]>(
     `
@@ -463,7 +488,7 @@ export async function findListItemById(
     WHERE r.id = :id
     LIMIT 1
     `,
-    { excerptLength: EXCERPT_LENGTH, id, viewerId },
+    { excerptLength: EXCERPT_LENGTH, id, viewerId, seesPending: seesPendingComments ? 1 : 0 },
   );
   const row = rows[0];
   return row ? toListItem(row) : null;
@@ -585,4 +610,44 @@ export async function insert(input: InsertRequestInput): Promise<number> {
     input,
   );
   return result.insertId;
+}
+
+/**
+ * How many requests this person has filed in the last rolling day, and when the
+ * oldest of them leaves that window.
+ *
+ * A rolling window rather than a calendar day, so the limit does not reset at a
+ * moment somebody has to guess — and so the answer to "when may I post again"
+ * is a real timestamp rather than midnight in a timezone the server picked.
+ *
+ * `oldest_in_window` is what makes that answer possible: a slot comes back when
+ * the earliest submission still inside the window ages out of it, which is
+ * exactly 24 hours after it was created.
+ *
+ * Deleted requests do not count, because they are not rows any more — deleting
+ * a request removes it outright. That is a real hole in the limit as a defence
+ * (file the maximum, delete them, file more) and it is left open on purpose:
+ * this limit exists to stop one person filling the board, and a request that
+ * has been deleted is not on the board. Closing it would mean recording
+ * submissions somewhere deletion cannot reach, which is an audit table this
+ * application does not have a second use for yet.
+ */
+export async function countRecentByAuthor(
+  authorId: number,
+  windowHours: number,
+): Promise<{ filed: number; oldestInWindow: Date | null }> {
+  const [rows] = await pool.execute<(RowDataPacket & { filed: number; oldest: Date | null })[]>(
+    `SELECT COUNT(*) AS filed, MIN(created_at) AS oldest
+     FROM feedback_requests
+     WHERE author_id = :authorId
+       AND created_at > NOW(3) - INTERVAL :windowHours HOUR`,
+    { authorId, windowHours },
+  );
+
+  const row = rows[0];
+
+  return {
+    filed: Number(row?.filed ?? 0),
+    oldestInWindow: row?.oldest ?? null,
+  };
 }

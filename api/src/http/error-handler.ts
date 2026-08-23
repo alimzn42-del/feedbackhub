@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { ErrorRequestHandler, RequestHandler } from 'express';
-import { AppError, BadRequestError, NotFoundError, type ErrorCode, type FieldIssue } from './errors.js';
+import {
+  AppError,
+  BadRequestError,
+  NotFoundError,
+  RateLimitedError,
+  type ErrorCode,
+  type FieldIssue,
+} from './errors.js';
 
 
 /** The single error envelope. Every non-2xx response from this API looks like this. */
@@ -10,6 +17,8 @@ export interface ErrorResponseBody {
     message: string;
     /** Present only on validation failures. */
     details?: FieldIssue[];
+    /** Present only on a 429. Seconds until the same call would be accepted. */
+    retryAfterSeconds?: number;
     /** Echoed in the X-Request-Id header; the join key to the server log. */
     requestId: string;
   };
@@ -60,6 +69,15 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
 
     if (appError.details) {
       body.error.details = appError.details;
+    }
+
+    // In the body as well as the header. The header is what the standard
+    // defines and what a proxy or a generic client will honour; the body is
+    // what this application's own screen renders a sentence from, and it should
+    // not have to read headers to do that.
+    if (appError instanceof RateLimitedError) {
+      body.error.retryAfterSeconds = appError.retryAfterSeconds;
+      res.setHeader('Retry-After', String(appError.retryAfterSeconds));
     }
 
     // 5xx AppErrors are still our fault and still worth a log line.

@@ -169,3 +169,14 @@
   font-weight: 600;
   color: var(--danger);
 }
+
+
+/* Said above the box, before anybody writes anything. */
+.composer__notice {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.875rem;
+  color: var(--text);
+  background: var(--accent-subtle);
+  border-radius: var(--radius-sm);
+}

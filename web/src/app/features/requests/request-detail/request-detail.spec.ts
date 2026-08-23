@@ -5,6 +5,7 @@ import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RequestDetail } from './request-detail';
 import type { FeedbackRequestDetail } from '../../../core/api/api.types';
+import { provideStubbedConfig } from '../../../core/config/app-config.testing';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Acting on a request from its own page.
@@ -68,6 +69,9 @@ describe('RequestDetail actions', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        // The statuses this screen offers arrive with the application now,
+        // rather than being fetched when the manage panel opens.
+        provideStubbedConfig({ statuses: STATUSES }),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -104,7 +108,6 @@ describe('RequestDetail actions', () => {
     http.expectOne((r) => r.url === `/api/requests/${row.id}/comments`).flush({ data: [] });
 
     if (row.canChangeStatus) {
-      http.expectOne((r) => r.url === '/api/statuses').flush({ data: STATUSES });
     }
 
     await settle();
@@ -169,15 +172,8 @@ describe('RequestDetail actions', () => {
     fixture.detectChanges();
     await settle();
 
-    http.expectOne((r) => r.url === '/api/categories').flush({
-      data: [
-        { id: 2, name: 'Feature', slug: 'feature' },
-        { id: 4, name: 'Bug', slug: 'bug' },
-      ],
-    });
-
-    await settle();
-    fixture.detectChanges();
+    // No request for the categories: the edit form is offered the ones the
+    // application already holds.
 
     const title = fixture.nativeElement.querySelector('#edit-title') as HTMLInputElement;
     expect(title.value).toBe('Dark mode for the board');

@@ -5,6 +5,7 @@ import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RequestList } from './request-list';
 import type { FeedbackRequestListItem, Paginated } from '../../../core/api/api.types';
+import { provideStubbedConfig } from '../../../core/config/app-config.testing';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Filtering and sorting, from the board's side.
@@ -74,6 +75,7 @@ describe('RequestList filtering', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        provideStubbedConfig(),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -118,9 +120,6 @@ describe('RequestList filtering', () => {
     if (!narrows(params)) {
       http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [], total: 0 });
     }
-
-    http.expectOne((r) => r.url === '/api/statuses').flush({ data: STATUSES });
-    http.expectOne((r) => r.url === '/api/categories').flush({ data: CATEGORIES });
 
     const listed = http.expectOne((r) => r.url === '/api/requests');
     listed.flush(body);
@@ -327,8 +326,6 @@ describe('RequestList filtering', () => {
     fixture.detectChanges();
 
     // No shelf request: a status filter is applied, so there is no shelf.
-    http.expectOne((r) => r.url === '/api/statuses').flush({ data: STATUSES });
-    http.expectOne((r) => r.url === '/api/categories').flush({ data: CATEGORIES });
     http.expectOne((r) => r.url === '/api/requests').flush(
       {
         error: {
@@ -383,8 +380,6 @@ describe('RequestList filtering', () => {
     expect(shelf.request.params.get('sort')).toBe('oldest');
 
     shelf.flush({ data: [], total: 0 });
-    http.expectOne((r) => r.url === '/api/statuses').flush({ data: STATUSES });
-    http.expectOne((r) => r.url === '/api/categories').flush({ data: CATEGORIES });
     http.expectOne((r) => r.url === '/api/requests').flush(page([item()]));
 
     await fixture.whenStable();
@@ -401,8 +396,6 @@ describe('RequestList filtering', () => {
     expect(shelf.request.params.keys()).toHaveLength(0);
 
     shelf.flush({ data: [], total: 0 });
-    http.expectOne((r) => r.url === '/api/statuses').flush({ data: STATUSES });
-    http.expectOne((r) => r.url === '/api/categories').flush({ data: CATEGORIES });
     http.expectOne((r) => r.url === '/api/requests').flush(page([item()]));
 
     await fixture.whenStable();

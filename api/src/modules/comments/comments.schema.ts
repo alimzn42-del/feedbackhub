@@ -48,6 +48,19 @@ export interface CommentAuthor {
 /** Why a comment is showing as removed. Null when it is not. */
 export type DeletionReason = 'author' | 'moderator' | 'with-parent';
 
+/**
+ * The thread, plus the one thing the composer above it has to know.
+ *
+ * `awaitsApproval` is not the setting. The setting is administrative and
+ * withheld; this is its consequence for this caller on this screen — "a comment
+ * you post now will wait" — which they have to be told before they write it, or
+ * the interface is lying about what the button does.
+ */
+export interface CommentThreadDto {
+  comments: CommentDto[];
+  awaitsApproval: boolean;
+}
+
 export interface CommentDto {
   id: number;
   parentId: number | null;
@@ -66,6 +79,16 @@ export interface CommentDto {
 
   isDeleted: boolean;
   deletedReason: DeletionReason | null;
+
+  /**
+   * Waiting for an admin, and visible to its author (and to admins) until it is
+   * let through.
+   *
+   * This is how the moderation setting reaches somebody who is not allowed to
+   * read the setting: as a fact about their own comment, from the endpoint that
+   * owns it. Almost always false — it can only be true while the gate is up.
+   */
+  isPending: boolean;
 
   /** Decided per row by the policy module, so the browser never guesses. */
   canEdit: boolean;

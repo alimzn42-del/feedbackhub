@@ -26,6 +26,22 @@ export const commentPolicy = {
   },
 
   /**
+   * Letting a waiting comment through — admin only.
+   *
+   * Note what this rule is NOT. It does not let an admin edit the comment, and
+   * there is no "approve with changes": an admin decides whether words are
+   * published, never what the words are. That is the same line delete and
+   * editContent already draw, and approval is the third place it has to hold.
+   *
+   * Rejecting is not a separate rule either — it is `delete`, which an admin
+   * already has, and which records who did it. A rejection that left no trace
+   * would be the one moderation act on this board that nobody could audit.
+   */
+  approve(actor: Actor): Decision {
+    return isAdmin(actor) ? allow() : deny('Only an admin can approve comments.');
+  },
+
+  /**
    * Edit — the author only, and never an admin on somebody else's words.
    *
    * Same rule as a feedback request, for the same reason: moderation means

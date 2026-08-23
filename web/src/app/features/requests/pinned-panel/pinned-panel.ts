@@ -1,5 +1,6 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { AppConfig } from '../../../core/config/app-config';
 import { RouterLink } from '@angular/router';
 import type { FeedbackRequestListItem } from '../../../core/api/api.types';
 
@@ -24,6 +25,12 @@ const COLLAPSED_COUNT = 3;
   styleUrl: './pinned-panel.scss',
 })
 export class PinnedPanel {
+  /**
+   * The locale dates are written in. Passed to the pipe rather than provided
+   * as LOCALE_ID, which is fixed before the person's preference has arrived.
+   */
+  protected readonly locale = inject(AppConfig).language;
+
   readonly items = input.required<FeedbackRequestListItem[]>();
 
   /** Every pinned request, which can exceed what the endpoint returned. */

@@ -15,6 +15,7 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'CONFLICT'
+  | 'RATE_LIMITED'
   | 'SERVER_MISCONFIGURED'
   | 'INTERNAL';
 
@@ -89,6 +90,29 @@ export class NotFoundError extends AppError {
 export class ConflictError extends AppError {
   constructor(message: string) {
     super(409, 'CONFLICT', message);
+  }
+}
+
+/**
+ * Allowed, correct, and too soon.
+ *
+ * Carries how long until they may try again rather than a bare refusal, because
+ * the interface has to say something more useful than no — and "in about three
+ * hours" is a different sentence from "tomorrow". The number is seconds, and it
+ * also goes out as the Retry-After header, which is what the standard says and
+ * what anything that is not this application's own client will look for.
+ *
+ * A 429 and not a 403: the caller is permitted to do this, and would succeed if
+ * they waited. A 403 would tell them to stop asking.
+ */
+export class RateLimitedError extends AppError {
+  readonly retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super(429, 'RATE_LIMITED', message);
+    // Never below one: a Retry-After of 0 invites an immediate retry that is
+    // certain to be refused again.
+    this.retryAfterSeconds = Math.max(1, Math.ceil(retryAfterSeconds));
   }
 }
 

@@ -1,6 +1,7 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
+import { AppConfig } from '../../../core/config/app-config';
 import {
   FormControl,
   ReactiveFormsModule,
@@ -11,7 +12,13 @@ import {
 import type { Observable } from 'rxjs';
 import { CommentsApi } from '../data/comments.api';
 import { toApiError } from '../../../core/api/api-error';
-import type { Comment, Wrapped } from '../../../core/api/api.types';
+// Aliased: this component is also called CommentThread, and the payload it
+// renders is a different thing from the component that renders it.
+import type {
+  Comment,
+  CommentThread as CommentThreadPayload,
+  Wrapped,
+} from '../../../core/api/api.types';
 
 const BODY_MAX = 5000;
 
@@ -40,11 +47,34 @@ export class CommentThread {
   /** Told when the thread changes size, so the page can refresh its count. */
   readonly changed = input<(() => void) | null>(null);
 
-  protected readonly thread = httpResource<Wrapped<Comment[]>>(() => ({
+  /**
+   * The locale dates are written in, from the person's own preference.
+   *
+   * Passed to the pipe rather than provided as LOCALE_ID, which is fixed when
+   * the injector is created — before the bootstrap request has said what they
+   * chose. This way changing the language takes effect without a reload.
+   */
+  protected readonly locale = inject(AppConfig).language;
+
+  protected readonly thread = httpResource<CommentThreadPayload>(() => ({
     url: this.api.threadUrl(this.requestId()),
   }));
 
-  protected readonly comments = computed(() => this.thread.value()?.data ?? []);
+  protected readonly comments = computed(() =>
+    this.thread.hasValue() ? (this.thread.value()?.data ?? []) : [],
+  );
+
+  /**
+   * Whether a comment posted now will wait for an admin.
+   *
+   * This is the moderation setting's consequence, not the setting — that is
+   * administrative and is never sent to somebody who cannot manage it. The
+   * composer has to say so before anybody writes anything, or the button is
+   * lying about what it does.
+   */
+  protected readonly awaitsApproval = computed(() =>
+    this.thread.hasValue() ? (this.thread.value()?.awaitsApproval ?? false) : false,
+  );
 
   protected readonly loadFailure = computed(() => {
     const failure = this.thread.error();

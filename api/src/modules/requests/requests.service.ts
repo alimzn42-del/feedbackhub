@@ -1,10 +1,16 @@
 import type { Actor } from '../../auth/actor.js';
-import { MisconfigurationError, NotFoundError, ValidationError } from '../../http/errors.js';
+import {
+  MisconfigurationError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from '../../http/errors.js';
 import { toOffset, toPageMeta, type Paginated } from '../../http/pagination.js';
 import { authorize } from '../../policy/index.js';
 import { requestPolicy } from '../../policy/requests.policy.js';
 import { votePolicy } from '../../policy/votes.policy.js';
 import * as categoriesRepository from '../categories/categories.repository.js';
+import { globalValue } from '../settings/settings.service.js';
 import * as statusesRepository from '../statuses/statuses.repository.js';
 import * as requestsRepository from './requests.repository.js';
 import type { ListFilters } from './requests.repository.js';
@@ -51,11 +57,76 @@ function withPermissions<T extends { author: { id: number } }>(
  * Every entry point asks the policy module first and does nothing before it has
  * an answer. The check is not conditional on what the handler then does.
  */
+/**
+ * Whether comments still waiting for approval count towards what this viewer
+ * sees — which is what the comment count on a request has to agree with.
+ *
+ * An admin sees them because judging them is their job. Everybody else sees
+ * them only while the gate is open, in which case nothing is waiting on
+ * anybody. Their own comments are visible either way, and that half of the rule
+ * lives in the SQL, where it belongs to the row rather than to the caller.
+ *
+ * Every read below asks this. A count that disagreed with the thread underneath
+ * it is precisely the failure the moderation decision was parked with a warning
+ * about.
+ */
+async function seesPendingComments(actor: Actor): Promise<boolean> {
+  if (actor.role === 'admin') return true;
+  return !(await globalValue('comments.requireApproval'));
+}
+
+/** The window the submission limit is counted over. */
+const RATE_LIMIT_WINDOW_HOURS = 24;
+
+/**
+ * How many requests one person may file in a rolling day.
+ *
+ * The limit is a setting, not a constant — the number is an operational
+ * judgement that changes with the size of the board, and changing it should not
+ * be a deploy. It is read on every submission for the same reason the identity
+ * seam reads the user on every request: an admin who lowers it wants that to be
+ * true now, not after a restart.
+ *
+ * Enforced here rather than as middleware on the route. Middleware counting
+ * HTTP calls would refuse a submission that was about to fail validation
+ * anyway, and would have to know which routes count as "a submission" from the
+ * outside. This is the one place that knows a request was actually filed.
+ */
+async function assertNotRateLimited(actor: Actor): Promise<void> {
+  const limit = await globalValue('submissions.perUserPerDay');
+  const { filed, oldestInWindow } = await requestsRepository.countRecentByAuthor(
+    actor.id,
+    RATE_LIMIT_WINDOW_HOURS,
+  );
+
+  if (filed < limit) return;
+
+  // A slot comes back when the earliest submission still inside the window ages
+  // out of it. oldestInWindow is non-null whenever filed > 0, and filed is at
+  // least the limit to be here — but the fallback keeps the arithmetic total
+  // rather than trusting that across a future change.
+  const freesAt = oldestInWindow
+    ? oldestInWindow.getTime() + RATE_LIMIT_WINDOW_HOURS * 60 * 60 * 1000
+    : Date.now();
+
+  throw new RateLimitedError(
+    `You have filed ${filed} ${filed === 1 ? 'request' : 'requests'} in the last day, which is ` +
+      'as many as this board allows.',
+    (freesAt - Date.now()) / 1000,
+  );
+}
+
 export async function create(
   actor: Actor,
   body: CreateRequestBody,
 ): Promise<FeedbackRequestDetail> {
   authorize(requestPolicy.create(actor));
+
+  // Before the category is looked up and before anything is written: being
+  // refused for filing too often is not a fact about the payload, and finding
+  // out only after the form has been validated would read as the board being
+  // slow to say no.
+  await assertNotRateLimited(actor);
 
   const categoryId = await categoriesRepository.findActiveId(body.categoryId);
 
@@ -92,7 +163,11 @@ export async function create(
     authorId: actor.id,
   });
 
-  const created = await requestsRepository.findById(id, actor.id);
+  const created = await requestsRepository.findById(
+    id,
+    actor.id,
+    await seesPendingComments(actor),
+  );
 
   if (!created) {
     throw new MisconfigurationError('The request was created but could not be read back.');
@@ -177,6 +252,7 @@ export async function list(
     limit: query.pageSize,
     offset: toOffset(query),
     viewerId: actor.id,
+    seesPendingComments: await seesPendingComments(actor),
     // Absent means the board's default. The parameter stays optional all the
     // way from the URL so the shelf can tell "no ordering was asked for" from
     // "this ordering was asked for", which is what decides its own order.
@@ -197,7 +273,11 @@ export async function list(
 export async function findById(actor: Actor, id: number): Promise<FeedbackRequestDetail> {
   authorize(requestPolicy.read(actor));
 
-  const found = await requestsRepository.findById(id, actor.id);
+  const found = await requestsRepository.findById(
+    id,
+    actor.id,
+    await seesPendingComments(actor),
+  );
 
   if (!found) {
     throw new NotFoundError('That request does not exist.');
@@ -255,7 +335,11 @@ export async function update(
     categoryId,
   });
 
-  const updated = await requestsRepository.findById(id, actor.id);
+  const updated = await requestsRepository.findById(
+    id,
+    actor.id,
+    await seesPendingComments(actor),
+  );
 
   if (!updated) {
     throw new MisconfigurationError('The request was updated but could not be read back.');
@@ -307,7 +391,11 @@ export async function changeStatus(
 
   await requestsRepository.updateStatus(id, statusId);
 
-  const updated = await requestsRepository.findById(id, actor.id);
+  const updated = await requestsRepository.findById(
+    id,
+    actor.id,
+    await seesPendingComments(actor),
+  );
 
   if (!updated) {
     throw new MisconfigurationError('The status changed but the request could not be read back.');
@@ -338,6 +426,7 @@ export async function listPinned(
 
   const { items, total } = await requestsRepository.listPinned(
     actor.id,
+    await seesPendingComments(actor),
     MAX_PINNED_RETURNED,
     query.sort,
   );
@@ -367,7 +456,11 @@ async function setPinned(
 
   await apply();
 
-  const updated = await requestsRepository.findListItemById(id, actor.id);
+  const updated = await requestsRepository.findListItemById(
+    id,
+    actor.id,
+    await seesPendingComments(actor),
+  );
 
   if (!updated) {
     throw new MisconfigurationError('The request changed but could not be read back.');

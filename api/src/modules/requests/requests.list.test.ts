@@ -19,6 +19,7 @@ import type { Actor } from '../../auth/actor.js';
 
 const usersRepository = vi.hoisted(() => ({ findByEmail: vi.fn() }));
 const requestsRepository = vi.hoisted(() => ({
+  countRecentByAuthor: vi.fn(),
   insert: vi.fn(),
   findById: vi.fn(),
   findListItemById: vi.fn(),
@@ -29,6 +30,22 @@ const requestsRepository = vi.hoisted(() => ({
   count: vi.fn(),
   pin: vi.fn(),
   unpin: vi.fn(),
+}));
+/**
+ * Settings, stored nowhere.
+ *
+ * Both tables read back empty, so every setting resolves to the fallback in the
+ * registry — which is exactly the state a fresh installation is in. These tests
+ * therefore describe what this application does out of the box, and a test that
+ * cares about a setting sets it here explicitly.
+ */
+const settingsRepository = vi.hoisted(() => ({
+  readGlobal: vi.fn(),
+  readForUser: vi.fn(),
+  applyGlobal: vi.fn(),
+  applyForUser: vi.fn(),
+  clearAllForUser: vi.fn(),
+  RESET: Symbol('reset'),
 }));
 const categoriesRepository = vi.hoisted(() => ({
   listActive: vi.fn(),
@@ -45,6 +62,7 @@ vi.mock('../users/users.repository.js', () => usersRepository);
 vi.mock('./requests.repository.js', () => requestsRepository);
 vi.mock('../categories/categories.repository.js', () => categoriesRepository);
 vi.mock('../statuses/statuses.repository.js', () => statusesRepository);
+vi.mock('../settings/settings.repository.js', () => settingsRepository);
 
 const { createApp } = await import('../../app.js');
 
@@ -76,6 +94,8 @@ function lastListCall(): Record<string, unknown> {
 }
 
 beforeEach(() => {
+  settingsRepository.readGlobal.mockResolvedValue(new Map());
+  settingsRepository.readForUser.mockResolvedValue(new Map());
   usersRepository.findByEmail.mockResolvedValue(REGULAR_USER);
   requestsRepository.list.mockResolvedValue({ items: [], total: 0 });
   requestsRepository.listPinned.mockResolvedValue({ items: [], total: 0 });
@@ -342,6 +362,7 @@ describe('GET /api/requests/pinned', () => {
     // shows before it is expanded.
     expect(requestsRepository.listPinned).toHaveBeenCalledWith(
       REGULAR_USER.id,
+      expect.any(Boolean),
       expect.any(Number),
       undefined,
     );
@@ -355,6 +376,7 @@ describe('GET /api/requests/pinned', () => {
     // answers to one question.
     expect(requestsRepository.listPinned).toHaveBeenCalledWith(
       REGULAR_USER.id,
+      expect.any(Boolean),
       expect.any(Number),
       'oldest',
     );

@@ -128,7 +128,7 @@
           {{ request.author.displayName }}
           <span aria-hidden="true">·</span>
           <time [attr.datetime]="request.createdAt">{{
-            request.createdAt | date: 'mediumDate'
+            request.createdAt | date: 'mediumDate' : undefined : locale()
           }}</time>
         </p>
 

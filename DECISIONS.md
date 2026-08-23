@@ -5,6 +5,52 @@ the reason they were reversed.
 
 ## Data
 
+**Settings live in two key/value tables, not one table and not a document.**
+`app_settings` is keyed by the setting; `user_settings` is keyed by the person
+and the setting. The obvious shape — one table with a nullable `user_id` where
+NULL means global — cannot hold its own uniqueness, because MySQL permits many
+NULLs under a `UNIQUE` key and two global rows for one setting would be legal.
+Making that illegal needs a STORED generated column, and this schema has already
+paid for one of those once (migration 007, where it cost a cascade). Split in
+two, both primary keys are NOT NULL and the constraint is real. The scopes also
+do not share columns: a global row records which admin last changed it, and a
+personal row has nobody to name but its owner.
+
+**A setting's value is a JSON column, and its default is not stored at all.**
+The defaults live in `src/modules/settings/settings.registry.ts`, so a table with
+no row for a key is the normal state rather than a missing one. That is what
+lets a new setting arrive without a migration, and it is also what makes "using
+the default" answerable: the absence of a row IS the answer. A row holding the
+default would mean somebody chose it.
+
+**`user_settings` is the only user reference in this schema that cascades.**
+Everywhere else is `ON DELETE RESTRICT`, because somebody's requests, comments
+and votes are other people's screens too. Preferences are the one thing that is
+purely theirs, so nothing is lost by removing them with the account.
+
+**`comments.approved_at` is stamped at insert whenever moderation is off.** It
+therefore means "this comment has cleared publication" and not "an admin looked
+at it". The alternative — NULL for everything written while the gate was down —
+would mean switching moderation ON hid the entire history of the board
+retroactively. Turning it OFF releases what is waiting, because the visibility
+test asks whether the gate is up NOW as well as whether the row cleared it;
+without that half, comments written during a moderated spell would be stranded
+invisible the moment an admin changed their mind.
+
+**No `approved_by`.** `deleted_by` exists because a moderator removing somebody's
+words is contested and needs a name against it. Approval is the opposite act and
+nobody is served by knowing which admin waved a comment through.
+
+**Deleting an account is an UPDATE, not a DELETE.** `users.deleted_at` plus
+cleared personal fields. Every foreign key to `users` stays intact and pointing
+at a row that no longer says who it was. The email becomes
+`deleted-<id>@removed.invalid` rather than being emptied, because the column is
+NOT NULL UNIQUE and every departed account would otherwise collide on the empty
+string; `.invalid` is the reserved TLD that can never resolve. `deleted_at`
+exists even though the fields are already cleared, because the identity seam has
+to refuse a departed account and a screen has to tell a real person called
+"Deleted user" from an account that is gone.
+
 **MySQL 8.** Chosen over Postgres for familiarity and faster diagnosis inside a
 timebox, and over MongoDB because the data is strongly relational — the
 "unbounded comments per user" worry is what a foreign key is for, not a reason
@@ -255,6 +301,57 @@ between the two statements rolls back.
 
 ## Authorization and identity
 
+**Application settings are withheld from a non-admin, not merely uneditable.**
+This is the one place on this board where a field is hidden rather than refused
+on write. How the installation is run — who may register, how often anybody may
+post — is not a fact every account is owed. It is not a secrecy guarantee and
+does not try to be: a setting whose effect is visible is visible.
+
+**But the CONSEQUENCE of a withheld setting still reaches the person it affects.**
+Comment moderation is admin-only, and somebody whose comment will wait is told
+so before they write it and after they post it — as an answer about their own
+action, from the endpoint that owns it (`awaitsApproval` on the thread,
+`isPending` on the comment), never as the setting. This is the same rule as
+`canVote`: the browser is told what will happen, not what the configuration says.
+
+**The browser is now told WHO it is, and still never WHAT it is.** The bootstrap
+payload carries the caller's id, name and email, because the settings screen
+edits them and every write about somebody names the account in its path. There
+is still no role in any payload, and no permission a client can derive for
+itself. This is a deliberate narrowing of the rule as it was written in slice 2 —
+the half that mattered was never "the browser knows nothing about itself", it was
+"the browser cannot work out what it may do".
+
+**Preferences are the person's own, and an admin is not an exception.** Same
+shape as `editContent` on a request: an admin moderates, an admin does not
+rewrite. There is no administrative reason to choose somebody else's colour
+scheme, and the day there is a reason to act on another account it will be user
+administration with its own audit trail.
+
+**There is no `/me`.** Every route that acts on an account names it in the path.
+An endpoint that acted on "whoever is calling" could not tell an attempt to
+change somebody else's preferences from an ordinary save — it would answer 200
+and write the wrong row's neighbour. Naming the target makes the answer 403, and
+that refusal has a test.
+
+**The registration policy is enforced in this application, not in the identity
+provider.** Authenticating and being admitted are two different decisions.
+`src/auth/provision.ts` is the second one, and it is the same call the real
+provider will make when Keycloak lands: a person will be able to present a
+perfectly valid token and still be refused an account here.
+
+**`invite-only` is not one of the registration policy's values.** There is no
+invitation to check against — no table, nothing that mints one — so the setting
+would name a rule the application cannot apply and would in practice mean
+"closed" while claiming to mean something else. It arrives with invitations or
+not at all.
+
+**The last admin cannot delete their own account.** A 409, not a 403: they are
+allowed to, and the state of the world is what stands in the way. Nothing in this
+application promotes anybody, so a board that reaches zero admins can never have
+one again without an UPDATE by hand — the dead end every other rule here exists
+to avoid.
+
 **Authorization from day one, authentication deferred.** Every endpoint enforces
 permissions now. The current user comes from one function, `resolveCurrentUser`,
 which today returns a seeded user named by an environment variable. The Keycloak
@@ -388,6 +485,49 @@ admin route renders that refusal, and this endpoint lying would cost a menu item
 and nothing else.
 
 ## HTTP
+
+**One request at startup: `GET /api/bootstrap`.** It replaces
+`GET /api/capabilities`, which answered a third of the same question and has been
+removed rather than left as a second way to ask it. What is in the payload is
+decided by one test — would the first paint be drawn WRONG without it, and then
+visibly change. The user, the capabilities, the settings that decide how the page
+looks, and the two taxonomy lists every screen already needed. Notification
+preferences, the administrative settings document and the `?scope=all` taxonomy
+are not in it: they change nothing until somebody opens the screen that fetches
+them.
+
+**Which settings are in the startup payload is declared on each setting.** A list
+in the bootstrap controller would be a second place to remember when a setting is
+added.
+
+**429 is its own error, and it carries the wait.** `retryAfterSeconds` in the
+body and `Retry-After` in the header — the header because that is what the
+standard says and what anything that is not this client will look for, the body
+because a screen should not have to read headers to write a sentence. A 429 and
+not a 403: the caller is permitted to do this and would succeed if they waited.
+
+**The submission limit is enforced in the service, not as route middleware.**
+Middleware counting HTTP calls would have to know which routes count as "a
+submission" from the outside, and would refuse a request that was about to fail
+validation anyway. The service is the one place that knows a request was actually
+filed.
+
+**A settings write sends only the keys it changes, and the whole set lands in one
+transaction.** Not a document: two admins with the screen open would each send a
+whole document and the second would silently undo the first. A set rather than
+one key per request, because some of these settings constrain each other —
+restricting registration to a list of domains and naming the domains is one
+decision, and sending it as two requests could leave the board admitting nobody
+in between.
+
+**`null` in a settings patch means reset, and reset is not writing the default.**
+It removes the stored row so the layer below answers again. No setting in the
+registry is nullable, so nothing is ambiguous about it.
+
+**A stored setting is validated on the way out as well as in.** The value column
+is JSON and a row may have been written by an older build of the registry under
+rules this one has since tightened. A value that no longer validates falls
+through to the next layer rather than being served.
 
 ### Error shape
 
@@ -527,6 +667,43 @@ descriptions is up to 100KB the card never renders, and truncating in the
 browser would mean sending it anyway. The excerpt is cut in SQL.
 
 ## Frontend
+
+**The shell renders around the startup request; it is not a
+`provideAppInitializer`.** An initializer that blocks bootstrapping has nowhere
+to put a retry — the application does not exist yet, so a failure is a blank page
+with a message in the console. The shell mounts, gates its own outlet on the
+resource, and a failed startup is a screen with a button on it. Nothing renders
+on hardcoded fallbacks, because nothing renders at all until the server has
+answered.
+
+**A saved preference decides where you LAND; the URL still says where you are.**
+Arriving at `/requests` with a bare address replaces it with one carrying the
+person's default ordering and filters, so the view stays shareable and survives a
+refresh. It fires only on a bare address — a board somebody has actively cleared
+stays cleared — and `replaceUrl`, so Back does not walk through a redirect nobody
+asked for.
+
+**The colour scheme is applied to the document element, and `system` removes the
+attribute rather than writing a third value.** The stylesheet's own
+`prefers-color-scheme` query is then what decides: one mechanism, not two that
+have to agree. `color-scheme` is set alongside it so scrollbars and form controls
+the application does not style follow too.
+
+**The language sets the document language and the locale dates are formatted in,
+and does not translate the interface.** There is no message catalogue, and a
+half-populated one would be worse than an application that formats correctly and
+speaks one language. It is passed to the date pipe rather than provided as
+`LOCALE_ID`, which is fixed when the injector is created — before the person's
+choice has arrived — so changing it takes effect without a reload.
+
+**Which control edits a setting is sent by the server.** A screen that decided
+per key would be a second list of the settings, in another language, in another
+repository, and a setting added without that second edit would silently never
+appear.
+
+**The account deletion dialog says what survives before it asks.** Somebody who
+expects deletion to erase their comments and finds them still there was misled by
+an interface too brief to be honest.
 
 **Angular 22, standalone components, signals, typed reactive forms.**
 
@@ -678,6 +855,27 @@ keeps the line breaks somebody typed; nothing they typed is interpreted. There
 is no markdown, and therefore no HTML to sanitise.
 
 ## Scope
+
+**Comment moderation before publication was built in this slice, not
+the moderation slice it was parked for.** It was the strongest available
+demonstration of a feature flag — it changes what the application DOES rather
+than what it shows — and the alternatives all amounted to hiding a control. The
+note in `notes/decisions-pending.md` was written on the assumption it would
+arrive on its own; it arrived attached to the setting that switches it on, which
+is where the shape it predicted (a nullable `approved_at` plus a settings table)
+turned out to belong.
+
+**Email notification preferences are recorded and nothing sends mail.** Normally
+this schema's rule is that a column nothing reads should not exist yet. It
+survives here because these are not columns: nothing exists until somebody sets
+one, an unset preference is answered from the registry, and removing them later
+is deleting an entry from one file. Recording an intention that costs nothing to
+hold is different from carving out a column to hold it in.
+
+**Avatars are not built.** The brief offers "avatar or initials"; there is no
+file storage in this application and adding one for a profile picture is a slice
+of its own. Initials are derived from the display name, which is what the board
+already shows.
 
 **Slice 7 is the admin configuration slice those two reads were waiting for.**
 The management endpoints now exist for both taxonomies, and the earlier notes

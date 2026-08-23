@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { provideRouter } from '@angular/router';
 import { PinnedPanel } from './pinned-panel';
 import type { FeedbackRequestListItem } from '../../../core/api/api.types';
+import { provideStubbedConfig } from '../../../core/config/app-config.testing';
 
 function pinnedItem(id: number, overrides: Partial<FeedbackRequestListItem> = {}) {
   return {
@@ -50,7 +51,7 @@ describe('PinnedPanel', () => {
   // Configured for every test, not only the ones that go through render().
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideRouter([{ path: '**', children: [] }])],
+      providers: [provideStubbedConfig(), provideRouter([{ path: '**', children: [] }])],
     });
   });
 

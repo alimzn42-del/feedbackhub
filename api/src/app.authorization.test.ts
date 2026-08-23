@@ -42,9 +42,17 @@ import type { Actor } from './auth/actor.js';
 
 /* Every repository is replaced. These tests are about the authorization path,
    not about SQL, and they must not need a running database. */
-const usersRepository = vi.hoisted(() => ({ findByEmail: vi.fn() }));
+const usersRepository = vi.hoisted(() => ({
+  findByEmail: vi.fn(),
+  findById: vi.fn(),
+  insert: vi.fn(),
+  updateDisplayName: vi.fn(),
+  countOtherAdmins: vi.fn(),
+  anonymise: vi.fn(),
+}));
 const requestsRepository = vi.hoisted(() => ({
   insert: vi.fn(),
+  countRecentByAuthor: vi.fn(),
   findById: vi.fn(),
   findListItemById: vi.fn(),
   findAuthorId: vi.fn(),
@@ -57,6 +65,22 @@ const requestsRepository = vi.hoisted(() => ({
   updateContent: vi.fn(),
   updateStatus: vi.fn(),
   remove: vi.fn(),
+}));
+/**
+ * Settings, stored nowhere.
+ *
+ * Both tables read back empty, so every setting resolves to the fallback in the
+ * registry — which is exactly the state a fresh installation is in. These tests
+ * therefore describe what this application does out of the box, and a test that
+ * cares about a setting sets it here explicitly.
+ */
+const settingsRepository = vi.hoisted(() => ({
+  readGlobal: vi.fn(),
+  readForUser: vi.fn(),
+  applyGlobal: vi.fn(),
+  applyForUser: vi.fn(),
+  clearAllForUser: vi.fn(),
+  RESET: Symbol('reset'),
 }));
 const votesRepository = vi.hoisted(() => ({
   cast: vi.fn(),
@@ -80,6 +104,7 @@ vi.mock('./modules/requests/requests.repository.js', () => requestsRepository);
 vi.mock('./modules/categories/categories.repository.js', () => categoriesRepository);
 vi.mock('./modules/statuses/statuses.repository.js', () => statusesRepository);
 vi.mock('./modules/votes/votes.repository.js', () => votesRepository);
+vi.mock('./modules/settings/settings.repository.js', () => settingsRepository);
 
 const { createApp } = await import('./app.js');
 const { requestPolicy } = await import('./policy/requests.policy.js');
@@ -112,6 +137,9 @@ const VALID_BODY = {
 const app = createApp();
 
 beforeEach(() => {
+  settingsRepository.readGlobal.mockResolvedValue(new Map());
+  settingsRepository.readForUser.mockResolvedValue(new Map());
+  requestsRepository.countRecentByAuthor.mockResolvedValue({ filed: 0, oldestInWindow: null });
   usersRepository.findByEmail.mockResolvedValue(REGULAR_USER);
   categoriesRepository.findActiveId.mockResolvedValue(2);
   categoriesRepository.listActive.mockResolvedValue([{ id: 2, name: 'Feature', slug: 'feature' }]);
@@ -288,11 +316,61 @@ describe('GET /api/categories', () => {
 });
 
 describe('every /api route establishes an identity first', () => {
-  it('refuses to serve a request whose identity cannot be resolved', async () => {
-    // The seam is configured but names a user who does not exist. This is a
-    // server misconfiguration, not a caller error, and it must not fall through
-    // to a handler with an undefined actor.
+  /**
+   * Somebody the application has never seen is provisioned, not refused.
+   *
+   * This used to be a 500: the seam named a user who did not exist and that was
+   * treated as a misconfiguration. It is now the moment the registration policy
+   * is for — the development stand-in for a person arriving with a valid token
+   * and no local row — and it goes through the same call the real identity
+   * provider will make.
+   */
+  it('provisions somebody it has never seen, when registration is open', async () => {
     usersRepository.findByEmail.mockResolvedValue(null);
+    usersRepository.insert.mockResolvedValue({ ...REGULAR_USER, id: 99, email: 'new@elsewhere.com' });
+
+    await request(app).get('/api/requests').expect(200);
+
+    // The address the seam is pointed at, whatever it is in this environment,
+    // and a name derived from it rather than invented.
+    expect(usersRepository.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ email: expect.any(String), externalId: null }),
+    );
+    expect(requestsRepository.list).toHaveBeenCalled();
+  });
+
+  /**
+   * And refused when the policy says so, before any handler runs.
+   *
+   * The check lives in this application and not in the identity provider: a
+   * person can authenticate perfectly and still not be admitted here. This is
+   * that refusal, on an ordinary route, with the read asserted not to have
+   * happened.
+   */
+  it('refuses somebody the registration policy does not admit', async () => {
+    usersRepository.findByEmail.mockResolvedValue(null);
+    settingsRepository.readGlobal.mockResolvedValue(
+      new Map<string, unknown>([
+        ['registration.policy', 'domains'],
+        ['registration.allowedDomains', ['elsewhere.example']],
+      ]),
+    );
+
+    const response = await request(app).get('/api/requests');
+
+    expect(response.status).toBe(403);
+    expect(usersRepository.insert).not.toHaveBeenCalled();
+    expect(requestsRepository.list).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The seam still fails loudly when it is the SERVER that is wrong rather than
+   * the caller — the identity mode compiled in is not one this build can serve.
+   */
+  it('refuses to serve at all when no identity provider is wired up', async () => {
+    usersRepository.findByEmail.mockRejectedValue(
+      new (await import('./http/errors.js')).MisconfigurationError('No identity provider.'),
+    );
 
     const response = await request(app).get('/api/requests');
 
@@ -303,6 +381,7 @@ describe('every /api route establishes an identity first', () => {
 
   it('leaves the health probe outside the identity chain', async () => {
     usersRepository.findByEmail.mockResolvedValue(null);
+    usersRepository.insert.mockResolvedValue(REGULAR_USER);
 
     await request(app).get('/health').expect(200);
   });

@@ -8,6 +8,7 @@ import {
   type AbstractControl,
 } from '@angular/forms';
 import { RequestsApi } from '../data/requests.api';
+import { AppConfig } from '../../../core/config/app-config';
 import { toApiError, type ApiError, type FieldIssue } from '../../../core/api/api-error';
 import type { FeedbackRequestDetail, TaxonomyRef, Wrapped } from '../../../core/api/api.types';
 
@@ -50,6 +51,7 @@ interface EditForm {
 })
 export class RequestEdit implements OnInit {
   private readonly api = inject(RequestsApi);
+  private readonly config = inject(AppConfig);
 
   readonly request = input.required<FeedbackRequestDetail>();
 
@@ -59,16 +61,11 @@ export class RequestEdit implements OnInit {
   protected readonly limits = { TITLE_MIN, TITLE_MAX, DESCRIPTION_MIN, DESCRIPTION_MAX };
 
   /**
-   * The categories an admin curates. Archived ones are not offered, so a
-   * request already filed under one keeps it until the author picks another.
+   * The categories an admin curates, from the bootstrap payload. Retired ones
+   * are not offered, so a request being edited keeps whatever it already has
+   * unless its author picks something still on the list.
    */
-  protected readonly categories = httpResource<Wrapped<TaxonomyRef[]>>(() => ({
-    url: this.api.categoriesUrl,
-  }));
-
-  protected readonly categoryOptions = computed(() =>
-    this.categories.hasValue() ? (this.categories.value()?.data ?? []) : [],
-  );
+  protected readonly categoryOptions = this.config.categories;
 
   protected readonly form = new FormGroup<EditForm>({
     title: new FormControl('', {

@@ -7,21 +7,54 @@
       <span class="masthead__tagline">Internal product feedback</span>
     </a>
 
-    <nav class="masthead__nav" aria-label="Primary">
-      <a
-        routerLink="/requests"
-        routerLinkActive="is-active"
-        [routerLinkActiveOptions]="{ exact: true }"
-        >Board</a
-      >
-      <a routerLink="/requests/new" routerLinkActive="is-active">New request</a>
-      @if (canManageTaxonomy()) {
-        <a routerLink="/admin/taxonomy" routerLinkActive="is-active">Admin</a>
-      }
-    </nav>
+    <!-- Only once the application knows what it may offer. Rendering the
+         navigation against defaults first would flash an Admin link into
+         existence, or out of it, on every load. -->
+    @if (config.isReady()) {
+      <nav class="masthead__nav" aria-label="Primary">
+        <a
+          routerLink="/requests"
+          routerLinkActive="is-active"
+          [routerLinkActiveOptions]="{ exact: true }"
+          >Board</a
+        >
+        <a routerLink="/requests/new" routerLinkActive="is-active">New request</a>
+        @if (canManageTaxonomy()) {
+          <a routerLink="/admin/taxonomy" routerLinkActive="is-active">Categories</a>
+        }
+        @if (canManageSettings()) {
+          <a routerLink="/admin/settings" routerLinkActive="is-active">Settings</a>
+        }
+        <a class="masthead__account" routerLink="/account" routerLinkActive="is-active">
+          {{ displayName() }}
+        </a>
+      </nav>
+    }
   </div>
 </header>
 
 <main id="main" class="page" tabindex="-1">
-  <router-outlet />
+  @if (config.isStarting()) {
+    <!-- Guarded by "have I anything to show": this replaces the page only
+         before the first answer, never on a refetch after saving a setting. -->
+    <div class="startup" role="status">Starting FeedbackHub…</div>
+  } @else if (config.failure(); as failure) {
+    <!--
+      The deliberate failure case. The application does not know its own
+      configuration, so it does not draw a board: an interface running on
+      guessed defaults would show the wrong ordering, the wrong colour scheme
+      and possibly an admin control that is not theirs, all without saying that
+      anything went wrong.
+    -->
+    <div class="startup startup--error" role="alert">
+      <h1 class="startup__title">FeedbackHub could not start</h1>
+      <p>{{ failure.message }}</p>
+      @if (failure.requestId) {
+        <p class="startup__reference">Reference: {{ failure.requestId }}</p>
+      }
+      <button type="button" class="button" (click)="config.retry()">Try again</button>
+    </div>
+  } @else {
+    <router-outlet />
+  }
 </main>

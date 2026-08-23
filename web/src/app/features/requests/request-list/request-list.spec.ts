@@ -5,6 +5,7 @@ import { provideRouter } from '@angular/router';
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { RequestList } from './request-list';
 import type { FeedbackRequestListItem, Paginated } from '../../../core/api/api.types';
+import { provideStubbedConfig } from '../../../core/config/app-config.testing';
 
 function item(overrides: Partial<FeedbackRequestListItem> = {}): FeedbackRequestListItem {
   return {
@@ -47,12 +48,6 @@ function page(data: FeedbackRequestListItem[], total = data.length): Paginated<F
  * itself, in request-list.filters.spec.ts.
  */
 function flushFilterOptions(http: HttpTestingController): void {
-  http
-    .expectOne((r) => r.url === '/api/statuses')
-    .flush({ data: [{ id: 1, name: 'New', slug: 'new' }] });
-  http
-    .expectOne((r) => r.url === '/api/categories')
-    .flush({ data: [{ id: 2, name: 'Feature', slug: 'feature' }] });
 }
 
 describe('RequestList', () => {
@@ -64,6 +59,7 @@ describe('RequestList', () => {
       // unroutable navigation surfaces as an unhandled rejection rather than a
       // test failure, which is worse than a failure.
       providers: [
+        provideStubbedConfig(),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -183,6 +179,7 @@ describe('RequestList voting', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        provideStubbedConfig(),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -326,6 +323,7 @@ describe('RequestList voting from the pinned shelf', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        provideStubbedConfig(),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -450,6 +448,7 @@ describe('RequestList pagination summary', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        provideStubbedConfig(),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),

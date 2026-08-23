@@ -3,6 +3,7 @@ import { DatePipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { RequestsApi } from '../data/requests.api';
+import { AppConfig } from '../../../core/config/app-config';
 import { toApiError, type ApiError } from '../../../core/api/api-error';
 import { CommentThread } from '../../comments/comment-thread/comment-thread';
 import { ConfirmDialog } from '../../../shared/confirm-dialog/confirm-dialog';
@@ -28,7 +29,14 @@ type Pending = 'status' | 'pin' | 'delete' | null;
   styleUrl: './request-detail.scss',
 })
 export class RequestDetail {
+  /**
+   * The locale dates are written in. Passed to the pipe rather than provided
+   * as LOCALE_ID, which is fixed before the person's preference has arrived.
+   */
+  protected readonly locale = inject(AppConfig).language;
+
   private readonly api = inject(RequestsApi);
+  private readonly config = inject(AppConfig);
   private readonly router = inject(Router);
 
   /** Bound from the route by withComponentInputBinding. */
@@ -71,17 +79,14 @@ export class RequestDetail {
   private readonly canChangeStatus = computed(() => this.item()?.canChangeStatus ?? false);
 
   /**
-   * The statuses an admin can move this request to. Only fetched when the
-   * caller may actually change one — a regular user has no use for the list and
-   * no control to put it in.
+   * The statuses an admin can move this request to.
+   *
+   * Fetched with the application rather than when the manage panel opens: the
+   * list is the same handful of rows every screen already has, and asking for
+   * it again on the chance that an admin expands a panel was a request nobody
+   * needed.
    */
-  private readonly statuses = httpResource<Wrapped<TaxonomyRef[]>>(() =>
-    this.canChangeStatus() ? { url: this.api.statusesUrl } : undefined,
-  );
-
-  protected readonly statusOptions = computed(() =>
-    this.statuses.hasValue() ? (this.statuses.value()?.data ?? []) : [],
-  );
+  protected readonly statusOptions = this.config.statuses;
 
   /* ── Action state ──────────────────────────────────────────────────────── */
 

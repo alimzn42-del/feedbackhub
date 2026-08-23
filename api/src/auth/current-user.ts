@@ -5,6 +5,7 @@ import { IDENTITY_MODE } from './identity-mode.js';
 import { env } from '../config/env.js';
 import { UnauthenticatedError, MisconfigurationError } from '../http/errors.js';
 import { findByEmail } from '../modules/users/users.repository.js';
+import { provision } from './provision.js';
 
 /* ════════════════════════════════════════════════════════════════════════════
  *                              THE IDENTITY SEAM
@@ -14,9 +15,11 @@ import { findByEmail } from '../modules/users/users.repository.js';
  * not. Every endpoint enforces permissions from this slice onward, against an
  * identity this function invents.
  *
- * Today:  the seeded user named by DEV_CURRENT_USER_EMAIL, for every request.
+ * Today:  the seeded user named by DEV_CURRENT_USER_EMAIL, for every request,
+ *         provisioned through the registration policy if there is no such row.
  * Later:  verify the bearer token, then look the user up by
- *         external_id = the token's `sub`.
+ *         external_id = the token's `sub`, provisioning through the same call
+ *         if this is the first time they have arrived.
  *
  * The signature does not change when that happens. Nothing outside this file
  * may read a header, cookie or token to establish identity, and nothing outside
@@ -43,14 +46,25 @@ export async function resolveCurrentUser(_req: Request): Promise<Actor | null> {
   // cache against.
   const actor = await findByEmail(email);
 
-  if (!actor) {
-    throw new MisconfigurationError(
-      `DEV_CURRENT_USER_EMAIL is set to "${email}" but no such user exists. ` +
-        'Run `npm run seed`, or set it to one of the seeded users.',
-    );
+  if (actor) {
+    return actor;
   }
 
-  return actor;
+  /**
+   * Nobody by that name yet — which is exactly the moment the registration
+   * policy is for.
+   *
+   * This branch is the development stand-in for a person arriving with a valid
+   * token and no local row, and it is deliberately the SAME call the real
+   * provider will make. That is what keeps the policy from being a rule nothing
+   * asks: point DEV_CURRENT_USER_EMAIL at an address nobody has used, and an
+   * open board admits you while a restricted one refuses by name.
+   *
+   * It replaces an error that used to catch a typo in the variable. That was
+   * worth less than a policy that is actually exercised, and a typo is still
+   * visible — you arrive as an ordinary user under a name you do not recognise.
+   */
+  return provision({ email, externalId: null });
 }
 /* ═══════════════════════════ END OF THE SEAM ════════════════════════════ */
 

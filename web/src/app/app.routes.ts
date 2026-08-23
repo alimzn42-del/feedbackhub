@@ -21,6 +21,19 @@ export const routes: Routes = [
       import('./features/requests/request-detail/request-detail').then((m) => m.RequestDetail),
   },
   {
+    path: 'account',
+    title: 'Your account · FeedbackHub',
+    loadComponent: () => import('./features/settings/account/account').then((m) => m.Account),
+  },
+  {
+    // Same rule as the taxonomy screen below: reachable by anybody who types
+    // it, and it renders the server's 403 rather than guarding the route.
+    path: 'admin/settings',
+    title: 'Application settings · FeedbackHub',
+    loadComponent: () =>
+      import('./features/settings/admin-settings/admin-settings').then((m) => m.AdminSettings),
+  },
+  {
     // Reachable by anybody who types it. The screen renders the server's own
     // refusal rather than pretending the route does not exist, because hiding
     // it in the navigation was never the guarantee.

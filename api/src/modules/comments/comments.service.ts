@@ -1,11 +1,25 @@
 import type { Actor } from '../../auth/actor.js';
-import { MisconfigurationError, NotFoundError, ValidationError } from '../../http/errors.js';
+import {
+  ConflictError,
+  MisconfigurationError,
+  NotFoundError,
+  ValidationError,
+} from '../../http/errors.js';
 import { authorize } from '../../policy/index.js';
 import { commentPolicy } from '../../policy/comments.policy.js';
 import * as requestsRepository from '../requests/requests.repository.js';
 import * as commentsRepository from './comments.repository.js';
 import type { CommentRecord } from './comments.repository.js';
-import type { CommentDto, CreateCommentBody, DeletionReason, EditCommentBody } from './comments.schema.js';
+import type {
+  CommentDto,
+  CommentThreadDto,
+  CreateCommentBody,
+  DeletionReason,
+  EditCommentBody,
+} from './comments.schema.js';
+import { globalValue } from '../settings/settings.service.js';
+import { isAdmin } from '../../policy/index.js';
+import type { PendingComment } from './comments.repository.js';
 
 /**
  * Why a comment shows as removed.
@@ -41,6 +55,7 @@ function toDto(actor: Actor, comment: CommentRecord, canReply: boolean): Comment
     canDelete: commentPolicy.delete(actor, subject).allowed,
     // A reply cannot be replied to, and a removed comment cannot be answered.
     canReply: canReply && !comment.isDeleted,
+    isPending: comment.approvedAt === null && !comment.isDeleted,
     replies: [],
   };
 }
@@ -59,11 +74,19 @@ async function requireRequest(requestId: number): Promise<void> {
  * that vanish entirely are the ones their own author removed, which are gone
  * from the table.
  */
-export async function listForRequest(actor: Actor, requestId: number): Promise<CommentDto[]> {
+export async function listForRequest(
+  actor: Actor,
+  requestId: number,
+): Promise<CommentThreadDto> {
   authorize(commentPolicy.list(actor));
   await requireRequest(requestId);
 
-  const records = await commentsRepository.listForRequest(requestId);
+  const gateIsUp = await globalValue('comments.requireApproval');
+
+  const records = await commentsRepository.listForRequest(requestId, {
+    id: actor.id,
+    seesPending: isAdmin(actor) || !gateIsUp,
+  });
 
   const roots = new Map<number, CommentDto>();
   const orphanedReplies: CommentDto[] = [];
@@ -91,7 +114,61 @@ export async function listForRequest(actor: Actor, requestId: number): Promise<C
     }
   }
 
-  return [...roots.values(), ...orphanedReplies];
+  return {
+    comments: [...roots.values(), ...orphanedReplies],
+    awaitsApproval: gateIsUp,
+  };
+}
+
+/**
+ * The moderation queue.
+ *
+ * Capped rather than paginated, and it says so when it is not showing
+ * everything — the same shape as the pinned shelf, for the same reason: this is
+ * a working list somebody empties, not a collection they page through. If it is
+ * ever long enough for the cap to bite, the board has a problem the interface
+ * should be reporting rather than paging over.
+ */
+const PENDING_LIMIT = 100;
+
+export async function listPending(
+  actor: Actor,
+): Promise<{ comments: PendingComment[]; total: number }> {
+  authorize(commentPolicy.approve(actor));
+
+  const [comments, total] = await Promise.all([
+    commentsRepository.listPending(PENDING_LIMIT),
+    commentsRepository.countPending(),
+  ]);
+
+  return { comments, total };
+}
+
+/**
+ * Lets one comment through.
+ *
+ * A comment that was already approved is a 409 and not a silent success: two
+ * admins working the queue at once should be told that one of them was second,
+ * rather than both being told they did it.
+ */
+export async function approve(actor: Actor, id: number): Promise<CommentDto> {
+  authorize(commentPolicy.approve(actor));
+
+  const comment = await load(id);
+
+  if (comment.isDeleted) {
+    throw new ConflictError('That comment has been removed, so there is nothing to approve.');
+  }
+
+  const approved = await commentsRepository.approve(id);
+
+  if (!approved) {
+    throw new ConflictError('That comment has already been approved.');
+  }
+
+  const updated = await load(id);
+
+  return toDto(actor, updated, updated.parentId === null);
 }
 
 export async function create(
@@ -148,6 +225,9 @@ export async function create(
     // Authorship comes from the identity seam, never from the payload.
     authorId: actor.id,
     body: input.body,
+    // Stamped as published on the way in whenever the gate is open, so turning
+    // moderation on later does not retroactively hide everything ever written.
+    approved: (await globalValue('comments.requireApproval')) ? 0 : 1,
   });
 
   const created = await commentsRepository.findById(id);

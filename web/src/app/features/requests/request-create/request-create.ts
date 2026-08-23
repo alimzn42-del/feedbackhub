@@ -9,7 +9,8 @@ import {
 } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { RequestsApi } from '../data/requests.api';
-import { toApiError, type ApiError, type FieldIssue } from '../../../core/api/api-error';
+import { AppConfig } from '../../../core/config/app-config';
+import { toApiError, waitInWords, type ApiError, type FieldIssue } from '../../../core/api/api-error';
 import type { TaxonomyRef, Wrapped } from '../../../core/api/api.types';
 
 /**
@@ -39,23 +40,23 @@ interface RequestForm {
 export class RequestCreate {
   private readonly api = inject(RequestsApi);
   private readonly router = inject(Router);
+  private readonly config = inject(AppConfig);
 
   protected readonly limits = { TITLE_MIN, TITLE_MAX, DESCRIPTION_MIN, DESCRIPTION_MAX };
 
+  /** Turns the server's seconds into something a person can act on. */
+  protected readonly waitInWords = waitInWords;
+
   /**
-   * Categories are data an admin curates, so the options come from the server
-   * rather than a hardcoded list that would silently drift.
+   * Categories are data an admin curates, and they arrive with the application
+   * rather than being fetched again here.
+   *
+   * There is no error state left to render for them: if the taxonomy could not
+   * be loaded, the shell never mounted this screen at all. That is the point of
+   * one startup request — a half-configured form is not a state this
+   * application can be in.
    */
-  protected readonly categories = httpResource<Wrapped<TaxonomyRef[]>>(() => ({
-    url: this.api.categoriesUrl,
-  }));
-
-  protected readonly categoryOptions = computed(() => this.categories.value()?.data ?? []);
-
-  protected readonly categoriesError = computed(() => {
-    const failure = this.categories.error();
-    return failure ? toApiError(failure) : null;
-  });
+  protected readonly categoryOptions = this.config.categories;
 
   protected readonly form = new FormGroup<RequestForm>({
     title: new FormControl('', {
@@ -92,7 +93,7 @@ export class RequestCreate {
   });
 
   protected readonly canSubmit = computed(
-    () => !this.submitting() && this.categories.hasValue() && this.categoryOptions().length > 0,
+    () => !this.submitting() && this.categoryOptions().length > 0,
   );
 
   /**
