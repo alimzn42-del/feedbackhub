@@ -87,7 +87,7 @@
     @if (canReset() && s.editable) {
       ·
       <button type="button" class="link-button" [disabled]="busy()" (click)="reset()">
-        Use the default
+        {{ resetLabel() }}
       </button>
     }
   </p>

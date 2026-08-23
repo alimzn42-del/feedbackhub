@@ -301,6 +301,23 @@ between the two statements rolls back.
 
 ## Authorization and identity
 
+**A settings screen resolves at the level it WRITES, not at the level the
+person experiences.** The administrative document is resolved with the caller's
+own preferences left out entirely: its source is `global` or `default` and can
+never be `user`, because there is no such thing as a personal value for the whole
+installation. This was wrong first: an admin who had chosen an ordering for
+themselves saw their own choice on the screen that sets everybody's, labelled as
+theirs, over a global value that did not exist — the screen displayed one thing
+and saved another. The account screen keeps all three layers, because there the
+effective value IS what the person gets.
+
+**The three settings that exist at both levels appear on both screens, and each
+screen says which level it is setting.** The duplication is the feature the brief
+asks for; identical wording on both was the defect. The administrative screen
+says "Set for everybody" and names the fact that a personal choice beats it; the
+account screen says "Your choice" or "Following the board default", and its reset
+goes back to the board rather than to the built-in default.
+
 **Application settings are withheld from a non-admin, not merely uneditable.**
 This is the one place on this board where a field is hidden rather than refused
 on write. How the installation is run — who may register, how often anybody may

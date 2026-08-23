@@ -158,20 +158,46 @@ export async function describe(
 ): Promise<SettingDescriptor[]> {
   if (level === 'global') authorize(settingPolicy.readGlobal(actor));
 
-  const effective = await effectiveFor(actor);
+  const [global, user] = await Promise.all([
+    settingsRepository.readGlobal(),
+    settingsRepository.readForUser(actor.id),
+  ]);
+
+  /* ──────────────────────────────────────────────────────────────────────────
+   * A screen resolves at the level it WRITES, not at the level the person
+   * experiences.
+   *
+   * These are not the same answer for the three settings that live at both
+   * levels, and conflating them is how the administrative screen came to
+   * display one value while saving another: an admin who had chosen an ordering
+   * for themselves saw their own choice on the screen that sets the
+   * installation's, labelled as theirs, over a global value that did not exist.
+   * They then "changed" a setting that already looked changed.
+   *
+   * So the global document is resolved with the actor's personal rows left out
+   * entirely. Its source is `global` or `default` and can never be `user` —
+   * there is no such thing as a personal value for the whole installation.
+   *
+   * The account screen keeps all three layers, because there the effective
+   * value IS what the person gets, and being told it came from the board's
+   * default rather than from them is the useful half of the answer.
+   * ────────────────────────────────────────────────────────────────────────── */
+  const layers = level === 'global' ? null : user;
 
   return (Object.keys(SETTINGS) as SettingKey[])
     .filter((key) => {
       const scope = SETTINGS[key].scope;
       return level === 'global' ? scope !== 'user' : scope !== 'global';
     })
-    .filter((key) => key in effective)
+    .filter((key) => settingPolicy.read(actor, SETTINGS[key].visibility).allowed)
     .map((key) => ({
       key,
       label: SETTINGS[key].label,
       description: SETTINGS[key].description,
       control: SETTINGS[key].control,
-      ...(effective[key] as ResolvedSetting),
+      ...resolveOne(key, global, layers),
+      editable:
+        level === 'global' ? settingPolicy.writeGlobal(actor).allowed : true,
     }));
 }
 

@@ -44,8 +44,17 @@ export class Account {
     this.settings.hasValue() ? (this.settings.value()?.data ?? []) : [],
   );
 
+  /** Theirs alone: nothing at the installation level has an opinion about these. */
   protected readonly presentation = computed(() =>
-    this.rows().filter((row) => row.key.startsWith('profile.') || row.key.startsWith('board.')),
+    this.rows().filter((row) => row.key.startsWith('profile.')),
+  );
+
+  /**
+   * The three that exist at both levels, kept in their own section so the
+   * relationship to the administrative screen is visible rather than implied.
+   */
+  protected readonly boardDefaults = computed(() =>
+    this.rows().filter((row) => row.key.startsWith('board.')),
   );
 
   protected readonly notifications = computed(() =>

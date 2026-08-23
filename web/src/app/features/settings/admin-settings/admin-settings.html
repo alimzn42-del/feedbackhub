@@ -46,6 +46,7 @@
     @for (setting of registration(); track setting.key) {
       <app-setting-control
         [setting]="setting"
+        level="global"
         [busy]="saving()"
         (changed)="change(setting.key, $event)"
       />
@@ -58,6 +59,7 @@
     @for (setting of moderation(); track setting.key) {
       <app-setting-control
         [setting]="setting"
+        level="global"
         [busy]="saving()"
         (changed)="change(setting.key, $event)"
       />
@@ -113,6 +115,7 @@
     @for (setting of limits(); track setting.key) {
       <app-setting-control
         [setting]="setting"
+        level="global"
         [busy]="saving()"
         (changed)="change(setting.key, $event)"
       />
@@ -120,15 +123,16 @@
   </section>
 
   <section class="admin__section">
-    <h2>How the board opens</h2>
+    <h2>How the board opens for everybody</h2>
     <p class="setting__description">
-      The starting point for everybody who has not chosen their own. Anybody can override these on
-      their own account screen.
+      The starting point for everybody who has not chosen their own. The same three settings appear
+      on each person's own account screen, and a choice made there wins over what is set here.
     </p>
 
     @for (setting of boardDefaults(); track setting.key) {
       <app-setting-control
         [setting]="setting"
+        level="global"
         [busy]="saving()"
         (changed)="change(setting.key, $event)"
       />

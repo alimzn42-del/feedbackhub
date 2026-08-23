@@ -61,11 +61,33 @@
   </section>
 
   <section class="account__section">
-    <h2>How the board looks and opens</h2>
+    <h2>How the board looks</h2>
 
     @for (setting of presentation(); track setting.key) {
       <app-setting-control
         [setting]="setting"
+        level="user"
+        [busy]="saving()"
+        (changed)="change(setting.key, $event)"
+      />
+    }
+  </section>
+
+  <section class="account__section">
+    <h2>How the board opens for you</h2>
+
+    <!-- The same three settings an admin sets for everybody. Saying so is what
+         stops this reading as the administrative screen repeated: these are
+         yours, and yours win. -->
+    <p class="setting__description">
+      Your own starting point, which overrides whatever the board is set to. Leave one on the board
+      default and it follows the admin's choice as that changes.
+    </p>
+
+    @for (setting of boardDefaults(); track setting.key) {
+      <app-setting-control
+        [setting]="setting"
+        level="user"
         [busy]="saving()"
         (changed)="change(setting.key, $event)"
       />

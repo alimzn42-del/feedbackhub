@@ -28,6 +28,17 @@ export class SettingControl {
   /** Disabled while a save is in flight, so a second change cannot overtake it. */
   readonly busy = input(false);
 
+  /**
+   * Which level this control writes.
+   *
+   * The same three settings appear on both screens, because they exist at both
+   * levels — that is the feature. What made it read as a duplicate was that
+   * neither copy said which one it was setting, so the administrative screen and
+   * the personal one were word for word identical. The level decides the wording
+   * below, and nothing else.
+   */
+  readonly level = input<'global' | 'user'>('user');
+
   /** The new value, or null to reset it to whatever the layer below says. */
   readonly changed = output<unknown>();
 
@@ -63,15 +74,33 @@ export class SettingControl {
    * them has anything to reset.
    */
   protected readonly origin = computed(() => {
-    switch (this.setting().source) {
+    const source = this.setting().source;
+
+    if (this.level() === 'global') {
+      // There is no personal value for the whole installation, so `user` is not
+      // a source this screen can be shown. The server resolves the global
+      // document without anybody's own rows for exactly that reason.
+      return source === 'global' ? 'Set for everybody' : 'Not set — using the built-in default';
+    }
+
+    switch (source) {
       case 'user':
         return 'Your choice';
       case 'global':
-        return 'Set for everybody by an admin';
+        return 'Following the board default';
       default:
         return 'Using the default';
     }
   });
+
+  /**
+   * What resetting goes back TO, which is different on the two screens: the
+   * installation falls back to what this build ships with, and a person falls
+   * back to whatever the board is set to.
+   */
+  protected readonly resetLabel = computed(() =>
+    this.level() === 'global' ? 'Use the built-in default' : 'Use the board default',
+  );
 
   /** Only an explicit choice can be reset; there is nothing behind a default. */
   protected readonly canReset = computed(() => this.setting().source !== 'default');

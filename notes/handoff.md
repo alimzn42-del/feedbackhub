@@ -24,7 +24,7 @@ Eight slices, schema version 12.
 | **Admin taxonomy** | one screen managing categories and statuses: add, rename, reorder, retire, set default |
 | **Settings** | two levels, resolved on the server; one startup request; a rate limit, a registration policy, a feature flag, and account deletion |
 
-**Tests: 376** — 201 API (vitest + supertest), 175 web (Angular + vitest, jsdom).
+**Tests: 385** — 205 API (vitest + supertest), 180 web (Angular + vitest, jsdom).
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
 `comments`, `app_settings`, `user_settings`.
@@ -63,6 +63,21 @@ reset control on both screens, in a way that looks like nothing is wrong.
 came from. The client renders from `source` and never merges. A client that
 merged would be a second implementation of these rules and would disagree with
 the first the day either changed.
+
+### A settings screen resolves at the level it writes
+
+The administrative document is resolved **without** the caller's own preference
+rows. Its source is `global` or `default`, never `user`.
+
+Get this wrong — as it was first — and the screen that sets the installation's
+value displays the admin's own, labelled "Your choice", over a global value that
+does not exist. They then change a setting that already looked changed, and the
+board does not move for anybody. There are four tests on it in
+`settings.test.ts`.
+
+The account screen keeps all three layers on purpose: there the effective value
+is what the person actually gets, and being told it came from the board rather
+than from them is the useful half of the answer.
 
 ### One startup request, and nothing renders without it
 

@@ -124,22 +124,28 @@ describe('Account', () => {
     const fixture = await render([setting({ source: 'default' })]);
 
     expect(fixture.nativeElement.textContent).toContain('Using the default');
-    expect(button(fixture, 'Use the default')).toBeNull();
+    expect(button(fixture, 'Use the board default')).toBeNull();
   });
 
   it('says the value is theirs, and offers a way back', async () => {
     const fixture = await render([setting({ source: 'user', value: 'dark' })]);
 
     expect(fixture.nativeElement.textContent).toContain('Your choice');
-    expect(button(fixture, 'Use the default')).not.toBeNull();
+    expect(button(fixture, 'Use the board default')).not.toBeNull();
   });
 
-  it('names an admin as the source of a value set for everybody', async () => {
+  /**
+   * The same three settings appear on the administrative screen, because they
+   * exist at both levels. This screen has to say which one it is editing, or
+   * the two read as the same screen twice.
+   */
+  it('says it is following the board default rather than a choice of theirs', async () => {
     const fixture = await render([
       setting({ key: 'board.defaultSort', source: 'global', value: 'system' }),
     ]);
 
-    expect(fixture.nativeElement.textContent).toContain('Set for everybody by an admin');
+    expect(fixture.nativeElement.textContent).toContain('Following the board default');
+    expect(fixture.nativeElement.textContent).toContain('overrides whatever the board is set to');
   });
 
   /**
@@ -150,7 +156,7 @@ describe('Account', () => {
   it('resets by asking for the value to be removed, not by writing the default', async () => {
     const fixture = await render([setting({ source: 'user', value: 'dark' })]);
 
-    button(fixture, 'Use the default')!.click();
+    button(fixture, 'Use the board default')!.click();
 
     // Not awaited first: the request is made synchronously by the click, and an
     // unanswered one is a pending task that stability would wait on forever.

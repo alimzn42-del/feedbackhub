@@ -152,6 +152,49 @@ describe('AdminSettings', () => {
   });
 
   /**
+   * This screen writes the installation's value, so it must never render
+   * anybody's personal one — including the admin's own.
+   *
+   * The server resolves the global document without personal rows for exactly
+   * that reason; this is the half of it a reader sees.
+   */
+  it('says a board default is set for everybody, never that it is theirs', async () => {
+    const fixture = await render([
+      {
+        key: 'board.defaultSort',
+        label: 'Order the board opens on',
+        description: 'Applied when somebody arrives without an ordering.',
+        value: 'oldest',
+        source: 'global',
+        editable: true,
+        control: { kind: 'choice', options: [{ value: 'oldest', label: 'Oldest first' }] },
+      },
+    ]);
+
+    const text = fixture.nativeElement.textContent as string;
+
+    expect(text).toContain('Set for everybody');
+    expect(text).not.toContain('Your choice');
+    expect(text).toContain('a choice made there wins over what is set here');
+  });
+
+  it('says when the installation has not set one at all', async () => {
+    const fixture = await render([
+      {
+        key: 'board.defaultSort',
+        label: 'Order the board opens on',
+        description: 'Applied when somebody arrives without an ordering.',
+        value: 'newest',
+        source: 'default',
+        editable: true,
+        control: { kind: 'choice', options: [{ value: 'newest', label: 'Newest first' }] },
+      },
+    ]);
+
+    expect(fixture.nativeElement.textContent).toContain('using the built-in default');
+  });
+
+  /**
    * Flushes before awaiting: an unanswered resource request is a pending task,
    * so waiting for stability first would wait on a response this test has not
    * sent.

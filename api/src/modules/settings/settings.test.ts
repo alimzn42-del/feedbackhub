@@ -319,3 +319,71 @@ describe('what a write refuses', () => {
     expect(changes.get('profile.theme')).toBe(settingsRepository.RESET);
   });
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * A screen resolves at the level it WRITES.
+ *
+ * Three settings live at both levels, so the same controls appear on the
+ * administrative screen and on each person's own. What must never happen is the
+ * administrative screen showing somebody's personal value: it writes the
+ * installation's, and displaying one while saving the other is how an admin
+ * "changes" a setting that already looked changed.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('the level a screen resolves at', () => {
+  beforeEach(() => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+  });
+
+  it('never shows a personal value on the application settings', async () => {
+    // The admin has chosen an ordering for themselves. Nothing is set globally.
+    settingsRepository.readForUser.mockResolvedValue(new Map([['board.defaultSort', 'votes']]));
+
+    const response = await request(app).get('/api/settings').expect(200);
+    const sort = response.body.data.find(
+      (row: { key: string }) => row.key === 'board.defaultSort',
+    );
+
+    expect(sort).toMatchObject({ value: 'newest', source: 'default' });
+    expect(sort.source).not.toBe('user');
+  });
+
+  it('shows the global value on the application settings when one is set', async () => {
+    settingsRepository.readGlobal.mockResolvedValue(new Map([['board.defaultSort', 'oldest']]));
+    settingsRepository.readForUser.mockResolvedValue(new Map([['board.defaultSort', 'votes']]));
+
+    const response = await request(app).get('/api/settings').expect(200);
+    const sort = response.body.data.find(
+      (row: { key: string }) => row.key === 'board.defaultSort',
+    );
+
+    expect(sort).toMatchObject({ value: 'oldest', source: 'global' });
+  });
+
+  /**
+   * The account screen keeps all three layers, because there the effective
+   * value IS what the person gets — and being told it came from the board
+   * rather than from them is the useful half of the answer.
+   */
+  it('does keep the personal value on the account screen', async () => {
+    settingsRepository.readGlobal.mockResolvedValue(new Map([['board.defaultSort', 'oldest']]));
+    settingsRepository.readForUser.mockResolvedValue(new Map([['board.defaultSort', 'votes']]));
+
+    const response = await request(app).get(`/api/users/${ADMIN.id}/settings`).expect(200);
+    const sort = response.body.data.find(
+      (row: { key: string }) => row.key === 'board.defaultSort',
+    );
+
+    expect(sort).toMatchObject({ value: 'votes', source: 'user' });
+  });
+
+  it('tells the account screen when it is following the board rather than a choice', async () => {
+    settingsRepository.readGlobal.mockResolvedValue(new Map([['board.defaultSort', 'oldest']]));
+
+    const response = await request(app).get(`/api/users/${ADMIN.id}/settings`).expect(200);
+    const sort = response.body.data.find(
+      (row: { key: string }) => row.key === 'board.defaultSort',
+    );
+
+    expect(sort).toMatchObject({ value: 'oldest', source: 'global' });
+  });
+});
