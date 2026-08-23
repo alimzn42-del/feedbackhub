@@ -127,6 +127,41 @@ describe('CommentThread', () => {
     http.expectNone('/api/requests/7/comments');
     expect(text(fixture)).toContain('Typed into the real textarea');
     expect(box.value).toBe('');
+
+    // And the emptied box does not then complain about being empty. Clearing
+    // the value left the control DIRTY from having been typed in, so it failed
+    // `required` immediately and told the author to write something first about
+    // the comment they had just posted.
+    expect(text(fixture)).not.toContain('Write something first');
+  });
+
+  it('does not complain about an empty reply box that was only just reopened', async () => {
+    const fixture = await render([comment({ canReply: true })]);
+
+    // The trigger in the comment's action row, not the submit button inside the
+    // composer — both say "Reply".
+    const openReply = () => {
+      const trigger = Array.from(
+        fixture.nativeElement.querySelectorAll('.comment__actions button'),
+      ).find((candidate) => (candidate as HTMLButtonElement).textContent?.trim() === 'Reply') as
+        | HTMLButtonElement
+        | undefined;
+      trigger?.click();
+      fixture.detectChanges();
+    };
+
+    openReply();
+    const box = fixture.nativeElement.querySelector('#reply-1') as HTMLTextAreaElement;
+    box.value = 'Half a thought';
+    box.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    openReply(); // closes it
+    openReply(); // and opens it again
+
+    // The same dirty-not-pristine bug: reopening showed a validation message
+    // before a key had been pressed.
+    expect(text(fixture)).not.toContain('Write something first');
   });
 
   it('does not let the browser submit the form itself', async () => {

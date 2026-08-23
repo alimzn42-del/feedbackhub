@@ -15,6 +15,9 @@
         >Board</a
       >
       <a routerLink="/requests/new" routerLinkActive="is-active">New request</a>
+      @if (canManageTaxonomy()) {
+        <a routerLink="/admin/taxonomy" routerLinkActive="is-active">Admin</a>
+      }
     </nav>
   </div>
 </header>

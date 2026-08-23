@@ -2,13 +2,16 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { Observable } from 'rxjs';
 import { API_BASE_URL } from '../../../core/api/api-base-url';
+import { NO_FILTERS, toQueryParams, type BoardFilters } from './board-filters';
 import type {
+  SortOption,
   CreateFeedbackRequest,
   FeedbackRequestDetail,
   FeedbackRequestListItem,
   Paginated,
   PinnedResult,
   TaxonomyRef,
+  UpdateFeedbackRequest,
   VoteState,
   Wrapped,
 } from '../../../core/api/api.types';
@@ -30,25 +33,92 @@ export class RequestsApi {
   readonly categoriesUrl = `${this.baseUrl}/categories`;
 
   /**
-   * Paging is sent to the server, never applied here. The list component reads
-   * page and pageSize from the URL and passes them straight through.
+   * The statuses a request can be filtered by. A separate endpoint for the same
+   * reason categories has one: it is a taxonomy an admin curates, and a
+   * hardcoded list in the browser would silently drift from it.
    */
-  listParams(page: number, pageSize: number): HttpParams {
-    return new HttpParams().set('page', page).set('pageSize', pageSize);
+  readonly statusesUrl = `${this.baseUrl}/statuses`;
+
+  /**
+   * The shelf takes the ordering and nothing else. Filters are refused there,
+   * which is honest: a filtered board has no shelf to filter.
+   */
+  pinned(sort?: SortOption): Observable<PinnedResult> {
+    return this.http.get<PinnedResult>(this.pinnedUrl, {
+      params: sort === undefined ? new HttpParams() : new HttpParams().set('sort', sort),
+    });
+  }
+
+  /**
+   * Paging, filtering and sorting are all sent to the server, never applied
+   * here. The list component reads them from the URL and passes them straight
+   * through, using the same serialisation its own links are built from.
+   */
+  listParams(
+    page: number,
+    pageSize: number,
+    filters: BoardFilters = NO_FILTERS,
+  ): HttpParams {
+    const params = toQueryParams(filters, page, pageSize);
+
+    // page and pageSize are always sent, even at their defaults: this is the
+    // request, not the address bar, and being explicit costs nothing here.
+    return Object.entries(params).reduce(
+      (carry, [key, value]) => carry.set(key, value),
+      new HttpParams().set('page', page).set('pageSize', pageSize),
+    );
   }
 
   create(body: CreateFeedbackRequest): Observable<Wrapped<FeedbackRequestDetail>> {
     return this.http.post<Wrapped<FeedbackRequestDetail>>(this.requestsUrl, body);
   }
 
-  list(page: number, pageSize: number): Observable<Paginated<FeedbackRequestListItem>> {
+  list(
+    page: number,
+    pageSize: number,
+    filters: BoardFilters = NO_FILTERS,
+  ): Observable<Paginated<FeedbackRequestListItem>> {
     return this.http.get<Paginated<FeedbackRequestListItem>>(this.requestsUrl, {
-      params: this.listParams(page, pageSize),
+      params: this.listParams(page, pageSize, filters),
     });
+  }
+
+  /**
+   * The author's own edit. PATCH, because the status, the pinning and the
+   * authorship are all part of the resource and none of them is sent here.
+   */
+  update(
+    requestId: number,
+    body: UpdateFeedbackRequest,
+  ): Observable<Wrapped<FeedbackRequestDetail>> {
+    return this.http.patch<Wrapped<FeedbackRequestDetail>>(this.detailUrl(requestId), body);
+  }
+
+  /** Takes the votes and the comments with it, by the schema's cascades. */
+  remove(requestId: number): Observable<void> {
+    return this.http.delete<void>(this.detailUrl(requestId));
+  }
+
+  /**
+   * Triage, admin only. A sub-resource like pinning, so the verb carries the
+   * intent and the rule sits on one route.
+   */
+  changeStatus(
+    requestId: number,
+    statusId: number,
+  ): Observable<Wrapped<FeedbackRequestDetail>> {
+    return this.http.put<Wrapped<FeedbackRequestDetail>>(
+      `${this.detailUrl(requestId)}/status`,
+      { statusId },
+    );
   }
 
   categories(): Observable<Wrapped<TaxonomyRef[]>> {
     return this.http.get<Wrapped<TaxonomyRef[]>>(this.categoriesUrl);
+  }
+
+  statuses(): Observable<Wrapped<TaxonomyRef[]>> {
+    return this.http.get<Wrapped<TaxonomyRef[]>>(this.statusesUrl);
   }
 
   /**

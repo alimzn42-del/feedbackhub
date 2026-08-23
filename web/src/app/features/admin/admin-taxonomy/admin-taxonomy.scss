@@ -1,0 +1,57 @@
+.admin__back {
+  margin: 0 0 var(--space-4);
+}
+
+.admin__title {
+  margin: 0 0 var(--space-2);
+}
+
+.admin__intro {
+  margin: 0 0 var(--space-5);
+  color: var(--text-muted);
+}
+
+.admin__state {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.admin__state--error {
+  color: var(--text);
+  border-color: var(--danger-border);
+  background: var(--danger-subtle);
+}
+
+.admin__state-title {
+  margin: 0 0 var(--space-2);
+  font-size: 1.125rem;
+}
+
+.admin__reference {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.admin__failure {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+/* The two tables stack with real space between them: they are separate things
+   with separate rules, and running them together invites treating a status
+   like a category. */
+app-taxonomy-table {
+  display: block;
+}
+
+app-taxonomy-table + app-taxonomy-table {
+  margin-top: var(--space-5);
+}

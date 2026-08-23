@@ -5,11 +5,11 @@ feedback, everyone browses and upvotes, and admins triage. The point is to stop
 the same suggestion arriving five times by email, and to make visible what is
 actually being worked on.
 
-**Status: slice 4.** A feedback request can be created, listed, voted on,
-pinned by an admin, and discussed. The board is ordered by vote count with
-pinned requests on their own shelf; each request has a page carrying its full
-text and a comment thread one reply deep. Search, filters, status changes,
-comment moderation and authentication are not built yet — see
+**Status: slice 7.** A feedback request can be created, listed, voted on,
+pinned, discussed, filtered, searched, sorted, edited, deleted and moved
+between statuses — and the categories and statuses themselves are now managed
+from an admin screen. Comment moderation, application settings and
+authentication are not built yet — see
 [Scope](#what-is-and-is-not-built) below.
 
 ## Requirements
@@ -121,24 +121,95 @@ a single envelope; see [DECISIONS.md](DECISIONS.md#error-shape).
 | | |
 |---|---|
 | `GET /health` | liveness, no identity required |
-| `GET /api/requests?page=&pageSize=` | paginated, unpinned only; most votes first, then newest |
-| `GET /api/requests/pinned` | the pinned shelf; not paginated, capped at 100 |
+| `GET /api/requests` | paginated, unpinned only; filtered, searched and sorted — see below |
+| `GET /api/requests/pinned?sort=` | the pinned shelf; not paginated, capped at 100; the default board only |
 | `POST /api/requests` | `{ title, description, categoryId }` |
 | `POST /api/requests/:id/vote` | vote as the current user; `409` if already voted |
 | `DELETE /api/requests/:id/vote` | withdraw your vote; safe to repeat |
 | `PUT /api/requests/:id/pin` | **admin only**; records who pinned it and when |
 | `DELETE /api/requests/:id/pin` | **admin only** |
 | `GET /api/requests/:id` | one request in full, including its description |
+| `PATCH /api/requests/:id` | **author only**; title, description and category |
+| `DELETE /api/requests/:id` | **author or admin**; takes its votes and comments with it |
+| `PUT /api/requests/:id/status` | **admin only**; `{ statusId }` |
 | `GET /api/requests/:id/comments` | the thread, two levels, not paginated |
 | `POST /api/requests/:id/comments` | `{ body, parentId? }` — a reply cannot be replied to |
 | `PATCH /api/comments/:id` | **author only**; an admin cannot reword somebody |
 | `DELETE /api/comments/:id` | author or admin; removes or hides, see below |
-| `GET /api/categories` | the active categories, for the create form |
+| `GET /api/capabilities` | what the caller may do that is not attached to a row |
+| `GET /api/categories` | the active categories, for the create form and the filter bar |
+| `GET /api/statuses` | the active statuses, for the filter bar |
+
+### Managing the taxonomy
+
+Admin only, refused at the route. `?scope=all` is a second representation of the
+same collection: the display order, the retirement state and how many requests
+use each row.
+
+| | |
+|---|---|
+| `GET /api/categories?scope=all` | every category, with usage counts |
+| `POST /api/categories` | `{ name, slug }` — the slug is set once and never again |
+| `PATCH /api/categories/:id` | `{ name }`. Sending a slug is refused by name |
+| `PUT /api/categories/order` | `{ ids }` — the whole order, in one transaction |
+| `PUT /api/categories/:id/archive` | retire: stops being offered, keeps existing requests |
+| `DELETE /api/categories/:id/archive` | restore |
+| `GET /api/statuses?scope=all` | every status, with usage counts and which is the default |
+| `POST /api/statuses` | `{ name, slug }` |
+| `PATCH /api/statuses/:id` | `{ name }` |
+| `PUT /api/statuses/order` | `{ ids }` |
+| `PUT /api/statuses/:id/default` | move the default. There is no endpoint that clears one |
+
+**Retiring is not deleting.** A retired category disappears from the create
+form, the edit form and the filter bar; requests already carrying it keep
+rendering it, and the filter link by its slug still works. It can be restored.
+
+**Statuses are never retired.** A category is a label a request keeps; a status
+is a position requests are sitting in, and retiring one would strand them. There
+is no archive route for statuses, and there will not be one.
+
+### Filtering, searching and sorting the board
+
+Every one of these is a query parameter on `GET /api/requests`, because list
+state lives in the URL: a filtered board is a link, and it survives a refresh.
+
+| | |
+|---|---|
+| `page`, `pageSize` | 1-based; `pageSize` defaults to 20 and is capped at 100 |
+| `status=planned,done` | status **slugs**, not ids, so a link survives a rename |
+| `category=bug,feature` | category slugs, same treatment |
+| `mine=true` | only the caller's own requests, answered from the identity seam |
+| `q=dark mode` | matches title and description; 2–100 characters. The box searches as you type, 300ms after typing stops |
+| `sort=newest\|oldest\|votes` | defaults to `newest`. Also applies to the shelf — see below |
+
+Several values for one filter can be sent either way: `?status=planned,done` and
+`?status=planned&status=done` mean the same thing. Values are combined with AND
+across filters and OR within one, so `?status=planned&category=bug` is planned
+bugs.
+
+A slug that names nothing is **refused** with `422`, naming the value — not
+silently ignored, which would return the unfiltered board and look like it
+worked. Unknown parameters are refused for the same reason: a typo in a filter
+name is not a filter.
+
+**Sorting applies to the shelf; filtering removes it.** With no `sort`, the
+shelf is ordered by when things were pinned, most recent first, so a fresh pin
+is in the three the panel shows before it is expanded. Ask for an ordering and
+the shelf follows it, as its own group above the board. Sorting never hides the
+shelf, because reordering hides nothing.
+
+**Where pinned requests are depends on whether the board is filtered.** With no
+filter applied they are a separate collection — `GET /api/requests/pinned`, the
+shelf above the board — and `GET /api/requests` excludes them from both the rows
+and the total. As soon as any filter or search is applied the shelf is gone, and
+the pinned requests that match are in the results, ranked first and badged, and
+counted in the total. Sorting alone is not filtering and keeps the shelf.
 
 ## What is and is not built
 
-**Built:** six tables and their seed data; request creation and listing with
-server-side pagination; voting, with the board ordered by vote count and counts
+**Built:** six tables and their seed data; an admin screen managing the two
+taxonomies; request creation, editing, deletion and status changes; listing with server-side pagination, filtering, search and
+sort switching; voting, with the board ordered by vote count and counts
 derived rather than stored; admin pinning, recorded with actor and time, shown
 on a shelf above the board and excluded from the list; comment threads one reply
 deep; the identity seam; the policy module; one error shape with one middleware
@@ -158,7 +229,12 @@ Hard deleting a comment with replies would cascade and destroy words written by
 other people, so it does not happen. A reply can never have replies, so an
 author removing their own reply is always the first row.
 
-**Not built, by design:** search, filters, sort switching, status changes,
-comment moderation before publication, admin screens, settings, Keycloak, and
-deployment beyond the database container. Sorting by newest arrives with the
-filters slice.
+**Every rule in the policy module now has an endpoint asking it.** The three
+that had none — `editContent`, `delete` and `changeStatus` — are reached by the
+routes above, and the two route-level authorization tests outstanding since
+slice 1 are written: a non-owner refused an edit, and a regular user refused a
+status change.
+
+**Not built, by design:** comment moderation before publication,
+application-wide settings (registration policy, rate limits, feature flags),
+user administration, Keycloak, and deployment beyond the database container.

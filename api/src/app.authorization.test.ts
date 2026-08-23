@@ -29,7 +29,15 @@ import type { Actor } from './auth/actor.js';
  * based on WHO you are, so it is the one that proves the admin boundary end to
  * end — a regular user, a real route, a real 403, nothing stubbed.
  *
- * Still not reachable: changing a status. It has a policy rule and no route.
+ * AND THE LAST TWO ARE WRITTEN
+ * ----------------------------
+ * Two tests were outstanding from slice 1 to slice 5, named in every handoff:
+ * a non-owner refused a request edit, and a regular user refused a status
+ * change. Neither could be written, because neither endpoint existed — the
+ * rules were unit-tested and nothing called them.
+ *
+ * Both are below, through the real routes, with the write asserted not to have
+ * happened. Every rule in requestPolicy now has an endpoint asking it.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /* Every repository is replaced. These tests are about the authorization path,
@@ -46,6 +54,9 @@ const requestsRepository = vi.hoisted(() => ({
   count: vi.fn(),
   pin: vi.fn(),
   unpin: vi.fn(),
+  updateContent: vi.fn(),
+  updateStatus: vi.fn(),
+  remove: vi.fn(),
 }));
 const votesRepository = vi.hoisted(() => ({
   cast: vi.fn(),
@@ -55,8 +66,14 @@ const votesRepository = vi.hoisted(() => ({
 const categoriesRepository = vi.hoisted(() => ({
   listActive: vi.fn(),
   findActiveId: vi.fn(),
+  findIdsBySlugs: vi.fn(),
 }));
-const statusesRepository = vi.hoisted(() => ({ findDefaultId: vi.fn() }));
+const statusesRepository = vi.hoisted(() => ({
+  findDefaultId: vi.fn(),
+  findActiveId: vi.fn(),
+  listActive: vi.fn(),
+  findIdsBySlugs: vi.fn(),
+}));
 
 vi.mock('./modules/users/users.repository.js', () => usersRepository);
 vi.mock('./modules/requests/requests.repository.js', () => requestsRepository);
@@ -77,6 +94,15 @@ const REGULAR_USER: Actor = {
   role: 'user',
 };
 
+/** Used by every rule that refuses on WHO you are: pinning, status, deletion. */
+const ADMIN: Actor = {
+  id: 1,
+  externalId: null,
+  email: 'admin@feedbackhub.local',
+  displayName: 'Robin Alvarez',
+  role: 'admin',
+};
+
 const VALID_BODY = {
   title: 'Dark mode for the board',
   description: 'Reading the board in the evening is harsh and a dark theme would help.',
@@ -90,6 +116,13 @@ beforeEach(() => {
   categoriesRepository.findActiveId.mockResolvedValue(2);
   categoriesRepository.listActive.mockResolvedValue([{ id: 2, name: 'Feature', slug: 'feature' }]);
   statusesRepository.findDefaultId.mockResolvedValue(1);
+  statusesRepository.findActiveId.mockResolvedValue(4);
+  requestsRepository.updateContent.mockResolvedValue(undefined);
+  requestsRepository.updateStatus.mockResolvedValue(undefined);
+  requestsRepository.remove.mockResolvedValue(undefined);
+  statusesRepository.listActive.mockResolvedValue([{ id: 1, name: 'New', slug: 'new' }]);
+  statusesRepository.findIdsBySlugs.mockResolvedValue([]);
+  categoriesRepository.findIdsBySlugs.mockResolvedValue([]);
   requestsRepository.findAuthorId.mockResolvedValue(99);
   requestsRepository.exists.mockResolvedValue(true);
   requestsRepository.listPinned.mockResolvedValue({ items: [], total: 0 });
@@ -361,14 +394,6 @@ describe('DELETE /api/requests/:id/vote', () => {
 });
 
 describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
-  const ADMIN: Actor = {
-    id: 1,
-    externalId: null,
-    email: 'admin@feedbackhub.local',
-    displayName: 'Robin Alvarez',
-    role: 'admin',
-  };
-
   it('refuses a regular user, with nothing stubbed to make it refuse', async () => {
     // REGULAR_USER has role 'user'. The real policy, the real route, a real 403.
     // This is the test that could not be written until an admin-only endpoint
@@ -486,5 +511,230 @@ describe('GET /api/requests/pinned', () => {
     await request(app).get('/api/requests/pinned').expect(200);
 
     expect(requestsRepository.listPinned).toHaveBeenCalled();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * PATCH /api/requests/:id — the outstanding edit test, finally writable.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe('PATCH /api/requests/:id', () => {
+  const EDIT = {
+    title: 'Dark mode for the whole board',
+    description: 'Reading the board in the evening is harsh and a dark theme would help a lot.',
+    categoryId: 2,
+  };
+
+  it('refuses a non-owner with 403, and writes nothing', async () => {
+    // findAuthorId answers 99; the acting user is 2. Nothing is stubbed to make
+    // this refusal happen — it is the real rule, through the real route.
+    const response = await request(app).patch('/api/requests/7').send(EDIT);
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('FORBIDDEN');
+    expect(response.body.error.message).toBe('Only the author can edit this request.');
+    expect(requestsRepository.updateContent).not.toHaveBeenCalled();
+  });
+
+  it('refuses an ADMIN editing somebody else\'s words', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    const response = await request(app).patch('/api/requests/7').send(EDIT);
+
+    // Moderation is deleting a request or changing its status. It is not
+    // rewriting what somebody wrote under their own name, and the admin
+    // boundary is deliberately narrower here than it is for deletion.
+    expect(response.status).toBe(403);
+    expect(requestsRepository.updateContent).not.toHaveBeenCalled();
+  });
+
+  it('lets the author edit their own', async () => {
+    requestsRepository.findAuthorId.mockResolvedValue(REGULAR_USER.id);
+
+    await request(app).patch('/api/requests/7').send(EDIT).expect(200);
+
+    expect(requestsRepository.updateContent).toHaveBeenCalledWith(7, {
+      title: EDIT.title,
+      description: EDIT.description,
+      categoryId: 2,
+    });
+  });
+
+  it('checks permission before validating the body', async () => {
+    // Three things wrong with this payload. A handler that validated first
+    // would answer 422 and enumerate the schema for somebody who may not edit.
+    const response = await request(app)
+      .patch('/api/requests/7')
+      .send({ title: 'x', description: 'short', nonsense: true });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.details).toBeUndefined();
+  });
+
+  it('answers 404 for a request that does not exist, before anything else', async () => {
+    requestsRepository.findAuthorId.mockResolvedValue(null);
+
+    const response = await request(app).patch('/api/requests/404').send(EDIT);
+
+    expect(response.status).toBe(404);
+    expect(requestsRepository.updateContent).not.toHaveBeenCalled();
+  });
+
+  it('refuses a status smuggled into the edit payload', async () => {
+    requestsRepository.findAuthorId.mockResolvedValue(REGULAR_USER.id);
+
+    const response = await request(app)
+      .patch('/api/requests/7')
+      .send({ ...EDIT, statusId: 5 });
+
+    // Not the author's to set, and rejected by name rather than dropped.
+    expect(response.status).toBe(422);
+    expect(response.body.error.details[0].code).toBe('UNKNOWN_FIELD');
+    expect(requestsRepository.updateContent).not.toHaveBeenCalled();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * DELETE /api/requests/:id
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe('DELETE /api/requests/:id', () => {
+  it('refuses a non-owner with 403, and deletes nothing', async () => {
+    const response = await request(app).delete('/api/requests/7');
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.message).toBe(
+      'Only the author or an admin can delete this request.',
+    );
+    expect(requestsRepository.remove).not.toHaveBeenCalled();
+  });
+
+  it('lets the author delete their own', async () => {
+    requestsRepository.findAuthorId.mockResolvedValue(REGULAR_USER.id);
+
+    await request(app).delete('/api/requests/7').expect(204);
+
+    expect(requestsRepository.remove).toHaveBeenCalledWith(7);
+  });
+
+  it('lets an admin delete somebody else\'s, unlike editing it', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    await request(app).delete('/api/requests/7').expect(204);
+
+    // The two rules differ on purpose: an admin moderates by removing, never by
+    // rewriting.
+    expect(requestsRepository.remove).toHaveBeenCalledWith(7);
+  });
+
+  it('answers 404 for a request that does not exist', async () => {
+    requestsRepository.findAuthorId.mockResolvedValue(null);
+
+    await request(app).delete('/api/requests/404').expect(404);
+
+    expect(requestsRepository.remove).not.toHaveBeenCalled();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * PUT /api/requests/:id/status — the other outstanding test.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe('PUT /api/requests/:id/status', () => {
+  it('refuses a regular user with 403, and changes nothing', async () => {
+    const response = await request(app).put('/api/requests/7/status').send({ statusId: 4 });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.message).toBe('Only an admin can change a request status.');
+    expect(requestsRepository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('refuses before looking anything up', async () => {
+    await request(app).put('/api/requests/7/status').send({ statusId: 4 }).expect(403);
+
+    // The rule depends on the caller alone, so a refused caller learns nothing
+    // about the request — not even whether it exists.
+    expect(requestsRepository.exists).not.toHaveBeenCalled();
+    expect(statusesRepository.findActiveId).not.toHaveBeenCalled();
+  });
+
+  it('refuses before validating the body, for the same reason', async () => {
+    const response = await request(app).put('/api/requests/7/status').send({ nonsense: true });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.details).toBeUndefined();
+  });
+
+  it('lets an admin change it', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    await request(app).put('/api/requests/7/status').send({ statusId: 4 }).expect(200);
+
+    expect(requestsRepository.updateStatus).toHaveBeenCalledWith(7, 4);
+  });
+
+  it('refuses a status that is archived or does not exist, next to the field', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    statusesRepository.findActiveId.mockResolvedValue(null);
+
+    const response = await request(app).put('/api/requests/7/status').send({ statusId: 999 });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error.details[0]).toMatchObject({
+      field: 'statusId',
+      code: 'NOT_FOUND',
+    });
+    expect(requestsRepository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for a request that does not exist', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    requestsRepository.exists.mockResolvedValue(false);
+
+    await request(app).put('/api/requests/404/status').send({ statusId: 4 }).expect(404);
+
+    expect(requestsRepository.updateStatus).not.toHaveBeenCalled();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * What the browser is told it may do.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe('the per-row permission answers', () => {
+  it('tells the author what they may do to their own request', async () => {
+    const response = await request(app).get('/api/requests/11').expect(200);
+
+    // findById is stubbed with REGULAR_USER as the author.
+    expect(response.body.data).toMatchObject({
+      canEdit: true,
+      canDelete: true,
+      canChangeStatus: false,
+      canPin: false,
+    });
+  });
+
+  it('tells an admin they may moderate but not rewrite', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+
+    const response = await request(app).get('/api/requests/11').expect(200);
+
+    expect(response.body.data).toMatchObject({
+      canEdit: false,
+      canDelete: true,
+      canChangeStatus: true,
+      canPin: true,
+    });
+  });
+
+  it('answers with the same rules the endpoints enforce, not a copy of them', async () => {
+    // The rule is stubbed at the policy, and the ANSWER in the payload changes
+    // with it — which is what proves the row is asking the policy rather than
+    // reimplementing it next door.
+    vi.spyOn(requestPolicy, 'delete').mockReturnValue(deny('No.'));
+
+    const response = await request(app).get('/api/requests/11').expect(200);
+
+    expect(response.body.data.canDelete).toBe(false);
   });
 });

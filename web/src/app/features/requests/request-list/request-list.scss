@@ -251,3 +251,17 @@
   color: var(--accent);
   text-decoration: underline;
 }
+
+/* Rows already on screen while a newer answer is on its way. Dimmed rather than
+   replaced by skeletons: the search refetches on every pause in typing, and a
+   list that empties and refills on each one looks broken even when it is not. */
+.cards--stale {
+  opacity: 0.6;
+  transition: opacity 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cards--stale {
+    transition: none;
+  }
+}

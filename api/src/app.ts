@@ -4,9 +4,11 @@ import helmet from 'helmet';
 import { env } from './config/env.js';
 import { attachCurrentUser } from './auth/current-user.js';
 import { attachRequestId, errorHandler, notFoundHandler } from './http/error-handler.js';
+import { capabilitiesRouter } from './modules/capabilities/capabilities.routes.js';
 import { categoriesRouter } from './modules/categories/categories.routes.js';
 import { commentsRouter } from './modules/comments/comments.routes.js';
 import { requestsRouter } from './modules/requests/requests.routes.js';
+import { statusesRouter } from './modules/statuses/statuses.routes.js';
 
 export function createApp() {
   const app = express();
@@ -30,7 +32,9 @@ export function createApp() {
 
   // Everything under /api has an identity before it reaches a handler.
   app.use('/api', attachCurrentUser);
+  app.use('/api/capabilities', capabilitiesRouter);
   app.use('/api/categories', categoriesRouter);
+  app.use('/api/statuses', statusesRouter);
   app.use('/api/requests', requestsRouter);
   app.use('/api/comments', commentsRouter);
 

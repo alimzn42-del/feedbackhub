@@ -100,3 +100,72 @@
   font-size: 0.8125rem;
   color: var(--text-muted);
 }
+
+/* ── Acting on the request ────────────────────────────────────────────────
+   Kept visually quiet and below the content: these are occasional actions for
+   two people (the author and an admin), not the point of the page. */
+
+.detail__edited {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.detail__action-failure {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.detail__action-failure p {
+  margin: 0 0 var(--space-3);
+}
+
+.manage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.manage__heading {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.manage__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.manage__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.manage__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.manage__select {
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}

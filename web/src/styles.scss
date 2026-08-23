@@ -273,3 +273,16 @@ ul {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The destructive action. Global, like every other .button variant: a class
+   defined in one component's stylesheet silently does not apply in another, and
+   this one is used by the confirmation dialog and the detail page alike. */
+.button--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--text-inverse);
+}
+
+.button--danger:hover:not(:disabled) {
+  filter: brightness(0.92);
+}

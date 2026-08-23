@@ -89,15 +89,16 @@ export class CommentThread {
 
   protected openReply(comment: Comment): void {
     this.editing.set(null);
-    this.replyBody.setValue('');
-    this.replyBody.markAsUntouched();
+    // Pristine as well as untouched: typing in this box and closing it left it
+    // dirty, so reopening it showed a validation message before a key was
+    // pressed.
+    this.replyBody.reset();
     this.replyingTo.set(this.replyingTo() === comment.id ? null : comment.id);
   }
 
   protected openEdit(comment: Comment): void {
     this.replyingTo.set(null);
-    this.editBody.setValue(comment.body ?? '');
-    this.editBody.markAsUntouched();
+    this.editBody.reset(comment.body ?? '');
     this.editing.set(this.editing() === comment.id ? null : comment.id);
   }
 
@@ -128,8 +129,12 @@ export class CommentThread {
         // back the comment it saved, so asking for the whole thread again would
         // be a round trip to learn something already known.
         this.insert(posted);
-        this.newComment.setValue('');
-        this.newComment.markAsUntouched();
+        // reset(), not setValue('') — it clears the value AND marks the control
+        // pristine and untouched together. Clearing the value alone left the
+        // control dirty from having been typed in, so the emptied box
+        // immediately failed `required` and told the author to "write something
+        // first" about the comment they had just posted successfully.
+        this.newComment.reset();
       },
     );
   }

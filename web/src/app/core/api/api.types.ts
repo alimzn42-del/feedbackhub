@@ -24,6 +24,51 @@ export interface TaxonomyRef {
   slug: string;
 }
 
+/**
+ * The orderings the board offers, mirroring SORT_OPTIONS in the API's request
+ * schema. A value outside this list is refused by the server rather than
+ * quietly ignored, so the two lists have to agree.
+ */
+export const SORT_OPTIONS = ['votes', 'newest', 'oldest'] as const;
+
+export type SortOption = (typeof SORT_OPTIONS)[number];
+
+/**
+ * A taxonomy row as the admin screen sees it: what a selector shows, plus what
+ * a decision about it needs.
+ */
+export interface TaxonomyAdminRow extends TaxonomyRef {
+  sortOrder: number;
+
+  /**
+   * How many requests carry this row. Shown so retiring is informed rather than
+   * a guess — it never blocks the action.
+   */
+  requestCount: number;
+}
+
+export interface CategoryAdminRow extends TaxonomyAdminRow {
+  /** When it was retired, or null while it is still offered. */
+  archivedAt: string | null;
+}
+
+export interface StatusAdminRow extends TaxonomyAdminRow {
+  /** The status a new request receives. Exactly one row has it. */
+  isDefault: boolean;
+}
+
+/**
+ * What the caller may do that is not attached to a row.
+ *
+ * The navigation has to decide whether to offer the admin screen and there is
+ * no row to hang the answer on, so it is asked for once. Same rule as canVote,
+ * same guarantee: none. The endpoints refuse on their own.
+ */
+export interface Capabilities {
+  canManageCategories: boolean;
+  canManageStatuses: boolean;
+}
+
 export interface AuthorRef {
   id: number;
   displayName: string;
@@ -46,6 +91,16 @@ export interface FeedbackRequestListItem {
   /** Whether the signed-in user may pin or unpin. Admins only. */
   canPin: boolean;
 
+  /**
+   * What the signed-in user may do to this request. Decided per row by the
+   * server, exactly like canVote — the browser is never told who it is, and
+   * hiding a control it is told to hide is a courtesy, never the guarantee.
+   * The server refuses regardless.
+   */
+  canEdit: boolean;
+  canDelete: boolean;
+  canChangeStatus: boolean;
+
   /** Counted from the vote rows on every read. Never stored. */
   voteCount: number;
 
@@ -63,6 +118,15 @@ export interface FeedbackRequestListItem {
   canVote: boolean;
   createdAt: string;
   updatedAt: string;
+
+  /**
+   * When the author last edited the text, or null if they never did.
+   *
+   * Its own field rather than comparing updatedAt with createdAt: pinning and
+   * status changes move updatedAt too, and neither of those is somebody
+   * rewriting their own words.
+   */
+  editedAt: string | null;
 }
 
 export interface FeedbackRequestDetail {
@@ -81,6 +145,16 @@ export interface FeedbackRequestDetail {
   /** Whether the signed-in user may pin or unpin. Admins only. */
   canPin: boolean;
 
+  /**
+   * What the signed-in user may do to this request. Decided per row by the
+   * server, exactly like canVote — the browser is never told who it is, and
+   * hiding a control it is told to hide is a courtesy, never the guarantee.
+   * The server refuses regardless.
+   */
+  canEdit: boolean;
+  canDelete: boolean;
+  canChangeStatus: boolean;
+
   /** Counted from the vote rows on every read. Never stored. */
   voteCount: number;
 
@@ -98,6 +172,15 @@ export interface FeedbackRequestDetail {
   canVote: boolean;
   createdAt: string;
   updatedAt: string;
+
+  /**
+   * When the author last edited the text, or null if they never did.
+   *
+   * Its own field rather than comparing updatedAt with createdAt: pinning and
+   * status changes move updatedAt too, and neither of those is somebody
+   * rewriting their own words.
+   */
+  editedAt: string | null;
 }
 
 export interface CreateFeedbackRequest {
@@ -105,6 +188,9 @@ export interface CreateFeedbackRequest {
   description: string;
   categoryId: number;
 }
+
+/** Editing takes the same three fields under the same rules. */
+export type UpdateFeedbackRequest = CreateFeedbackRequest;
 
 /** Returned by both vote endpoints, so a card can update without a refetch. */
 export interface VoteState {

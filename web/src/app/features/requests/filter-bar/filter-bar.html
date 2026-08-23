@@ -1,0 +1,125 @@
+<!-- A region rather than a bare div: it is a landmark somebody tabs to on
+     purpose, and it is the one control that changes what the list below says. -->
+<section class="filters" aria-labelledby="filters-heading">
+  <h2 class="filters__heading" id="filters-heading">Filter and sort</h2>
+
+  <!-- No [formGroup] and no NgForm, so (submit) is the event that exists here.
+       Binding (ngSubmit) instead would register a listener for something
+       nothing raises, and the browser would submit natively and reload. -->
+  <form class="filters__search" (submit)="onSearchSubmit($event)" role="search">
+    <label class="filters__label" for="filter-search">Search</label>
+
+    <div class="filters__search-row">
+      <input
+        id="filter-search"
+        class="filters__input"
+        type="search"
+        name="q"
+        placeholder="Title or description"
+        autocomplete="off"
+        aria-describedby="filter-search-hint"
+        [value]="searchText()"
+        (input)="onSearchInput($any($event.target).value)"
+      />
+      <button type="submit" class="button button--secondary">Search</button>
+    </div>
+
+    <p class="filters__hint" id="filter-search-hint">
+      Results update as you type, from two characters. Enter searches straight away.
+    </p>
+  </form>
+
+  <fieldset class="filters__group">
+    <legend class="filters__label">Status</legend>
+
+    @if (statuses().length === 0) {
+      <p class="filters__hint">Loading statuses…</p>
+    } @else {
+      <div class="filters__options">
+        @for (status of statuses(); track status.id) {
+          <label class="toggle" [class.toggle--on]="isStatusSelected(status.slug)">
+            <input
+              type="checkbox"
+              class="toggle__input"
+              [checked]="isStatusSelected(status.slug)"
+              (change)="onStatusToggle(status.slug)"
+            />
+            <span class="toggle__label">{{ status.name }}</span>
+          </label>
+        }
+      </div>
+    }
+  </fieldset>
+
+  <fieldset class="filters__group">
+    <legend class="filters__label">Category</legend>
+
+    @if (categories().length === 0) {
+      <p class="filters__hint">Loading categories…</p>
+    } @else {
+      <div class="filters__options">
+        @for (category of categories(); track category.id) {
+          <label class="toggle" [class.toggle--on]="isCategorySelected(category.slug)">
+            <input
+              type="checkbox"
+              class="toggle__input"
+              [checked]="isCategorySelected(category.slug)"
+              (change)="onCategoryToggle(category.slug)"
+            />
+            <span class="toggle__label">{{ category.name }}</span>
+          </label>
+        }
+      </div>
+    }
+  </fieldset>
+
+  <div class="filters__row">
+    <label class="toggle" [class.toggle--on]="filters().mine">
+      <input
+        type="checkbox"
+        class="toggle__input"
+        [checked]="filters().mine"
+        (change)="onMineToggle($any($event.target).checked)"
+      />
+      <span class="toggle__label">Only my requests</span>
+    </label>
+
+    <div class="filters__sort">
+      <label class="filters__label" for="filter-sort">Sort by</label>
+      <select
+        id="filter-sort"
+        class="filters__select"
+        [value]="filters().sort"
+        (change)="onSortChange($any($event.target).value)"
+      >
+        @for (option of sortOptions; track option.value) {
+          <option [value]="option.value" [selected]="option.value === filters().sort">
+            {{ option.label }}
+          </option>
+        }
+      </select>
+    </div>
+  </div>
+
+  @if (filtered()) {
+    <div class="filters__summary">
+      <p class="filters__summary-text">
+        @if (matchCount() === null) {
+          Filtering…
+        } @else {
+          <strong>{{ matchCount() }}</strong>
+          {{ matchCount() === 1 ? 'request matches' : 'requests match' }} these filters.
+        }
+        <!-- Said plainly, because the shelf above has just disappeared and the
+             reader is owed an explanation of where those requests went. -->
+        <span class="filters__summary-note">
+          Pinned requests that match are listed first, not on the shelf.
+        </span>
+      </p>
+
+      <button type="button" class="button button--secondary" (click)="clear()">
+        Clear all filters
+      </button>
+    </div>
+  }
+</section>

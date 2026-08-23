@@ -20,6 +20,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/requests/request-detail/request-detail').then((m) => m.RequestDetail),
   },
+  {
+    // Reachable by anybody who types it. The screen renders the server's own
+    // refusal rather than pretending the route does not exist, because hiding
+    // it in the navigation was never the guarantee.
+    path: 'admin/taxonomy',
+    title: 'Categories and statuses · FeedbackHub',
+    loadComponent: () =>
+      import('./features/admin/admin-taxonomy/admin-taxonomy').then((m) => m.AdminTaxonomy),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'requests' },
   { path: '**', redirectTo: 'requests' },
 ];

@@ -788,3 +788,490 @@ thread again to learn something already known. Deleting still refetches, and
 that one is not laziness: the server chooses between removing the row, leaving
 a tombstone, and hiding replies alongside it, so there are three possible shapes
 and the browser holds none of the rules that pick between them.
+
+---
+
+## 2026-08-22 — Slice 5: filters, search and sort
+
+### Asked before building, and it changed the shape
+
+Four questions went back before any code: which filters, which orderings,
+whether the pinned shelf is filtered too, and one value per filter or several.
+The answers were all four filters (status, category, mine, text search), newest
+and oldest alongside the existing vote order, an unfiltered shelf, and several
+values per filter.
+
+Two of those answers changed the design rather than decorating it. Several
+values per filter turned every taxonomy filter into an `IN` list with slug
+resolution and multi-value parsing on both sides. An unfiltered shelf meant the
+board can show a pinned request that contradicts the filter below it, which is
+the kind of thing that reads as a bug when nobody says it out loud — so the
+filter bar says it out loud.
+
+"Most liked" was asked for as a third ordering. It is the vote count, which was
+already the default, so it became `sort=votes` — selectable rather than new.
+Stated rather than asked again, because there was no second reading of it worth
+a round trip.
+
+### The endpoint that was missing before the slice could start
+
+Filtering by status needs the statuses by name, and nothing in the API offered
+them. `statuses.repository.ts` had exactly one function, `findDefaultId`, for
+request creation; there was no controller, no route, no policy. The board only
+ever showed the status on a row, so the browser had never needed the list.
+
+`GET /api/statuses` is the same shape as `GET /api/categories` — read-only,
+unpaginated, archived excluded, one policy rule that allows any authenticated
+user. Noted in DECISIONS.md under Scope next to the slice 1 note about
+categories, because it is the same call for the same reason.
+
+### Refusing a filter that names nothing
+
+The first draft filtered on the joined taxonomy's slug: `WHERE s.slug IN (...)`.
+It is one query and it reads well, and it is wrong in two ways.
+
+It cannot use `idx_requests_status`, because the column being filtered is
+reached through a join. And it silently returns nothing for a slug that does not
+exist, which is indistinguishable from a filter that legitimately matched
+nothing.
+
+Resolving slugs to ids first costs one small query per filter actually used —
+none when no filter is present — and fixes both. `WHERE r.status_id IN (...)`
+hits the index, and a slug that resolves to nothing is a `422` naming the value,
+in the same shape as an unknown category on create. One detail entry per bad
+value rather than one for the parameter, so the filter bar can drop exactly the
+chip that is wrong.
+
+The lookup deliberately ignores `archived_at`, unlike the one that populates the
+options. Archiving retires a status from the choices offered for a new request;
+it does not retire the requests already carrying it, and a link shared before
+the archiving has to still open.
+
+### `IN ()` is a syntax error, not an empty filter
+
+Each clause is added only when its array is non-empty. An empty array renders as
+`IN ()`, which MySQL rejects outright rather than treating as "matches nothing".
+The clause and its parameters are built together in one function for the same
+reason: a condition can never be added without the value it needs.
+
+`?status=` — a filter bar that was cleared — normalises to absent before it gets
+anywhere near that, and the test says so.
+
+### Reading value() on a resource in an error state throws
+
+Twenty-one web tests went red the moment the filter bar was mounted, which was
+expected: the board now fetches two taxonomies that the existing specs did not
+answer. Twenty of them were exactly that. The twenty-first was a real
+regression, and worth the whole slice.
+
+The error-state test failed because the filter bar renders *above* the list and
+reports the match count whatever the list is doing. `meta()` read
+`requests.value()`, and reading `value()` while a resource is in its error state
+throws. That had been latent since the board was written — every read sat inside
+a branch the error state skipped — and mounting one component above the list was
+enough to reach it.
+
+Guarded with `hasValue()` on all four derived signals, including the two over
+the pinned resource that had the same latent problem. A derived signal that
+throws depending on where it is read from is not worth keeping.
+
+### An input that could disagree with itself
+
+The filter bar first took `filtered` as an input, computed by the parent. A test
+failed because the harness did not set it, and the failure was the useful kind:
+the bar was rendering filters while being told separately whether it was
+filtering. Two sources for one fact.
+
+It derives it now, from the filters it was already given, using the same
+one-line helper the list uses for its empty state.
+
+### The submit button, tested by clicking it
+
+`ngSubmit` cost this project a session already, and the search box is a form
+with a submit button. It is bound to `(submit)` with `preventDefault`, on a bare
+form with neither `NgForm` nor `[formGroup]` — and there is a test that
+dispatches a native submit and asserts `defaultPrevented`, plus one that clicks
+the real button and one that presses through the real input. Anything a user
+touches is touched by a test.
+
+### What is not verified
+
+The SQL. Docker Desktop is stopped, so the filter clauses, the escaped `LIKE`
+and the three orderings have been exercised against mocked repositories and a
+type checker, not against MySQL. Every previous slice probed the exact final
+shape against the real table, and this one has not yet. It is the first thing to
+do when the database is back up, and the shape to probe is a filtered,
+searched, sorted page — not each clause alone, which is the mistake this log
+already records once.
+
+### Reversed within the hour: search as you type
+
+Asked for, right after the slice was built: the search should run while you
+type rather than on submit. The original reasoning is in DECISIONS.md and it was
+not wrong — a navigation per keystroke does put a history entry behind every
+letter and does send a request for every prefix — it just did not follow that
+submit-to-search was the only way to avoid either. Both are ordinary problems
+with ordinary answers.
+
+Three things had to land together, and none of them is the debounce alone:
+
+- **300ms debounce.** One word, one request. Enter still searches immediately
+  and cancels the pending timer, so pressing it does not search twice.
+- **`replaceUrl` when only the search term changed.** Otherwise Back walks
+  backwards through `d`, `da`, `dar`. Ticking a box or changing the order keeps
+  its history entry, because that is a deliberate step. The rule is one pure
+  function, `isOnlySearchChange`, so the list is not deciding it inline.
+- **Stale rows stay on screen, dimmed.** Skeletons are for a first load. The
+  board refetches on every pause in typing, and emptying the list each time made
+  a working board look like it was thrashing.
+
+**The race the linkedSignal introduced.** The box re-seeds from the URL, which
+is what makes Back and Clear all work. Once it searches as you type, the box's
+own search changes that URL — so the re-seed fires while somebody is still
+typing and replaces what they have written with what they wrote 300ms ago. It
+is a small window, and it is exactly the window a fast typist lives in.
+
+Fixed by recording the term the box last sent in a plain field — deliberately
+not a signal, so reading it inside the computation does not make the computation
+re-run — and keeping the current value when the incoming term is that one. The
+URL catching up with this box is not an external change. There is a test that
+types, settles, types again, and then delivers the first navigation late.
+
+**And the flush.** Typing a term and then ticking a status a moment later used
+to drop the term: the pending debounce was cancelled and the emitted state came
+from the last URL, which did not have it. Any other change now flushes a pending
+search into the same navigation. One test, and it also asserts the search does
+not then fire a second time when the timer would have expired.
+
+### Reversed again, and this one was the screen telling on itself
+
+The shelf rule changed: it belongs to the default board, and once anything is
+filtered it collapses into the results, where the pinned rows rank first and
+keep their badge, and the total counts them.
+
+Worth recording *why* the first rule was wrong, because it was chosen on
+purpose and it was internally consistent. Pinning is absolute; a filter that can
+hide a pinned request makes "pinned" mean less than it says; therefore the shelf
+ignores filters. Each step follows. What it produced was a shelf sitting above a
+filtered list showing requests that contradict the filter — and a caption
+underneath it apologising for that. Writing that caption was the tell. A
+sentence explaining why the screen disagrees with itself is not a mitigation,
+it is the bug reported in prose.
+
+The rule that replaced it does not weaken pinning. A pinned request that matches
+is at the top of the matches; one that does not match is absent because it does
+not match, which is the answer every other row gets.
+
+**Two implementations of one predicate.** The server decides whether to include
+pinned rows; the browser decides whether to render the shelf. They must agree
+exactly, or the pinned rows appear twice on one screen or vanish from both.
+`isFiltered` now exists in `requests.schema.ts` and in `board-filters.ts`, and
+both exclude sorting for the same stated reason: reordering hides nothing, so
+the shelf still makes sense beside it. Duplicated deliberately rather than
+shared, because there is no code path between the two, and both are four lines
+that read as their own justification. Noted in the handoff as a pair that has to
+move together.
+
+**The browser stops asking.** The pinned resource returns no request at all on a
+filtered board rather than fetching a collection to hide it — one fewer round
+trip on every filtered view, and the test asserts the absence twice over: the
+testing controller fails on an unexpected request, and `verify()` fails on an
+unanswered one.
+
+**`WHERE` with no conditions.** Removing the unpinned predicate exposed a case
+the clause builder had never had: a filtered board whose filters are all
+optional could produce `WHERE` followed by nothing, which is a syntax error
+rather than an empty filter. Same class of bug as `IN ()` earlier in the slice,
+found the same way — by asking what the string looks like when every branch is
+false.
+
+### The shelf sorts, the board opens on newest, and one schema default had to go
+
+Two changes asked for together, and they turned out to be one design problem.
+
+**The shelf follows the ordering but not the filters.** Sorting reorders what is
+on screen and hides nothing, so the shelf stays and sorts with the board — a
+board sorted oldest-first under a shelf sorted by something else is two answers
+to one question. Filtering hides things, so the shelf still collapses into the
+results. The two rules look inconsistent side by side and are not: the question
+is whether anything left the screen.
+
+**The board opens on newest.** The old default was vote count, argued for on the
+grounds that the count is the priority signal. That argument is right about
+triage and wrong about the daily read: on a board where most rows sit on zero
+votes, vote order barely moves, so what changed since yesterday is invisible.
+Newest first makes the board answer "what is new" and leaves "what is wanted" to
+a control that says so. Vote order is one select away and DECISIONS.md keeps the
+reversed entry with the reasoning.
+
+**Where it got interesting.** The shelf's default order is `pinned_at DESC` —
+that is what keeps a freshly pinned request inside the three the panel shows
+collapsed — and it follows the board only when an ordering was *asked for*. So
+the code has to distinguish "no sort in the URL" from "this sort in the URL",
+and `sort` had a `.default(DEFAULT_SORT)` on it in the query schema. A schema
+default answers "was one asked for?" with "yes, always", before the service ever
+sees the request. It had to come off; the default is applied in the service,
+where only the list needs it. The handoff records that, because putting it back
+would look like tidying and would silently break the shelf.
+
+**The canonical-URL boundary.** An ordering equal to the default counts as "not
+asked for", so `/requests` and the default view stay the same link however
+somebody arrived. The cost: explicitly picking Newest first cannot force the
+shelf out of pin order. That is the right trade, because picking Newest first
+produces exactly the default board — the alternative was tracking whether a
+control had been touched, which is state that belongs in neither the URL nor the
+component.
+
+Six web tests and two API tests failed on the default change, every one of them
+correctly: they asserted `votes` where the code now says `newest`, or used
+`sort=newest` as their example of an *explicit* ordering, which it no longer is.
+Updated rather than relaxed.
+
+---
+
+## 2026-08-22 — Slice 6: request-level actions
+
+### The slice every handoff has pointed at
+
+Three rules in `requestPolicy` had zero callers since slice 1. They are called
+now, and the two route-level tests named in every handoff since — a non-owner
+refused an edit, a regular user refused a status change — are written and
+passing, through the real routes, with nothing stubbed to make them refuse and
+the write asserted not to have happened.
+
+### The "edited" marker was a trap in the requirement
+
+The brief asked for the marker to show when `updated_at` differs from
+`created_at`. That is the obvious implementation and it is wrong on this schema:
+`updated_at` is `ON UPDATE CURRENT_TIMESTAMP(3)`, so pinning a request or moving
+it to Done moves it too. The marker would then say a request had been edited by
+its author because an admin triaged it — a claim about somebody's words that
+nobody made.
+
+Migration 009 adds `edited_at`, which the comments table already has for exactly
+this reason. Two tests hold the line: one asserts the marker appears when
+`editedAt` is set, and one asserts it does NOT appear when `updatedAt` has moved
+and `editedAt` has not.
+
+### Permission before validation, when the permission needs the row
+
+"Only the author may edit" cannot be asked without knowing who wrote it, which
+means a lookup — and the convention says permission is checked before the body
+is validated, so a caller who may not act never learns the payload schema from a
+422.
+
+The shape that satisfies both: the handler loads the *subject* (the author id
+and nothing else), asks the policy, and only then parses the body. A 404 falls
+out of the same lookup. The admin-only rules keep the simpler shape, refusing
+before anything is looked up at all — a regular user attempting a status change
+learns nothing, not even whether the request exists, and there is a test for
+that specific claim.
+
+### Two real bugs, both found by tests that click things
+
+Both surfaced as "expected no open requests" failures, which reads like test
+noise and was not.
+
+**The status list refetched on every action.** The resource's request function
+read `item()?.canChangeStatus`, so it depended on the request OBJECT. Every
+successful edit, pin or status change produced a new one and refetched a
+taxonomy that cannot have changed. Fixed by deriving the boolean as its own
+computed and depending on that.
+
+**A refetch tore the page down.** The top-level `@if (request.isLoading())`
+replaced the whole article whenever the request reloaded — and with it the
+comment thread, which was then re-created and refetched a discussion that had
+nothing to do with the pin that caused the reload. Same fix as the board's
+stale-rows change earlier in the day: show the loading state only when there is
+nothing to show yet.
+
+Neither is visible in a screenshot. Both are obvious the moment a test asserts
+what the page asked the server for.
+
+### The dialog does not use `<dialog>`
+
+The native element traps focus and closes on Escape for free, which is the
+entire requirement. The problem is what a test could then say about it: that
+`showModal()` was called. That proves the call site exists and nothing about
+whether focus can leave, which is the only thing anybody cares about.
+
+So the trap is written out and tested by pressing keys: Tab off the last control
+wraps to the first, Shift+Tab off the first wraps to the last (the direction
+people forget, and how you fall out of a dialog backwards), Escape closes, focus
+opens on Cancel rather than the destructive button, and it goes back to whatever
+opened the dialog.
+
+### An alias that shadowed a resource
+
+`@else if (item(); as request)` shadowed the component's own `request` resource,
+so `[request]="request"` on the edit form resolved to the HttpResourceRef and
+the compiler reported a required input with no value. Renamed the alias to
+`detail`. Worth recording because the error names the input rather than the
+shadowing, and the template reads perfectly well while being wrong.
+
+Also: a required input cannot be read in a constructor, which is where the edit
+form first seeded itself from the request. Moved to `ngOnInit`, and deliberately
+not to an effect — something that re-seeds the form mid-edit is a data-loss bug
+wearing the costume of a refresh.
+
+### Correcting the record
+
+While writing this up: DECISIONS.md claimed `idx_requests_feed` "stays", and
+after this morning's default-sort change I made it worse by writing that it
+"serves the default again". It does neither. Migration 006 dropped it along with
+the `is_pinned` column it led with, and added `idx_requests_recent (created_at
+DESC, id DESC)` in as many words for the newest-first option. The file now says
+that, and says when the earlier claim stopped being true.
+
+### The migration nobody had run, and the verification pass that followed
+
+The dev API started failing with `ER_BAD_FIELD_ERROR: Unknown column
+'r.edited_at' in 'field list'` on every board read. Exactly the failure the
+handoff had been carrying as the top outstanding item since slice 6 was written:
+the code was at schema 9 and the database was at 8. `npm run migrate` applied
+009 and the board came back.
+
+Worth naming the shape of that mistake rather than just the fix. The migration
+was written, the undo was written, the code that reads the column was written
+and 243 tests passed — because every one of them mocks the repository. A schema
+change is the one kind of change a mocked test suite cannot fail on, and the
+gap between "the tests pass" and "the application runs" is exactly one command
+that nobody had run.
+
+With Docker finally up, everything outstanding from slices 5 and 6 was checked
+against real MySQL. The full table is in the handoff. The results worth
+repeating here:
+
+- **`?q=%` matched 0 of 11 rows.** Unescaped it would have matched all 11, so
+  the LIKE escaping is doing what it claims. Same for `_`.
+- **A page past the end counted the filtered set** — total 6 with a status
+  filter on a board of 11.
+- **A status change moved `updated_at` and left `edited_at` alone**, which is
+  the entire argument for migration 009, now observed rather than reasoned
+  about.
+- **The delete cascade ran through the endpoint for the first time.** A request
+  with a vote from another user and a comment on it: `204`, and the vote, the
+  comment and the row were all gone. The cascades had only ever been verified by
+  writing SQL directly at the tables.
+
+**And one prediction that was wrong.** The handoff said to check that `EXPLAIN`
+shows `idx_requests_status` in use for a status filter. It does not — the
+optimizer chooses `idx_requests_pinned` and applies the status as a
+where-condition. The status index is in `possible_keys`, so the column is a
+candidate, but on eleven rows the choice between two indexes is not evidence of
+anything. Recorded as "not what was predicted" rather than quietly reworded into
+a pass, because the point of writing the prediction down was to be able to be
+wrong about it.
+
+### "Write something first" about a comment that had just been posted
+
+Reported from the running app: post a comment, it appears on the thread as it
+should, and the emptied box immediately complains that it is empty.
+
+`setValue('')` followed by `markAsUntouched()` clears two of the three things
+that matter and not the third. The control was still **dirty** from having been
+typed in, and the message renders on `invalid && (dirty || touched)` — so an
+empty box that had been typed in fails `required` and says so, about the comment
+that had just succeeded.
+
+`reset()` does all three: value, pristine, untouched. The same pattern was in
+`openReply`, where it was a quieter version of the same bug — type into a reply
+box, close it, open it again, and it greets you with a validation message before
+a key is pressed. `openEdit` had it too, hidden only because it seeds a non-empty
+value.
+
+Two tests, both confirmed to fail against the old code before the fix went in:
+one posts through the real button and asserts the message is absent afterwards,
+one opens a reply box, types, closes and reopens it. The first is an extension
+of the test written when the submit button was dead — the same test would have
+caught this the moment it looked at what was on screen after a success rather
+than only at what was sent.
+
+---
+
+## 2026-08-22 — Slice 7: the admin taxonomy screen
+
+### Two invariants the schema cannot hold
+
+Most of this slice is ordinary CRUD. The parts worth recording are the two rules
+the database cannot express, both of which had to be written into the
+application without a comment somewhere claiming they are "enforced by the
+schema".
+
+**Exactly one default status.** The generated column and unique key give AT MOST
+one. They cannot give at least one — an admin could leave the table with zero
+and every new request would fail with SERVER_MISCONFIGURED, which is exactly the
+failure mode the statuses migration warned about two slices ago. Two rules keep
+the lower bound: the only endpoint that touches the default is "make this one
+the default", and the first status created in an empty table becomes the
+default. There is no endpoint that clears a default. That absence is the
+invariant, so the handoff names it as something not to add back.
+
+The swap also has a forced order. The unique key permits one row with the
+marker, so setting the new default before clearing the old one collides —
+clear-then-set is the only sequence that works, which means the table passes
+through zero defaults, which is why it is a transaction rather than two
+statements. Verified against real MySQL: default moved to Planned and back to
+New, both through the endpoint.
+
+**A reorder names every row exactly once.** There is no constraint that can say
+that. It is checked in the service against the ids actually in the table, and
+the three ways to get it wrong — omitting a row, repeating one, naming one that
+does not exist — are refused separately, each with its own code, rather than
+collapsed into "invalid order".
+
+### The shape of the difference between the two taxonomies
+
+Categories are retired; statuses are not. It is tempting to make that a flag on
+a shared implementation, and it is not a flag — it is a difference in what the
+things ARE. A category is a label a request carries; a status is a position a
+request is sitting in, and retiring one strands whatever is in it.
+
+So the shared parts are shared honestly (the schema of a name and a slug, the
+reorder rule, the duplicate mapping) and the differences are separate routes on
+separate modules. The one place they meet in the interface is a presentational
+table with `retirable` and `hasDefault` inputs, and even there the inputs are
+set by the parent rather than inferred from the rows — the difference is a
+decision, not a shape.
+
+### `?scope=all`, not `/api/admin/categories`
+
+The admin screen needs the same rows with more on them: display order,
+retirement state, usage counts. A separate URL would be the same collection in
+two places, free to drift. A second representation of one collection, asked for
+explicitly and refused to anybody who cannot act on it, keeps one source.
+
+The first version of the web client baked the query into the URL string —
+`/api/categories?scope=all` as a literal. The tests could not see it as a
+parameter, which was the tell: it IS a parameter, and the client should be able
+to read it as one. Changed to `params: { scope: 'all' }`.
+
+### Telling the navigation what it may offer
+
+Every permission on this board is per row, because there is a row to hang it on.
+A whole screen has none, and the menu still has to decide whether to show a link
+to it.
+
+`GET /api/capabilities` answers what the caller MAY DO, never who they are —
+there is a test asserting the response contains no email, no display name and no
+role. It is not what protects the screen: the endpoints refuse on their own and
+the route renders that refusal, so this being wrong costs a menu item. A route
+guard would have been the other option, and it would have put a copy of the rule
+in the browser and made the interface the thing that decides, which is the
+opposite of how everything else here works.
+
+### Reordering by button
+
+The brief said a drag-only implementation is not acceptable, and the honest
+reading of that is not "add keyboard support to a drag interaction" but "build
+the version that works and stop". Two buttons per row, labelled with the row's
+name so a screen reader says which one is moving, disabled at the ends. It is
+also the version that can be tested by pressing it, which the tests do.
+
+### Verified against MySQL
+
+The default swap, the reorder, the duplicate mapping, and the claim that matters
+most about retirement: a category with two requests on it was retired, vanished
+from `GET /api/categories` — the list every form and the filter bar reads — and
+both requests went on rendering it, with the filter link by its slug still
+matching them. Then restored, and the order put back.

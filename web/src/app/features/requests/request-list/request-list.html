@@ -13,28 +13,46 @@
 <!-- One live region announces whichever state the list is in, so a screen
      reader hears the change instead of silence. -->
 <div class="visually-hidden" role="status" aria-live="polite">
-  @if (requests.isLoading()) {
+  @if (isFirstLoad()) {
     Loading requests.
+  } @else if (requests.isLoading()) {
+    Updating results.
   } @else if (error()) {
     Requests could not be loaded.
+  } @else if (hasNoMatches()) {
+    No requests match these filters.
   } @else if (meta(); as page) {
-    Showing {{ rangeStart() }} to {{ rangeEnd() }} of {{ page.total }} requests, page {{ page.page }} of {{ page.totalPages }}.
+    Showing {{ rangeStart() }} to {{ rangeEnd() }} of {{ page.total }}
+    {{ filtered() ? 'matching requests' : 'requests' }}, page {{ page.page }} of {{ page.totalPages }}.
   }
 </div>
 
-<app-pinned-panel
-  [items]="pinnedItems()"
-  [total]="pinnedTotal()"
-  [pendingIds]="pending()"
-  (vote)="toggleVote($event)"
-  (unpin)="togglePin($event)"
+<app-filter-bar
+  [filters]="filters()"
+  [statuses]="statusChoices()"
+  [categories]="categoryChoices()"
+  [matchCount]="matchCount()"
+  (changed)="applyFilters($event)"
 />
+
+<!-- The shelf belongs to the default board. On a filtered one the pinned
+     requests that match are in the results below, ranked first and still
+     wearing their badge, so nothing is shown twice and nothing is hidden. -->
+@if (!filtered()) {
+  <app-pinned-panel
+    [items]="pinnedItems()"
+    [total]="pinnedTotal()"
+    [pendingIds]="pending()"
+    (vote)="toggleVote($event)"
+    (unpin)="togglePin($event)"
+  />
+}
 
 @if (voteFailure(); as message) {
   <p class="vote-failure" role="alert">{{ message }}</p>
 }
 
-@if (requests.isLoading()) {
+@if (isFirstLoad()) {
   <ul class="cards" aria-hidden="true">
     @for (row of skeletonRows; track row) {
       <li class="card card--skeleton">
@@ -62,16 +80,30 @@
     </p>
     <a class="button" routerLink="/requests/new">File the first request</a>
   </div>
+} @else if (hasNoMatches()) {
+  <div class="state">
+    <h2 class="state__title">Nothing matches these filters</h2>
+    <p class="state__body">
+      There are requests on the board, just none that match what you asked for. Widen the filters
+      or clear them to see everything.
+    </p>
+    <button type="button" class="button button--secondary" (click)="clearFilters()">
+      Clear all filters
+    </button>
+  </div>
 } @else if (isPastEnd()) {
   <div class="state">
     <h2 class="state__title">That page does not exist</h2>
-    <p class="state__body">There are only {{ meta()?.totalPages }} pages of requests.</p>
+    <p class="state__body">
+      There {{ meta()?.totalPages === 1 ? 'is only 1 page' : 'are only ' + meta()?.totalPages + ' pages' }}
+      of {{ filtered() ? 'matching requests' : 'requests' }}.
+    </p>
     <a class="button button--secondary" routerLink="/requests" [queryParams]="queryFor(1)">
       Back to the first page
     </a>
   </div>
 } @else {
-  <ul class="cards">
+  <ul class="cards" [class.cards--stale]="isStale()" [attr.aria-busy]="isStale() ? 'true' : null">
     @for (request of items(); track request.id) {
       <li class="card">
         <div class="card__meta">
@@ -145,7 +177,7 @@
     <p class="pager__summary">
       Showing <strong>{{ rangeStart() }}–{{ rangeEnd() }}</strong> of
       <strong>{{ page.total }}</strong>
-      {{ page.total === 1 ? 'request' : 'requests' }}
+      {{ page.total === 1 ? 'request' : 'requests' }}{{ filtered() ? ' matching your filters' : '' }}
       @if (page.totalPages > 1) {
         <span class="pager__summary-page">page {{ page.page }} of {{ page.totalPages }}</span>
       }

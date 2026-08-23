@@ -1,22 +1,40 @@
 import { Component, computed, inject, input, numberAttribute, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { RequestsApi } from '../data/requests.api';
 import { toApiError } from '../../../core/api/api-error';
-import type { FeedbackRequestListItem, Paginated, PinnedResult } from '../../../core/api/api.types';
+import type {
+  FeedbackRequestListItem,
+  Paginated,
+  PinnedResult,
+  TaxonomyRef,
+  Wrapped,
+} from '../../../core/api/api.types';
+import {
+  DEFAULT_PAGE_SIZE,
+  NO_FILTERS,
+  explicitSort,
+  isFiltered,
+  isOnlySearchChange,
+  parseFlag,
+  parseSlugs,
+  parseSort,
+  toQueryParams,
+  type BoardFilters,
+} from '../data/board-filters';
+import { FilterBar } from '../filter-bar/filter-bar';
 import { PinnedPanel } from '../pinned-panel/pinned-panel';
-
-const DEFAULT_PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-request-list',
-  imports: [RouterLink, DatePipe, PinnedPanel],
+  imports: [RouterLink, DatePipe, PinnedPanel, FilterBar],
   templateUrl: './request-list.html',
   styleUrl: './request-list.scss',
 })
 export class RequestList {
   private readonly api = inject(RequestsApi);
+  private readonly router = inject(Router);
 
   /**
    * Bound from the URL by withComponentInputBinding. List state lives in query
@@ -25,6 +43,17 @@ export class RequestList {
    */
   readonly page = input(1, { transform: numberAttribute });
   readonly pageSize = input(DEFAULT_PAGE_SIZE, { transform: numberAttribute });
+
+  /**
+   * The filters, bound from the same place for the same reason. A repeated
+   * parameter arrives as an array and a comma-separated one as a string, so
+   * both shapes are accepted and normalised below.
+   */
+  readonly status = input<string | string[]>();
+  readonly category = input<string | string[]>();
+  readonly mine = input<string>();
+  readonly q = input<string>();
+  readonly sort = input<string>();
 
   /**
    * A hand-edited URL can carry anything. Out-of-range values are corrected here
@@ -44,38 +73,152 @@ export class RequestList {
   });
 
   /**
+   * The whole of the list state, in one value.
+   *
+   * A hand-edited URL can carry anything, so these are cleaned rather than
+   * trusted. The server validates independently and is the authority: a status
+   * slug that names nothing comes back as a 422 and is rendered as the error
+   * state, which is the correct answer to a link that no longer resolves.
+   */
+  protected readonly filters = computed<BoardFilters>(() => ({
+    statuses: parseSlugs(this.status()),
+    categories: parseSlugs(this.category()),
+    mine: parseFlag(this.mine()),
+    q: (this.q() ?? '').trim(),
+    sort: parseSort(this.sort()),
+  }));
+
+  /** Whether anything is narrowing the board. Sort is not a narrowing. */
+  protected readonly filtered = computed(() => isFiltered(this.filters()));
+
+  /**
    * Refetches whenever the URL-derived signals change — no manual subscription
    * and no chance of the list disagreeing with the address bar.
+   *
+   * Filtering, sorting and paging all go to the server. Nothing is narrowed or
+   * reordered in the browser: it holds one page and cannot see the rest.
    */
   protected readonly requests = httpResource<Paginated<FeedbackRequestListItem>>(() => ({
     url: this.api.requestsUrl,
-    params: { page: this.currentPage(), pageSize: this.currentPageSize() },
+    params: {
+      ...toQueryParams(this.filters(), this.currentPage(), this.currentPageSize()),
+      // Always sent, even at their defaults. This is the request, not the
+      // address bar, and the URL is where brevity is worth something.
+      page: this.currentPage(),
+      pageSize: this.currentPageSize(),
+    },
   }));
 
   /**
-   * The pinned shelf. A separate request because it is a different collection
-   * with different rules: not paginated, ordered by when it was pinned, and
-   * excluded from the list below so nothing appears twice.
+   * The filter options, from the taxonomy endpoints an admin curates. Neither
+   * depends on a signal, so each is fetched once and reused as the board is
+   * filtered and paged.
    */
-  protected readonly pinned = httpResource<PinnedResult>(() => ({
-    url: this.api.pinnedUrl,
+  private readonly statusOptions = httpResource<Wrapped<TaxonomyRef[]>>(() => ({
+    url: this.api.statusesUrl,
   }));
 
-  protected readonly pinnedItems = computed(() => this.pinned.value()?.data ?? []);
-  protected readonly pinnedTotal = computed(() => this.pinned.value()?.total ?? 0);
+  private readonly categoryOptions = httpResource<Wrapped<TaxonomyRef[]>>(() => ({
+    url: this.api.categoriesUrl,
+  }));
 
-  protected readonly items = computed(() => this.requests.value()?.data ?? []);
-  protected readonly meta = computed(() => this.requests.value()?.page ?? null);
+  protected readonly statusChoices = computed<TaxonomyRef[]>(
+    () => this.statusOptions.value()?.data ?? [],
+  );
+
+  protected readonly categoryChoices = computed<TaxonomyRef[]>(
+    () => this.categoryOptions.value()?.data ?? [],
+  );
+
+  /** What the filter bar reports as matched. Null while the count is unknown. */
+  protected readonly matchCount = computed(() => this.meta()?.total ?? null);
+
+  /**
+   * The pinned shelf, on the default board only.
+   *
+   * A separate request because it is a different collection with different
+   * rules: not paginated, ordered by when it was pinned, and excluded from the
+   * list below so nothing appears twice.
+   *
+   * Once anything is filtered there is no shelf, and the pinned requests that
+   * match are in the results instead — so this returns undefined and no
+   * request is made at all. Fetching a shelf in order to hide it would ask the
+   * server for something the screen has no place to put.
+   */
+  protected readonly pinned = httpResource<PinnedResult>(() => {
+    if (this.filtered()) return undefined;
+
+    const sort = explicitSort(this.filters());
+
+    // Sent only when an ordering was actually chosen. Absent means the shelf
+    // uses its own order — most recently pinned first — which is what keeps
+    // something just pinned inside the three the panel shows collapsed.
+    const params: Record<string, string> = sort === undefined ? {} : { sort };
+
+    return { url: this.api.pinnedUrl, params };
+  });
+
+  /**
+   * Every one of these is guarded by hasValue().
+   *
+   * Reading value() while a resource is in its error state THROWS. That was
+   * survivable while these were only read inside a branch the error state
+   * skipped; the filter bar changed it, because the bar renders above the list
+   * and reads the total whatever the list is doing. A derived signal that can
+   * throw depending on where it is read from is a trap, so none of them can.
+   */
+  protected readonly pinnedItems = computed(() =>
+    this.pinned.hasValue() ? (this.pinned.value()?.data ?? []) : [],
+  );
+
+  protected readonly pinnedTotal = computed(() =>
+    this.pinned.hasValue() ? (this.pinned.value()?.total ?? 0) : 0,
+  );
+
+  protected readonly items = computed(() =>
+    this.requests.hasValue() ? (this.requests.value()?.data ?? []) : [],
+  );
+
+  protected readonly meta = computed(() =>
+    this.requests.hasValue() ? (this.requests.value()?.page ?? null) : null,
+  );
 
   protected readonly error = computed(() => {
     const failure = this.requests.error();
     return failure ? toApiError(failure) : null;
   });
 
-  /** Distinguishes "nothing has been filed yet" from "still loading". */
-  protected readonly isEmpty = computed(
+  /**
+   * Whether the board is loading with nothing to show yet.
+   *
+   * Only this state gets skeletons. A refetch that already has rows keeps them
+   * on screen and marks them stale instead, because the search refetches on
+   * every pause in typing and replacing the list with skeletons each time makes
+   * a working board look like it is thrashing.
+   */
+  protected readonly isFirstLoad = computed(
+    () => this.requests.isLoading() && this.items().length === 0,
+  );
+
+  /** Rows that are still on screen while a newer answer is on its way. */
+  protected readonly isStale = computed(
+    () => this.requests.isLoading() && this.items().length > 0,
+  );
+
+  /** A loaded, genuinely empty result. What it means depends on the filters. */
+  private readonly loadedEmpty = computed(
     () => this.requests.hasValue() && this.items().length === 0 && (this.meta()?.total ?? 0) === 0,
   );
+
+  /** Distinguishes "nothing has been filed yet" from "still loading". */
+  protected readonly isEmpty = computed(() => this.loadedEmpty() && !this.filtered());
+
+  /**
+   * The same empty result, with filters applied, which is a different thing to
+   * say and needs a different offer: an unfiltered board that says "be the
+   * first to file one" when eleven requests are one click away is wrong.
+   */
+  protected readonly hasNoMatches = computed(() => this.loadedEmpty() && this.filtered());
 
   /** A page number past the end — a stale link rather than an empty board. */
   protected readonly isPastEnd = computed(() => {
@@ -108,12 +251,36 @@ export class RequestList {
     return meta !== null && this.currentPage() < meta.totalPages;
   });
 
-  protected queryFor(page: number): Record<string, number> {
-    const query: Record<string, number> = { page };
-    if (this.currentPageSize() !== DEFAULT_PAGE_SIZE) {
-      query['pageSize'] = this.currentPageSize();
-    }
-    return query;
+  /**
+   * The query parameters for another page of the CURRENT view. Built from the
+   * same function the filter bar's navigation uses, so a pager link can never
+   * quietly drop the filters the list is showing.
+   */
+  protected queryFor(page: number): Record<string, string | number> {
+    return toQueryParams(this.filters(), page, this.currentPageSize());
+  }
+
+  /**
+   * Applies a new set of filters by navigating, because the URL is the state.
+   *
+   * Always back to page 1: page 4 of an unfiltered board is rarely page 4 of a
+   * filtered one, and staying put would land the reader past the end, where an
+   * empty page reads as "nothing matched".
+   */
+  protected applyFilters(next: BoardFilters): void {
+    void this.router.navigate(['/requests'], {
+      queryParams: toQueryParams(next, 1, this.currentPageSize()),
+      // Typing produces a navigation per pause. Those replace each other, so
+      // Back leaves the board instead of walking backwards through every
+      // prefix on the way to the word somebody wanted. Ticking a box or
+      // changing the order is a deliberate step and keeps its entry.
+      replaceUrl: isOnlySearchChange(this.filters(), next),
+    });
+  }
+
+  /** Back to the whole board, keeping the ordering the reader chose. */
+  protected clearFilters(): void {
+    this.applyFilters({ ...NO_FILTERS, sort: this.filters().sort });
   }
 
   protected retry(): void {
@@ -237,11 +404,18 @@ export class RequestList {
     call.subscribe({
       next: () => {
         this.setPending(item.id, false);
-        // Pinning moves a row between the two collections, so both are refetched.
-        // Reloaded rather than version-stamped: the query schema rejects unknown
-        // parameters, and a cache-busting value in the URL would be one.
+        // On the default board, pinning moves a row between the two collections,
+        // so both are refetched. Reloaded rather than version-stamped: the query
+        // schema rejects unknown parameters, and a cache-busting value in the
+        // URL would be one.
+        //
+        // On a filtered board there is one collection and the row stays in it,
+        // reordered to the front. The shelf is not being fetched at all there,
+        // so there is nothing to reload.
         this.requests.reload();
-        this.pinned.reload();
+        if (!this.filtered()) {
+          this.pinned.reload();
+        }
       },
       error: (failure: unknown) => {
         this.setPending(item.id, false);

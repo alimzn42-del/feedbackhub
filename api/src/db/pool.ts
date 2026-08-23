@@ -48,3 +48,30 @@ export async function assertDatabaseReachable(): Promise<void> {
 export async function closePool(): Promise<void> {
   await pool.end();
 }
+
+/**
+ * Runs a unit of work on one connection inside a transaction, committing when
+ * it returns and rolling back if it throws.
+ *
+ * The pool hands out a different connection per query, so a multi-statement
+ * invariant cannot be expressed with `pool.query` alone: BEGIN would land on one
+ * connection and the UPDATE on another. Everything inside the callback must use
+ * the connection it is given.
+ */
+export async function withTransaction<T>(
+  work: (connection: mysql.PoolConnection) => Promise<T>,
+): Promise<T> {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const result = await work(connection);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}

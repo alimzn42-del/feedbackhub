@@ -1,0 +1,159 @@
+.taxonomy {
+  padding: var(--space-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.taxonomy__heading {
+  margin: 0 0 var(--space-4);
+  font-size: 1.125rem;
+}
+
+.taxonomy__rows {
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+/* Retired rows stay legible. They are still real, still carried by requests,
+   and dimming one to the point of illegibility hides the very thing an admin
+   came here to reconsider. */
+.row--retired {
+  background: var(--surface-sunken);
+}
+
+.row--retired .row__name {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.row__identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.row__name {
+  font-weight: 600;
+}
+
+.row__slug {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+}
+
+.row__usage {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.row__actions,
+.row__rename {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.row__rename {
+  flex: 1 1 100%;
+}
+
+.row__input,
+.field__input {
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.row__input {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.button--icon {
+  min-width: 2.5rem;
+  padding-inline: var(--space-2);
+  line-height: 1;
+}
+
+.add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.add__heading {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.add__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1 1 14rem;
+}
+
+.field__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.field__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.field__error {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--danger);
+}
+
+.field__input[aria-invalid='true'] {
+  border-color: var(--danger);
+}

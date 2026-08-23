@@ -1,0 +1,173 @@
+/* Component-scoped, so every class here is used in this template only.
+   `.button` is deliberately absent: it is a shared primitive and lives in the
+   global sheet, because a class defined in one component's stylesheet silently
+   does not apply in another. */
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* The heading is a landmark for a screen reader and noise for everybody else:
+   the controls below it are self-describing. */
+.filters__heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.filters__group {
+  /* A fieldset carries the grouping to assistive technology; the browser's
+     default border and padding are not wanted with it. */
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+
+.filters__label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.filters__search-row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.filters__input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.filters__hint {
+  margin: var(--space-2) 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.filters__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.filters__sort {
+  display: flex;
+  flex-direction: column;
+}
+
+.filters__select {
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.filters__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.filters__summary-text {
+  margin: 0;
+  color: var(--text);
+}
+
+.filters__summary-note {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* A checkbox that looks like the chips it filters. The real input stays in the
+   accessibility tree and keeps its own focus and keyboard behaviour; only its
+   painting is replaced. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle:hover {
+  border-color: var(--border-strong);
+}
+
+.toggle--on {
+  background: var(--accent-subtle);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.toggle__input {
+  /* Not display:none, which would take it out of the tab order and hide it from
+     assistive technology. It is a real checkbox, sized down and drawn in the
+     accent colour. */
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* The ring belongs on the whole chip, since the input inside it is barely a
+   pixel of target. :has keeps that in CSS rather than in a focus handler. */
+.toggle:has(.toggle__input:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
+@media (max-width: 40rem) {
+  .filters__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filters__summary {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

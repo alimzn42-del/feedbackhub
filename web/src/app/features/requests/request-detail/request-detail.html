@@ -2,7 +2,7 @@
   <a routerLink="/requests">← Back to the board</a>
 </p>
 
-@if (request.isLoading()) {
+@if (isFirstLoad()) {
   <div class="detail__state">Loading the request…</div>
 } @else if (error(); as failure) {
   <div class="detail__state detail__state--error" role="alert">
@@ -19,55 +19,184 @@
     }
     <a class="button button--secondary" routerLink="/requests">Back to the board</a>
   </div>
-} @else if (item(); as request) {
-  <article class="detail">
-    <div class="detail__meta">
-      <span class="chip chip--category">{{ request.category.name }}</span>
-      <span class="chip chip--status" [attr.data-status]="request.status.slug">
-        {{ request.status.name }}
-      </span>
-      @if (request.isPinned) {
-        <span class="chip chip--pinned">Pinned</span>
+} @else if (item(); as detail) {
+  <!-- Announced rather than only rendered: a status change or a pin alters the
+       page without moving focus, so a screen reader would otherwise hear
+       nothing at all. -->
+  <div class="visually-hidden" role="status" aria-live="polite">
+    @if (isPending('status')) {
+      Changing the status.
+    } @else if (isPending('pin')) {
+      Updating the pin.
+    } @else if (isPending('delete')) {
+      Deleting the request.
+    }
+  </div>
+
+  @if (actionMessage(); as message) {
+    <div class="detail__action-failure" role="alert">
+      <p>{{ message }}</p>
+      @if (isGone()) {
+        <!-- A retry cannot help: the thing being acted on is gone. -->
+        <a class="button button--secondary" routerLink="/requests">Back to the board</a>
       }
     </div>
+  }
 
-    <h1 class="detail__title">{{ request.title }}</h1>
+  @if (editing()) {
+    <app-request-edit
+      [request]="detail"
+      (saved)="onSaved($event)"
+      (cancelled)="cancelEdit()"
+    />
+  } @else {
+    <article class="detail">
+      <div class="detail__meta">
+        <span class="chip chip--category">{{ detail.category.name }}</span>
+        <span class="chip chip--status" [attr.data-status]="detail.status.slug">
+          {{ detail.status.name }}
+        </span>
+        @if (detail.isPinned) {
+          <span class="chip chip--pinned">Pinned</span>
+        }
+      </div>
 
-    <p class="detail__byline">
-      {{ request.author.displayName }}
-      <span aria-hidden="true">·</span>
-      <time [attr.datetime]="request.createdAt">{{ request.createdAt | date: 'medium' }}</time>
-    </p>
+      <h1 class="detail__title">{{ detail.title }}</h1>
 
-    @if (request.pinnedBy) {
-      <p class="detail__pinned">Pinned by {{ request.pinnedBy.displayName }}</p>
+      <p class="detail__byline">
+        {{ detail.author.displayName }}
+        <span aria-hidden="true">·</span>
+        <time [attr.datetime]="detail.createdAt">{{ detail.createdAt | date: 'medium' }}</time>
+        <!-- Read from its own field, not from updatedAt: pinning and status
+             changes move that too, and neither is somebody rewriting their own
+             words. Same marker the comments use. -->
+        @if (detail.editedAt) {
+          <span aria-hidden="true">·</span>
+          <span class="detail__edited">
+            edited
+            <time [attr.datetime]="detail.editedAt">{{ detail.editedAt | date: 'medium' }}</time>
+          </span>
+        }
+      </p>
+
+      @if (detail.pinnedBy) {
+        <p class="detail__pinned">
+          Pinned by {{ detail.pinnedBy.displayName }}
+          @if (detail.pinnedAt) {
+            <span aria-hidden="true">·</span>
+            <time [attr.datetime]="detail.pinnedAt">{{ detail.pinnedAt | date: 'medium' }}</time>
+          }
+        </p>
+      }
+
+      <!-- The full text, which the board never sends. -->
+      <p class="detail__description">{{ detail.description }}</p>
+
+      <div class="detail__actions">
+        <span
+          class="vote"
+          [class.vote--active]="detail.hasVoted"
+          [attr.aria-label]="voteLabel(detail)"
+          role="img"
+        >
+          <svg class="vote__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M7 21V9.6l4.6-6.9a1.5 1.5 0 0 1 2.7 1l-1 4.8h5a1.9 1.9 0 0 1 1.9 2.2l-1.1 7.3A2 2 0 0 1 17.2 21H7Z"
+            />
+            <path d="M3.8 9.8h3.1v11.1H3.8z" />
+          </svg>
+          <span class="vote__count">{{ detail.voteCount }}</span>
+        </span>
+
+        <span class="detail__comment-count">
+          {{ detail.commentCount }}
+          {{ detail.commentCount === 1 ? 'comment' : 'comments' }}
+        </span>
+      </div>
+    </article>
+
+    <!-- Every control below is shown because the server said so, on this row.
+         None of them is the guarantee; each endpoint refuses on its own. -->
+    @if (detail.canEdit || detail.canDelete || detail.canPin || detail.canChangeStatus) {
+      <section class="manage" aria-labelledby="manage-heading">
+        <h2 class="manage__heading" id="manage-heading">Manage this request</h2>
+
+        @if (detail.canChangeStatus) {
+          <div class="manage__group">
+            <label class="manage__label" for="detail-status">Status</label>
+            <div class="manage__row">
+              <select
+                id="detail-status"
+                class="manage__select"
+                [disabled]="isPending('status')"
+                (change)="onStatusSelected($any($event.target).value)"
+              >
+                @for (status of statusOptions(); track status.id) {
+                  <option [value]="status.id" [selected]="status.id === selectedStatusId()">
+                    {{ status.name }}
+                  </option>
+                }
+              </select>
+
+              <button
+                type="button"
+                class="button button--secondary"
+                [disabled]="!statusChanged() || isPending('status')"
+                (click)="applyStatus()"
+              >
+                {{ isPending('status') ? 'Saving…' : 'Update status' }}
+              </button>
+            </div>
+          </div>
+        }
+
+        <div class="manage__row">
+          @if (detail.canEdit) {
+            <button type="button" class="button button--secondary" (click)="startEdit()">
+              Edit request
+            </button>
+          }
+
+          @if (detail.canPin) {
+            <button
+              type="button"
+              class="button button--secondary"
+              [disabled]="isPending('pin')"
+              (click)="togglePin()"
+            >
+              @if (isPending('pin')) {
+                Working…
+              } @else {
+                {{ detail.isPinned ? 'Unpin from the board' : 'Pin to the board' }}
+              }
+            </button>
+          }
+
+          @if (detail.canDelete) {
+            <button
+              type="button"
+              class="button button--danger"
+              [disabled]="isPending('delete')"
+              (click)="askDelete()"
+            >
+              Delete request
+            </button>
+          }
+        </div>
+      </section>
     }
+  }
 
-    <!-- The full text, which the board never sends. -->
-    <p class="detail__description">{{ request.description }}</p>
+  @if (confirmingDelete()) {
+    <app-confirm-dialog
+      title="Delete this request?"
+      body="This removes the request, its votes and every comment on it. That cannot be undone."
+      confirmLabel="Delete request"
+      [busy]="isPending('delete')"
+      (confirmed)="confirmDelete()"
+      (cancelled)="cancelDelete()"
+    />
+  }
 
-    <div class="detail__actions">
-      <span
-        class="vote"
-        [class.vote--active]="request.hasVoted"
-        [attr.aria-label]="voteLabel(request)"
-        role="img"
-      >
-        <svg class="vote__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path
-            d="M7 21V9.6l4.6-6.9a1.5 1.5 0 0 1 2.7 1l-1 4.8h5a1.9 1.9 0 0 1 1.9 2.2l-1.1 7.3A2 2 0 0 1 17.2 21H7Z"
-          />
-          <path d="M3.8 9.8h3.1v11.1H3.8z" />
-        </svg>
-        <span class="vote__count">{{ request.voteCount }}</span>
-      </span>
-
-      <span class="detail__comment-count">
-        {{ request.commentCount }}
-        {{ request.commentCount === 1 ? 'comment' : 'comments' }}
-      </span>
-    </div>
-  </article>
-
-  <app-comment-thread [requestId]="request.id" [changed]="refresh" />
+  <app-comment-thread [requestId]="detail.id" [changed]="refresh" />
 }

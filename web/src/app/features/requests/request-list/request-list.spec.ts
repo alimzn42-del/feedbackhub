@@ -23,6 +23,10 @@ function item(overrides: Partial<FeedbackRequestListItem> = {}): FeedbackRequest
     hasVoted: false,
     commentCount: 0,
     canVote: true,
+    canEdit: false,
+    canDelete: false,
+    canChangeStatus: false,
+    editedAt: null,
     createdAt: '2026-08-21T04:59:42.237Z',
     updatedAt: '2026-08-21T04:59:42.237Z',
     ...overrides,
@@ -34,6 +38,21 @@ function page(data: FeedbackRequestListItem[], total = data.length): Paginated<F
     data,
     page: { page: 1, pageSize: 20, total, totalPages: total === 0 ? 0 : Math.ceil(total / 20) },
   };
+}
+
+/**
+ * The board fetches the two taxonomies its filter bar offers as options. Every
+ * test that renders it has to answer them, so it is answered here rather than
+ * in each one; the tests that are ABOUT filtering assert on the list request
+ * itself, in request-list.filters.spec.ts.
+ */
+function flushFilterOptions(http: HttpTestingController): void {
+  http
+    .expectOne((r) => r.url === '/api/statuses')
+    .flush({ data: [{ id: 1, name: 'New', slug: 'new' }] });
+  http
+    .expectOne((r) => r.url === '/api/categories')
+    .flush({ data: [{ id: 2, name: 'Feature', slug: 'feature' }] });
 }
 
 describe('RequestList', () => {
@@ -74,6 +93,7 @@ describe('RequestList', () => {
     fixture.detectChanges();
     // The pinned shelf is a second collection fetched alongside the list.
     http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [], total: 0 });
+    flushFilterOptions(http);
     return fixture;
   }
 
@@ -183,6 +203,7 @@ describe('RequestList voting', () => {
     const fixture = TestBed.createComponent(RequestList);
     fixture.detectChanges();
     http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [], total: 0 });
+    flushFilterOptions(http);
     http.expectOne((r) => r.url === '/api/requests').flush(page([first]));
     await fixture.whenStable();
     fixture.detectChanges();
@@ -341,6 +362,7 @@ describe('RequestList voting from the pinned shelf', () => {
     const fixture = TestBed.createComponent(RequestList);
     fixture.detectChanges();
     http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [pinnedRow], total: 1 });
+    flushFilterOptions(http);
     http.expectOne((r) => r.url === '/api/requests').flush(page([]));
     await fixture.whenStable();
     fixture.detectChanges();
@@ -373,6 +395,7 @@ describe('RequestList voting from the pinned shelf', () => {
     const fixture = TestBed.createComponent(RequestList);
     fixture.detectChanges();
     http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [pinnedRow], total: 1 });
+    flushFilterOptions(http);
     http.expectOne((r) => r.url === '/api/requests').flush(page([]));
     await fixture.whenStable();
     fixture.detectChanges();
@@ -406,6 +429,7 @@ describe('RequestList voting from the pinned shelf', () => {
     const fixture = TestBed.createComponent(RequestList);
     fixture.detectChanges();
     http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [pinnedRow], total: 1 });
+    flushFilterOptions(http);
     http.expectOne((r) => r.url === '/api/requests').flush(page([]));
     await fixture.whenStable();
     fixture.detectChanges();
@@ -449,6 +473,7 @@ describe('RequestList pagination summary', () => {
     const fixture = TestBed.createComponent(RequestList);
     fixture.detectChanges();
     http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [], total: 0 });
+    flushFilterOptions(http);
     http.expectOne((r) => r.url === '/api/requests').flush({
       data: Array.from({ length: rows }, (_, i) => item({ id: i + 1 })),
       page: meta,

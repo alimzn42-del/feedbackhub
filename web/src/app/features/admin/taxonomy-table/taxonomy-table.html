@@ -1,0 +1,174 @@
+<section class="taxonomy" [attr.aria-labelledby]="'heading-' + noun()">
+  <h2 class="taxonomy__heading" [id]="'heading-' + noun()">{{ heading() }}</h2>
+
+  <ul class="taxonomy__rows">
+    @for (row of rows(); track row.id; let index = $index, count = $count) {
+      <li class="row" [class.row--retired]="isRetired(row)">
+        @if (editingId() === row.id) {
+          <!-- No [formGroup] and no NgForm here, so (submit) is the event that
+               exists. (ngSubmit) would be a listener for something nothing
+               raises, and the browser would submit natively and reload. -->
+          <form class="row__rename" (submit)="submitRename($event, row)">
+            <label class="visually-hidden" [attr.for]="'rename-' + row.id">
+              New name for {{ row.name }}
+            </label>
+            <input
+              class="row__input"
+              [id]="'rename-' + row.id"
+              type="text"
+              [value]="editName()"
+              (input)="editName.set($any($event.target).value)"
+              maxlength="60"
+            />
+            <button type="submit" class="button" [disabled]="isPending(row)">
+              {{ isPending(row) ? 'Saving…' : 'Save' }}
+            </button>
+            <button type="button" class="button button--secondary" (click)="cancelRename()">
+              Cancel
+            </button>
+          </form>
+        } @else {
+          <div class="row__identity">
+            <span class="row__name">{{ row.name }}</span>
+
+            <!-- Shown, and never editable. It is in URLs people have shared. -->
+            <code class="row__slug">{{ row.slug }}</code>
+
+            @if (hasDefault() && row.isDefault) {
+              <span class="chip">Default</span>
+            }
+            @if (isRetired(row)) {
+              <span class="chip">Retired</span>
+            }
+          </div>
+
+          <p class="row__usage">
+            {{ row.requestCount }}
+            {{ row.requestCount === 1 ? 'request' : 'requests' }}
+            <span class="visually-hidden">{{ usageLabel(row) }}</span>
+          </p>
+
+          <div class="row__actions">
+            <!-- Reordering by button: keyboard operable by construction, rather
+                 than a drag interaction with a keyboard story bolted on. -->
+            <button
+              type="button"
+              class="button button--secondary button--icon"
+              [attr.aria-label]="'Move ' + row.name + ' up'"
+              [disabled]="index === 0 || busy()"
+              (click)="moveUp(index)"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              class="button button--secondary button--icon"
+              [attr.aria-label]="'Move ' + row.name + ' down'"
+              [disabled]="index === count - 1 || busy()"
+              (click)="moveDown(index)"
+            >
+              ↓
+            </button>
+
+            <button
+              type="button"
+              class="button button--secondary"
+              [attr.aria-label]="'Rename ' + row.name"
+              [disabled]="isPending(row)"
+              (click)="startRename(row)"
+            >
+              Rename
+            </button>
+
+            @if (hasDefault() && !row.isDefault) {
+              <button
+                type="button"
+                class="button button--secondary"
+                [attr.aria-label]="'Make ' + row.name + ' the default status'"
+                [disabled]="isPending(row)"
+                (click)="defaulted.emit(row)"
+              >
+                Make default
+              </button>
+            }
+
+            @if (retirable()) {
+              @if (isRetired(row)) {
+                <button
+                  type="button"
+                  class="button button--secondary"
+                  [attr.aria-label]="'Restore ' + row.name"
+                  [disabled]="isPending(row)"
+                  (click)="restored.emit(row)"
+                >
+                  Restore
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="button button--danger"
+                  [attr.aria-label]="'Retire ' + row.name"
+                  [disabled]="isPending(row)"
+                  (click)="retired.emit(row)"
+                >
+                  Retire
+                </button>
+              }
+            }
+          </div>
+        }
+      </li>
+    }
+  </ul>
+
+  <form class="add" (submit)="submitNew($event)">
+    <h3 class="add__heading">Add a {{ noun() }}</h3>
+
+    <div class="add__fields">
+      <div class="field">
+        <label class="field__label" [attr.for]="'new-name-' + noun()">Name</label>
+        <input
+          class="field__input"
+          [id]="'new-name-' + noun()"
+          type="text"
+          maxlength="60"
+          [value]="newName()"
+          (input)="onNameInput($any($event.target).value)"
+          [attr.aria-invalid]="issues()['name'] ? 'true' : null"
+          [attr.aria-describedby]="issues()['name'] ? 'new-name-error-' + noun() : null"
+        />
+        @if (issues()['name']; as message) {
+          <p class="field__error" [id]="'new-name-error-' + noun()">{{ message }}</p>
+        }
+      </div>
+
+      <div class="field">
+        <label class="field__label" [attr.for]="'new-slug-' + noun()">Slug</label>
+        <input
+          class="field__input"
+          [id]="'new-slug-' + noun()"
+          type="text"
+          maxlength="60"
+          [value]="slugValue()"
+          (input)="onSlugInput($any($event.target).value)"
+          [attr.aria-invalid]="issues()['slug'] ? 'true' : null"
+          [attr.aria-describedby]="'new-slug-hint-' + noun()"
+        />
+        <p class="field__hint" [id]="'new-slug-hint-' + noun()">
+          Suggested from the name. Permanent once created — it goes in shared links.
+        </p>
+        @if (issues()['slug']; as message) {
+          <p class="field__error">{{ message }}</p>
+        }
+      </div>
+    </div>
+
+    @if (issues()['(root)']; as message) {
+      <p class="field__error" role="alert">{{ message }}</p>
+    }
+
+    <button type="submit" class="button" [disabled]="busy()">
+      {{ busy() ? 'Working…' : 'Add ' + noun() }}
+    </button>
+  </form>
+</section>

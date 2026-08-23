@@ -2,12 +2,15 @@ import { Router } from 'express';
 import { createComment, listComments } from '../comments/comments.controller.js';
 import { votesRouter } from '../votes/votes.routes.js';
 import {
+  changeRequestStatus,
   createRequest,
+  deleteRequest,
   getRequest,
   listPinnedRequests,
   listRequests,
   pinRequest,
   unpinRequest,
+  updateRequest,
 } from './requests.controller.js';
 
 export const requestsRouter = Router();
@@ -18,6 +21,18 @@ requestsRouter.get('/pinned', listPinnedRequests);
 requestsRouter.post('/', createRequest);
 requestsRouter.get('/', listRequests);
 requestsRouter.get('/:id', getRequest);
+
+// The author's own text. PATCH rather than PUT: the status, the pinning and the
+// authorship are all part of the resource and none of them is the caller's to
+// send here, so this is never a complete representation.
+requestsRouter.patch('/:id', updateRequest);
+
+requestsRouter.delete('/:id', deleteRequest);
+
+// Status is a property of the request expressed as a sub-resource, like
+// pinning: the verb then carries the intent, and the admin-only rule sits on
+// one route rather than inside a handler that also does other things.
+requestsRouter.put('/:id/status', changeRequestStatus);
 
 // Pinning is a property of the request, expressed as a sub-resource so the
 // verb carries the intent: PUT to pin, DELETE to unpin.

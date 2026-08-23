@@ -1,0 +1,71 @@
+<!-- [formGroup] is attached, so (ngSubmit) is an event that actually exists
+     here. On a bare form it is not, and binding it means the browser submits
+     natively and reloads the page. -->
+<form class="edit" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+  <h2 class="edit__heading">Edit this request</h2>
+
+  @if (formFailure(); as message) {
+    <p class="edit__failure" role="alert">{{ message }}</p>
+  }
+
+  @for (issue of unattachedIssues(); track issue.field + issue.code) {
+    <p class="edit__failure" role="alert">{{ issue.message }}</p>
+  }
+
+  <div class="field">
+    <label class="field__label" for="edit-title">Title</label>
+    <input
+      id="edit-title"
+      class="field__input"
+      type="text"
+      formControlName="title"
+      [attr.maxlength]="limits.TITLE_MAX"
+      [attr.aria-invalid]="errorFor('title') ? 'true' : null"
+      [attr.aria-describedby]="errorFor('title') ? 'edit-title-error' : null"
+    />
+    @if (errorFor('title'); as message) {
+      <p class="field__error" id="edit-title-error">{{ message }}</p>
+    }
+  </div>
+
+  <div class="field">
+    <label class="field__label" for="edit-description">Description</label>
+    <textarea
+      id="edit-description"
+      class="field__input field__input--area"
+      rows="8"
+      formControlName="description"
+      [attr.maxlength]="limits.DESCRIPTION_MAX"
+      [attr.aria-invalid]="errorFor('description') ? 'true' : null"
+      [attr.aria-describedby]="errorFor('description') ? 'edit-description-error' : null"
+    ></textarea>
+    @if (errorFor('description'); as message) {
+      <p class="field__error" id="edit-description-error">{{ message }}</p>
+    }
+  </div>
+
+  <div class="field">
+    <label class="field__label" for="edit-category">Category</label>
+    <select
+      id="edit-category"
+      class="field__input"
+      formControlName="categoryId"
+      [attr.aria-invalid]="errorFor('categoryId') ? 'true' : null"
+      [attr.aria-describedby]="errorFor('categoryId') ? 'edit-category-error' : null"
+    >
+      @for (category of categoryOptions(); track category.id) {
+        <option [value]="category.id">{{ category.name }}</option>
+      }
+    </select>
+    @if (errorFor('categoryId'); as message) {
+      <p class="field__error" id="edit-category-error">{{ message }}</p>
+    }
+  </div>
+
+  <div class="edit__actions">
+    <button type="button" class="button button--secondary" (click)="cancel()">Cancel</button>
+    <button type="submit" class="button" [disabled]="saving()">
+      {{ saving() ? 'Saving…' : 'Save changes' }}
+    </button>
+  </div>
+</form>

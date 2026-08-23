@@ -85,17 +85,27 @@ request is already permitted for its author and for admins; refusing that
 because somebody voted would be the wrong answer. `votes.user_id` stays
 RESTRICT, so account deletion still has to decide for itself in its own slice.
 
-**Default sort: `vote_count DESC, created_at DESC, id DESC`,** over unpinned
-requests only. Pinned ones are a separate collection ordered by when they were
-pinned, most recent first, which is what an admin expects to see after pinning
-something.
+**~~Default sort: `vote_count DESC, created_at DESC, id DESC`.~~ Reversed: the
+board opens on `created_at DESC, id DESC` — newest first.** Vote order is still
+offered and is one select away; it is no longer what the board opens on. The
+original argument was that the count is the priority signal and a board that
+opens on anything else buries what people asked for most. That holds for triage
+and not for the daily read: on a board where most rows sit on zero votes, vote
+order is close to fixed, and what has changed since yesterday is invisible.
+Newest first makes the board answer "what is new" and leaves "what is wanted"
+to a control that says so.
+
+Pinned requests are a separate collection ordered by when they were pinned, most
+recent first, which is what an admin expects to see after pinning something —
+and which keeps a fresh pin inside the three the panel shows collapsed.
 
 The last two keys are not decoration. Most of the board sits on zero votes, so
 requests tie constantly, and without a total order two rows on equal votes are
 free to swap between page 1 and page 2 while somebody is paging through.
 
-**No index can serve this ordering, and that is accepted rather than
-overlooked.** The vote count is derived, so MySQL has to aggregate every row
+**No index can serve the vote-count ordering, and that is accepted rather than
+overlooked.** (This applied to the default board until the default became
+newest; it now applies to the vote ordering when it is chosen.) The vote count is derived, so MySQL has to aggregate every row
 before it can order any of them — `LIMIT` cannot help, because the twenty rows
 to return are not known until all of them are sorted. The measured plan on the
 development data is a filesort over the full set, with the vote-count CTE
@@ -109,15 +119,139 @@ millions. The escape hatch, if it is ever needed, is a summary table refreshed
 on write — which is a counter by another name and should be resisted until
 there is a measurement saying otherwise, not a suspicion.
 
-`idx_requests_feed` no longer serves the default sort. It stays because it
-still serves the `is_pinned, created_at` prefix, which the "newest first"
-option will use when the filters slice adds it.
+The index that serves the default is `idx_requests_recent (created_at DESC, id
+DESC)`, added by migration 006 in as many words “for the newest-first option
+arriving with the filters slice”. `idx_requests_feed` does not serve it and
+cannot: it was dropped in that same migration along with the `is_pinned` column
+it led with. An earlier version of this file said it “stays”, which stopped
+being true the moment the boolean went.
+
+**Three orderings, `newest` the default.** `newest` and `oldest` are
+`created_at` with `id` as the tiebreak; `votes` is the original vote ordering.
+Every one is a total order, because pagination cannot survive ties that are free
+to swap between pages — and several requests filed in the same millisecond is
+what the seed script does, not a hypothetical.
+
+The default is not configurable and does not follow "what you last chose". One
+board, one answer to "what does this look like when you arrive".
+
+**The shelf follows the ordering; it does not follow the filters.** Sorting
+reorders what is on screen and hides nothing, so the shelf stays and is sorted
+the same way — a board sorted oldest-first with a shelf on top sorted by
+something else is two answers to one question. Filtering hides things, so the
+shelf collapses into the results instead.
+
+**`sort` has no schema default, and that is what makes the shelf's own order
+possible.** The shelf orders by `pinned_at DESC` when no ordering was asked for
+and follows the board when one was, so it has to be able to tell those apart. A
+`.default()` in the query schema would answer "was one asked for?" with "yes,
+always" before the service ever saw it. The default is applied in the service
+instead, where only the list needs it.
+
+An ordering equal to the default counts as "not asked for", which keeps the URL
+canonical: `/requests` and the default view are the same link however the reader
+got there. The cost is that explicitly choosing Newest first cannot force the
+shelf out of pin order — the right trade, since that selection produces exactly
+the default board.
+
+**Filters are applied to the request table's own foreign keys, not to the joined
+taxonomy's slug.** The URL carries `?status=planned`, and the service resolves
+that to an id before the query runs, so `WHERE r.status_id IN (...)` can use
+`idx_requests_status` rather than filtering on a column reached through a join.
+
+**A filter value that names nothing is refused, not ignored.** `?status=planed`
+is a `422` naming the value, in the same shape as an unknown category on create.
+Ignoring it would return the unfiltered board, which is indistinguishable from a
+filter that matched everything — the user reads a wrong answer as a right one.
+Unknown parameter *names* are refused for the same reason, which the strict
+query schema was already doing.
+
+**Slug resolution deliberately includes archived rows.** Archiving retires a
+category or status from the choices offered for a new request; it does not
+retire the requests already carrying it. A link shared before the archiving must
+still open, so the lookup that resolves a filter ignores `archived_at` while the
+lookup that populates the options does not.
+
+**Search is `LIKE '%term%'` over title and description, not `FULLTEXT`.** The
+leading wildcard means no index serves it, so it is a scan of the matching set —
+accepted for the same reason the vote-count sort is: an internal board is
+thousands of rows, not millions. `FULLTEXT` is the escape hatch, and it changes
+what matching means (words, not substrings), so it is a decision to take on
+purpose rather than a swap to make quietly. The term's `%` and `_` are escaped,
+so a search for "100%" searches for the text.
+
+**Several values per filter, combined as OR within a filter and AND across
+them.** `?status=planned,done&category=bug` is planned or done bugs. Both
+spellings arrive as the same list: `?status=planned,done` is what somebody
+types, `?status=planned&status=done` is what a form produces.
+
+**~~The pinned shelf takes no filters.~~ Reversed: the shelf belongs to the
+default board, and collapses into the results once anything is filtered.**
+
+The original rule kept the shelf on screen unfiltered at all times. It was
+coherent — pinning is absolute, and a filter that could hide a pinned request
+makes "pinned" mean less than it says — but it left a shelf sitting above a
+filtered list showing requests that contradict the filter, and a sentence
+apologising for it. A caption explaining why the screen disagrees with itself is
+a sign the screen is wrong.
+
+The rule now:
+
+| | |
+|---|---|
+| Nothing filtered | Shelf above the board. The list excludes pinned rows, and so does the total. |
+| Anything filtered | No shelf. Pinned rows that match are in the results, ranked first, badged. The total counts them. |
+
+Pinning is still absolute: a pinned request that matches the filter is at the
+top of the matches, and one that does not match is not on screen because it does
+not match — which is the honest answer, and the same answer the list gives for
+everything else.
+
+**Sorting is not filtering, and that boundary is load-bearing here.** Reordering
+the board hides nothing from it, so the shelf stays. Only status, category,
+mine or a search term collapse it. The server and the browser each decide this,
+so both apply the same rule — `isFiltered` in `requests.schema.ts` and in
+`board-filters.ts` — and they have to agree: a shelf on screen while the list
+also holds the pinned rows would show them twice.
+
+**The browser stops asking for the shelf when it has nowhere to put it.** The
+pinned resource returns no request at all on a filtered board, rather than
+fetching a collection in order to hide it.
 
 **Migrations are plain `.sql` run by [postgrator](https://github.com/rickbergfalk/postgrator).**
 A reviewer should read real DDL, not a builder's approximation, and CTEs and
 window functions are used directly anyway. postgrator owns the version table,
 ordering and checksums; `api/scripts/migrate.mjs` only wires it to a mysql2
 connection.
+
+**Retiring writes `archived_at`; nothing deletes a taxonomy row.** The rows are
+pointed at by `ON DELETE RESTRICT` foreign keys, and a category is a label a
+request keeps for as long as it exists. Retirement removes it from the choices
+offered — the create form, the edit form, the filter bar — and leaves every
+existing reference intact and rendering. The usage count is shown next to the
+action to inform it, never to block it: a category with fifty requests can be
+retired, and that is precisely the case retirement exists for.
+
+**Statuses have no retirement, and the asymmetry is the point.** A category is a
+label a request carries; a status is a position it is sitting in. Retiring a
+status would leave requests in a state that is no longer offered, with no answer
+to "what happens to them". There is no archive route for statuses and no column
+behaviour to go with it.
+
+**Exactly one default status, enforced in two halves.** The schema's generated
+column and unique key give AT MOST one — they cannot express at least one. The
+application supplies the lower bound with two rules: the only endpoint that
+touches the default is "make this one the default", which clears the old one
+inside the same transaction, and the first status created in an empty table
+becomes the default. There is deliberately no endpoint that clears a default
+without naming its replacement, because that is the only request that could
+leave the table in the state where filing anything fails.
+
+The clear-then-set order is forced rather than chosen: the unique key permits
+one row with the marker, so setting the new default before clearing the old one
+collides. The swap therefore passes through zero defaults, which is exactly why
+it is a transaction — nothing else can observe that instant, and a failure
+between the two statements rolls back.
 
 ## Authorization and identity
 
@@ -236,6 +370,23 @@ resource does not exist conceals nothing and only makes the client's job harder.
 status change. `requestPolicy.editContent` refuses admins deliberately, and the
 test says so, because it is the rule most likely to be "fixed" by mistake later.
 
+**An edit stamps `edited_at`; pinning and status changes do not.** The obvious
+implementation of an “edited” marker is `updated_at <> created_at`, and it is
+wrong here: `updated_at` is `ON UPDATE CURRENT_TIMESTAMP(3)`, so pinning a
+request or moving it to Done moves it too. A request would then be marked as
+edited by its author because an admin triaged it — a claim about somebody's
+words that nobody made. The comments table already keeps an explicit
+`edited_at`; migration 009 mirrors it.
+
+**`GET /api/capabilities` answers what the caller may do, never who they are.**
+Every list item already carries its own answers — `canVote`, `canEdit`, `canPin`
+— because there is a row to hang them on. A whole screen has no row, and the
+navigation still has to decide whether to offer it. This is the same rule asked
+once for the application rather than per item, and it is no more the guarantee
+than the per-row flags are: the endpoints behind it refuse on their own, the
+admin route renders that refusal, and this endpoint lying would cost a menu item
+and nothing else.
+
 ## HTTP
 
 ### Error shape
@@ -302,6 +453,72 @@ Window functions are evaluated before `LIMIT`, so one round trip returns both.
 the end, which returns no rows and therefore no window result; that case costs a
 second `COUNT(*)`.
 
+**`GET /api/statuses` exists because the filter bar needs the names.** The
+board never told the browser what statuses there are — the chips only ever
+rendered the one on each row — so filtering by status had nothing to offer as
+options. It is read-only, unpaginated and archived-excluded, exactly like
+categories. Managing statuses is still a later slice.
+
+**"Mine" is a flag, not an author parameter.** There is no `?authorId=`, and
+there will not be one: the browser is never told who it is, so it could not name
+an author id even if it wanted to, and the server answers `mine=true` from the
+identity seam. A caller naming an author is refused as an unknown parameter
+rather than quietly honoured.
+
+**`PATCH` for the edit, `PUT` for the status.** The edit is a PATCH because the
+status, the pinning and the authorship are all part of the resource and none of
+them is the author's to send — so the payload is never a complete
+representation. The status is a sub-resource with a PUT, like pinning, so the
+verb carries the intent and the admin-only rule sits on one route rather than
+inside a handler that also does other things.
+
+**Deleting answers `204`, and the cascades do the work.** The votes and comments
+are both `ON DELETE CASCADE` on `request_id`, so one statement is the whole
+operation and nothing can half-succeed. There is no body, because the resource
+being described is gone.
+
+**Editing requires all three fields rather than accepting any one.** The only
+caller sends the whole form; per-field optionality would add combinations
+nothing exercises, and a rule nobody asks is a rule nobody checks. The
+validation is the create schema itself, so a value that was never valid to file
+cannot become valid to save.
+
+**A permission that needs the row loads the row first, and still checks before
+validating the body.** “Only the author may edit” cannot be answered without
+knowing who wrote it. So the handler loads the subject — the author id and
+nothing else — asks the policy, and only then parses the body. A 404 for a
+request that does not exist falls out of that same lookup, before any of it. The
+admin-only rules keep the simpler shape: they depend on the caller alone, so
+they refuse before anything is looked up at all.
+
+**`?scope=all` is a second representation, not a second endpoint.** The default
+listing is what a selector needs: active rows, name and slug. The managed one
+carries the display order, the retirement state and the usage counts, and is
+refused to anybody who cannot act on them. One collection with two
+representations beats `/api/admin/categories`, which would be the same rows at a
+different URL and one more place for the two to drift.
+
+**A duplicate name is `422` with a field, not `409`.** Both are defensible. The
+caller here is a form, and the answer belongs against the input that caused it,
+in the same envelope every other field error already arrives in — a 409 would be
+correct about the state of the world and useless to the screen. It is detected
+by letting the unique key refuse the write and reading the constraint name off
+the driver's error, not by SELECTing first: a check-then-insert leaves a window
+where two admins both see "no such name" and both proceed.
+
+**The slug is immutable, and that is an absence rather than a rule.** There is no
+endpoint that changes one. `PATCH` takes a name and `.strict()` refuses a slug by
+name, so an attempt is answered instead of silently dropped. The slug travels in
+URLs as a filter; changing it breaks links people have already shared, which is
+the entire reason the tables carry both a name and a slug.
+
+**Reordering sends the whole order, in one transaction, and the position is the
+index.** A per-row "move up" endpoint is two writes for one gesture, and two
+requests that can half-succeed leave the list in an order nobody chose. The
+whole list also makes the invariant checkable: an order that omits a row, names
+one twice, or names something that is not there is refused, because each of
+those is a client bug and none of them should be papered over with a guess.
+
 **Bounded taxonomy collections are not paginated.** `GET /api/categories`
 returns `data` with no `page` block: there are no pages to describe.
 
@@ -330,6 +547,89 @@ supplied later without editing every service.
 `withComponentInputBinding()`. A filtered view can be shared and survives a
 refresh. Paging is always sent to the server; nothing is filtered in the
 browser.
+
+**A filter change navigates, and always to page 1.** The URL is the state, so
+changing a filter is a navigation and not a field being set. It returns to page
+1 because page 4 of one filtered board is rarely page 4 of another, and staying
+put would land the reader past the end — where an empty page reads as "nothing
+matched".
+
+**Defaults are left out of the URL.** `/requests` and
+`/requests?page=1&sort=votes` are the same board, and only one of them is a link
+worth sharing. One function builds the query parameters for the pager links, the
+filter navigation and the list request alike, so a pager link cannot quietly
+drop the filters the list is showing.
+
+**"Nothing has been filed" and "nothing matches these filters" are different
+screens.** Both are an empty list; only one of them should offer "be the first
+to file one", and offering it while eleven requests sit one click away behind a
+filter is wrong. The filtered one offers Clear all filters instead.
+
+**~~The search box submits; it does not filter as you type.~~ Reversed: it
+searches as you type.** The original reasoning was that navigating per keystroke
+puts a history entry behind every letter and sends a request for every prefix.
+Both costs are real; neither needs submit-to-search to avoid.
+
+It waits 300ms for typing to stop, so a word is one request rather than one per
+letter, and Enter or the button still searches immediately. The list passes
+`replaceUrl` when the search term is the only thing that changed, so those
+navigations replace each other and Back leaves the board instead of walking
+backwards through `d`, `da`, `dar`. A one-character term is held rather than
+sent, because the server refuses it with a 422 and the user is still typing.
+
+Three consequences worth naming:
+
+- **The box holds a draft in a `linkedSignal` seeded from the URL,** so Back, a
+  shared link and Clear all leave it showing what is actually being searched
+  for. The re-seed is now guarded against the box's own search coming back: the
+  navigation it triggers changes the source, and re-seeding on that would
+  overwrite whatever was typed in the meantime.
+- **Changing another filter flushes a search still waiting out its debounce,**
+  rather than dropping it. Ticking a box a moment after typing should not
+  silently discard the term.
+- **A refetch that already has rows keeps them on screen, dimmed,** instead of
+  replacing them with skeletons. Skeletons are for a first load. Emptying and
+  refilling the list on every pause in typing makes a working board look like it
+  is thrashing.
+
+**Every derived signal over a resource is guarded by `hasValue()`.** Reading
+`value()` while a resource is in its error state throws. That was survivable
+while those signals were only read inside a branch the error state skipped; the
+filter bar renders above the list and reports the total whatever the list is
+doing, which turned a latent trap into a crash. A derived signal that throws
+depending on where it is read from is not worth keeping.
+
+**The confirmation dialog is written out rather than using `<dialog>`.** The
+native element traps focus and closes on Escape for free, which is the entire
+requirement — and a test could then only assert that `showModal()` was called,
+which proves the call site exists and nothing about whether focus can escape.
+The trap is the feature, so it is code with tests on it: Tab and Shift+Tab both
+wrap, Escape closes, focus starts on Cancel rather than the destructive button,
+and it returns to whatever opened the dialog.
+
+**A refetch does not tear the page down.** The detail page shows its loading
+state only when it has nothing to show; a plain `isLoading()` there unmounted
+the whole article on every reload, taking the comment thread with it and making
+it refetch a discussion that had nothing to do with the pin that caused it.
+
+**Resources depend on the narrowest signal that decides them.** The status list
+is fetched when `canChangeStatus` is true; deriving that as its own boolean
+rather than reading it off the request object stops every successful action from
+refetching a taxonomy that cannot have changed.
+
+**Reordering is buttons, not drag and drop.** Not as a fallback — as the
+interface. A drag-only implementation is unusable from a keyboard, unusable by
+anybody who cannot hold a pointer steady, and awkward on a phone. Two buttons
+per row are none of those things, they carry the row's name in their labels so a
+screen reader says which row is moving, and they are also the version that can
+be tested by pressing them.
+
+**The admin route exists for everybody and refuses for most.** Hiding it from
+the navigation is a courtesy; the screen renders the server's own 403 when
+somebody types the URL. The alternative — a route guard that redirects — would
+put a copy of the rule in the browser and make the interface the thing that
+decides, which is the opposite of how every other permission on this board
+works.
 
 **Loading, empty and error are distinct rendered states, not a spinner.** The
 list also distinguishes "nothing has been filed" from "this page number is past
@@ -378,6 +678,17 @@ keeps the line breaks somebody typed; nothing they typed is interpreted. There
 is no markdown, and therefore no HTML to sanitise.
 
 ## Scope
+
+**Slice 7 is the admin configuration slice those two reads were waiting for.**
+The management endpoints now exist for both taxonomies, and the earlier notes
+below stand as the record of why the reads arrived first.
+
+**`GET /api/statuses` was added in slice 5 for the same reason `GET
+/api/categories` was added in slice 1** — the agreed screen cannot be built
+without reading admin-managed data. Filtering by status requires offering the
+statuses by name, and a hardcoded list in the browser would drift the moment an
+admin renamed one. Managing statuses remains a later slice; this is only the
+read the agreed screen requires.
 
 **`GET /api/categories` was added beyond the agreed slice 1 scope.** The agreed
 scope includes a create-request form with a category, and categories are

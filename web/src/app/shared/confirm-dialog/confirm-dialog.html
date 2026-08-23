@@ -1,0 +1,32 @@
+<!-- The backdrop is not a button: clicking outside a destructive confirmation
+     should not be a way to trigger anything, and dismissing on a stray click is
+     an accident waiting to be reported as data loss. Escape and Cancel are the
+     two ways out, and both are deliberate. -->
+<div class="backdrop">
+  <div
+    class="panel"
+    #panel
+    role="dialog"
+    aria-modal="true"
+    [attr.aria-labelledby]="'confirm-title'"
+    [attr.aria-describedby]="'confirm-body'"
+  >
+    <h2 class="panel__title" id="confirm-title">{{ title() }}</h2>
+    <p class="panel__body" id="confirm-body">{{ body() }}</p>
+
+    <div class="panel__actions">
+      <button
+        type="button"
+        class="button button--secondary"
+        [disabled]="busy()"
+        (click)="close()"
+      >
+        {{ cancelLabel() }}
+      </button>
+
+      <button type="button" class="button button--danger" [disabled]="busy()" (click)="confirm()">
+        {{ busy() ? 'Working…' : confirmLabel() }}
+      </button>
+    </div>
+  </div>
+</div>
