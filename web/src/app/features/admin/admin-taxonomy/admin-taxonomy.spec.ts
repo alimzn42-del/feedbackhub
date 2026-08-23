@@ -150,19 +150,25 @@ describe('AdminTaxonomy', () => {
     );
     await settle();
 
-    http.expectOne((r) => r.method === 'POST').flush(
-      {
-        error: {
-          code: 'VALIDATION_FAILED',
-          message: 'The submitted values are not valid.',
-          requestId: 'abc',
-          details: [
-            { field: 'name', code: 'DUPLICATE', message: 'A category called "Bug" already exists.' },
-          ],
+    http
+      .expectOne((r) => r.method === 'POST')
+      .flush(
+        {
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'The submitted values are not valid.',
+            requestId: 'abc',
+            details: [
+              {
+                field: 'name',
+                code: 'DUPLICATE',
+                message: 'A category called "Bug" already exists.',
+              },
+            ],
+          },
         },
-      },
-      { status: 422, statusText: 'Unprocessable Content' },
-    );
+        { status: 422, statusText: 'Unprocessable Content' },
+      );
 
     await settle();
     fixture.detectChanges();
@@ -184,17 +190,25 @@ describe('AdminTaxonomy', () => {
     );
     await settle();
 
-    http.expectOne((r) => r.method === 'POST').flush(
-      {
-        error: {
-          code: 'VALIDATION_FAILED',
-          message: 'The submitted values are not valid.',
-          requestId: 'abc',
-          details: [{ field: 'name', code: 'DUPLICATE', message: 'A category called "Bug" already exists.' }],
+    http
+      .expectOne((r) => r.method === 'POST')
+      .flush(
+        {
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'The submitted values are not valid.',
+            requestId: 'abc',
+            details: [
+              {
+                field: 'name',
+                code: 'DUPLICATE',
+                message: 'A category called "Bug" already exists.',
+              },
+            ],
+          },
         },
-      },
-      { status: 422, statusText: 'Unprocessable Content' },
-    );
+        { status: 422, statusText: 'Unprocessable Content' },
+      );
 
     await settle();
     fixture.detectChanges();
@@ -217,7 +231,9 @@ describe('AdminTaxonomy', () => {
 
     sent.flush({ data: CATEGORIES });
     await settle();
-    http.expectOne((r) => r.url === '/api/categories' && r.method === 'GET').flush({ data: CATEGORIES });
+    http
+      .expectOne((r) => r.url === '/api/categories' && r.method === 'GET')
+      .flush({ data: CATEGORIES });
     await settle();
     fixture.detectChanges();
   });
@@ -262,7 +278,9 @@ describe('AdminTaxonomy', () => {
 
     sent.flush({ data: { ...CATEGORIES[0], archivedAt: '2026-08-22T09:00:00.000Z' } });
     await settle();
-    http.expectOne((r) => r.url === '/api/categories' && r.method === 'GET').flush({ data: CATEGORIES });
+    http
+      .expectOne((r) => r.url === '/api/categories' && r.method === 'GET')
+      .flush({ data: CATEGORIES });
     await settle();
     fixture.detectChanges();
   });
@@ -303,7 +321,9 @@ describe('AdminTaxonomy', () => {
 
     // The status that lost the default is not the one that was clicked, so the
     // list is re-read rather than patched from the response.
-    http.expectOne((r) => r.url === '/api/statuses' && r.method === 'GET').flush({ data: STATUSES });
+    http
+      .expectOne((r) => r.url === '/api/statuses' && r.method === 'GET')
+      .flush({ data: STATUSES });
     await settle();
     fixture.detectChanges();
   });

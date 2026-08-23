@@ -202,6 +202,24 @@ limit) are **withheld** from a non-admin rather than sent and made read-only.
 Their consequences are not withheld: somebody whose comment will wait is told so
 by the endpoint that owns the action, never by being handed the setting.
 
+### Language
+
+English and French. The interface is translated at runtime from
+`web/src/app/core/i18n/messages.ts`, so changing the setting on `/account`
+re-renders the page in the other language without a reload — which is why this is
+a catalogue rather than Angular's build-time `$localize`.
+
+Only languages that are actually translated are offered: a third in the list that
+fell back to English would be a setting that appears to do nothing.
+
+Not translated: what people wrote (requests, comments, display names, and the
+names an admin gave the categories and statuses), and the API's own validation
+and refusal messages — so a French screen can still show an English 422.
+
+Setting labels are the exception to the client owning its words: they come from
+the API's registry, in both languages, so adding a setting stays one edit in one
+file.
+
 ### The feature flag
 
 `comments.requireApproval`. When it is on, a new comment is visible to its author
@@ -323,7 +341,7 @@ actor and time; comment threads one reply deep, with optional approval before
 publication; a submission rate limit and a registration policy, both settings
 rather than constants; the identity seam and the provisioning check behind it;
 the policy module; one error shape with one middleware producing it; and six
-screens with real loading, empty and error states.
+screens with real loading, empty and error states, in English or French.
 
 **Deleting a comment** does one of two things, and which one is a judgement the
 server makes rather than the browser:

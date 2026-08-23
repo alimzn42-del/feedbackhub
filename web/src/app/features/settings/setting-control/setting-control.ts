@@ -1,6 +1,7 @@
 import { Component, computed, inject, input, output } from '@angular/core';
 import { AppConfig } from '../../../core/config/app-config';
 import type { SettingDescriptor } from '../../../core/api/api.types';
+import { Translate } from '../../../core/i18n/translate';
 
 /**
  * One setting, whichever kind it is.
@@ -21,6 +22,9 @@ import type { SettingDescriptor } from '../../../core/api/api.types';
   styleUrl: './setting-control.scss',
 })
 export class SettingControl {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   private readonly config = inject(AppConfig);
 
   readonly setting = input.required<SettingDescriptor>();
@@ -80,16 +84,16 @@ export class SettingControl {
       // There is no personal value for the whole installation, so `user` is not
       // a source this screen can be shown. The server resolves the global
       // document without anybody's own rows for exactly that reason.
-      return source === 'global' ? 'Set for everybody' : 'Not set — using the built-in default';
+      return this.t(source === 'global' ? 'setting.sourceGlobal' : 'setting.sourceGlobalUnset');
     }
 
     switch (source) {
       case 'user':
-        return 'Your choice';
+        return this.t('setting.sourceUser');
       case 'global':
-        return 'Following the board default';
+        return this.t('setting.sourceFollowing');
       default:
-        return 'Using the default';
+        return this.t('setting.sourceDefault');
     }
   });
 
@@ -99,7 +103,7 @@ export class SettingControl {
    * back to whatever the board is set to.
    */
   protected readonly resetLabel = computed(() =>
-    this.level() === 'global' ? 'Use the built-in default' : 'Use the board default',
+    this.t(this.level() === 'global' ? 'setting.resetGlobal' : 'setting.resetUser'),
   );
 
   /** Only an explicit choice can be reset; there is nothing behind a default. */

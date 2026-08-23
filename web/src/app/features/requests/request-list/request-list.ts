@@ -1,17 +1,10 @@
-import {
-  Component,
-  computed,
-  effect,
-  inject,
-  input,
-  numberAttribute,
-  signal,
-} from '@angular/core';
+import { Component, computed, effect, inject, input, numberAttribute, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { RequestsApi } from '../data/requests.api';
 import { AppConfig } from '../../../core/config/app-config';
+import { Translate } from '../../../core/i18n/translate';
 import { toApiError } from '../../../core/api/api-error';
 import type {
   FeedbackRequestListItem,
@@ -42,6 +35,14 @@ import { PinnedPanel } from '../pinned-panel/pinned-panel';
   styleUrl: './request-list.scss',
 })
 export class RequestList {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
+  /** The three numbers the pager summary interpolates, in one place. */
+  protected summaryParams(page: { page: number; pageSize: number; total: number }) {
+    return { from: this.rangeStart(), to: this.rangeEnd(), total: page.total };
+  }
+
   /**
    * The locale dates are written in. Passed to the pipe rather than provided
    * as LOCALE_ID, which is fixed before the person's preference has arrived.
@@ -258,9 +259,7 @@ export class RequestList {
   );
 
   /** Rows that are still on screen while a newer answer is on its way. */
-  protected readonly isStale = computed(
-    () => this.requests.isLoading() && this.items().length > 0,
-  );
+  protected readonly isStale = computed(() => this.requests.isLoading() && this.items().length > 0);
 
   /** A loaded, genuinely empty result. What it means depends on the filters. */
   private readonly loadedEmpty = computed(

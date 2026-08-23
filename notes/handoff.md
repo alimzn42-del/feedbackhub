@@ -24,7 +24,7 @@ Eight slices, schema version 12.
 | **Admin taxonomy** | one screen managing categories and statuses: add, rename, reorder, retire, set default |
 | **Settings** | two levels, resolved on the server; one startup request; a rate limit, a registration policy, a feature flag, and account deletion |
 
-**Tests: 385** — 205 API (vitest + supertest), 180 web (Angular + vitest, jsdom).
+**Tests: 398** — 209 API (vitest + supertest), 189 web (Angular + vitest, jsdom).
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
 `comments`, `app_settings`, `user_settings`.
@@ -63,6 +63,23 @@ reset control on both screens, in a way that looks like nothing is wrong.
 came from. The client renders from `source` and never merges. A client that
 merged would be a second implementation of these rules and would disagree with
 the first the day either changed.
+
+### Adding a language is two files, and adding a setting is still one
+
+`web/src/app/core/i18n/messages.ts` holds every string the interface writes for
+itself, in both languages, with French typed against the English keys — a missing
+one is a compile error. Three tests guard what the types cannot: nothing blank,
+nothing left in English, and the same placeholders on both sides.
+
+**Setting labels are the exception and are NOT in that file.** They live in the
+API's registry, in both languages, beside the setting. That is deliberate: the
+registry promises that adding a setting is one edit in one file, and it would be
+a lie if every new setting also needed two lines in the web app before anybody
+could read its label.
+
+`profile.language` offers only languages that are actually translated. Do not add
+a third to the enum without adding its catalogue — a language that falls back to
+English is the setting that did nothing, which is what this replaced.
 
 ### A settings screen resolves at the level it writes
 
@@ -124,8 +141,13 @@ decision that parked moderation predicted exactly this.
   worse than its absence.
 - **Sending email.** The notification preferences are recorded and consumed by
   nothing. That is stated on the screen itself rather than implied.
-- **Translation.** The language setting sets the document language and the locale
-  dates are formatted in. There is no message catalogue.
+- **Translating what people wrote.** The interface is translated — English and
+  French, both complete — but requests, comments, display names and the names of
+  categories and statuses are left as their authors typed them.
+- **Server-side translation.** Validation and refusal messages are English
+  whatever the reader's language, so a French screen can show an English 422.
+  A second catalogue on the API is what closes that, and this slice did not
+  build one.
 - **Avatar uploads.** No file storage; initials come from the display name.
 - **Deployment beyond the database container.**
 

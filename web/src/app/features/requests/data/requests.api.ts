@@ -54,11 +54,7 @@ export class RequestsApi {
    * here. The list component reads them from the URL and passes them straight
    * through, using the same serialisation its own links are built from.
    */
-  listParams(
-    page: number,
-    pageSize: number,
-    filters: BoardFilters = NO_FILTERS,
-  ): HttpParams {
+  listParams(page: number, pageSize: number, filters: BoardFilters = NO_FILTERS): HttpParams {
     const params = toQueryParams(filters, page, pageSize);
 
     // page and pageSize are always sent, even at their defaults: this is the
@@ -103,14 +99,10 @@ export class RequestsApi {
    * Triage, admin only. A sub-resource like pinning, so the verb carries the
    * intent and the rule sits on one route.
    */
-  changeStatus(
-    requestId: number,
-    statusId: number,
-  ): Observable<Wrapped<FeedbackRequestDetail>> {
-    return this.http.put<Wrapped<FeedbackRequestDetail>>(
-      `${this.detailUrl(requestId)}/status`,
-      { statusId },
-    );
+  changeStatus(requestId: number, statusId: number): Observable<Wrapped<FeedbackRequestDetail>> {
+    return this.http.put<Wrapped<FeedbackRequestDetail>>(`${this.detailUrl(requestId)}/status`, {
+      statusId,
+    });
   }
 
   categories(): Observable<Wrapped<TaxonomyRef[]>> {
@@ -135,15 +127,10 @@ export class RequestsApi {
   }
 
   pin(requestId: number): Observable<Wrapped<FeedbackRequestListItem>> {
-    return this.http.put<Wrapped<FeedbackRequestListItem>>(
-      pinUrl(this.requestsUrl, requestId),
-      {},
-    );
+    return this.http.put<Wrapped<FeedbackRequestListItem>>(pinUrl(this.requestsUrl, requestId), {});
   }
 
   unpin(requestId: number): Observable<Wrapped<FeedbackRequestListItem>> {
-    return this.http.delete<Wrapped<FeedbackRequestListItem>>(
-      pinUrl(this.requestsUrl, requestId),
-    );
+    return this.http.delete<Wrapped<FeedbackRequestListItem>>(pinUrl(this.requestsUrl, requestId));
   }
 }

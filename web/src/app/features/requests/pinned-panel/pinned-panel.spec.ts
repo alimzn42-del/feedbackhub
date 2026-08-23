@@ -153,7 +153,10 @@ describe('PinnedPanel', () => {
   it('reports pinned requests the endpoint would not return', () => {
     // Pinning is unlimited by decision, so the shelf can be showing a subset.
     // Saying so beats silently truncating.
-    const fixture = render([1, 2, 3].map((id) => pinnedItem(id)), 104);
+    const fixture = render(
+      [1, 2, 3].map((id) => pinnedItem(id)),
+      104,
+    );
 
     expect(fixture.nativeElement.querySelector('.pinned__overflow')?.textContent).toContain(
       '101 more pinned requests are not shown',

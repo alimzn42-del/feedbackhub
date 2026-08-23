@@ -1,29 +1,33 @@
 <div class="list-header">
   <div>
-    <h1>Feedback requests</h1>
-    <p class="list-header__subtitle">
-      Most wanted first. Vote for what you need instead of filing it again — the count is how
-      priority gets decided.
-    </p>
+    <h1>{{ t('board.title') }}</h1>
+    <p class="list-header__subtitle">{{ t('board.subtitle') }}</p>
   </div>
 
-  <a class="button" routerLink="/requests/new">New request</a>
+  <a class="button" routerLink="/requests/new">{{ t('nav.newRequest') }}</a>
 </div>
 
 <!-- One live region announces whichever state the list is in, so a screen
      reader hears the change instead of silence. -->
 <div class="visually-hidden" role="status" aria-live="polite">
   @if (isFirstLoad()) {
-    Loading requests.
+    {{ t('board.a11yLoading') }}
   } @else if (requests.isLoading()) {
-    Updating results.
+    {{ t('board.a11yUpdating') }}
   } @else if (error()) {
-    Requests could not be loaded.
+    {{ t('board.a11yFailed') }}
   } @else if (hasNoMatches()) {
-    No requests match these filters.
+    {{ t('board.a11yNoMatches') }}
   } @else if (meta(); as page) {
-    Showing {{ rangeStart() }} to {{ rangeEnd() }} of {{ page.total }}
-    {{ filtered() ? 'matching requests' : 'requests' }}, page {{ page.page }} of {{ page.totalPages }}.
+    {{
+      t('board.a11yShowing', {
+        from: rangeStart(),
+        to: rangeEnd(),
+        total: page.total,
+        page: page.page,
+        pages: page.totalPages,
+      })
+    }}
   }
 </div>
 
@@ -64,42 +68,41 @@
   </ul>
 } @else if (error(); as failure) {
   <div class="state state--error" role="alert">
-    <h2 class="state__title">Requests could not be loaded</h2>
+    <h2 class="state__title">{{ t('board.loadFailedTitle') }}</h2>
     <p class="state__body">{{ failure.message }}</p>
     @if (failure.requestId) {
-      <p class="state__meta">Reference: {{ failure.requestId }}</p>
+      <p class="state__meta">{{ t('app.reference', { id: failure.requestId }) }}</p>
     }
-    <button type="button" class="button button--secondary" (click)="retry()">Try again</button>
+    <button type="button" class="button button--secondary" (click)="retry()">
+      {{ t('common.tryAgain') }}
+    </button>
   </div>
 } @else if (isEmpty()) {
   <div class="state">
-    <h2 class="state__title">Nothing here yet</h2>
-    <p class="state__body">
-      No one has filed a request. The first one sets the tone — be specific about the problem
-      rather than the solution.
-    </p>
-    <a class="button" routerLink="/requests/new">File the first request</a>
+    <h2 class="state__title">{{ t('board.emptyTitle') }}</h2>
+    <p class="state__body">{{ t('board.emptyBody') }}</p>
+    <a class="button" routerLink="/requests/new">{{ t('board.fileFirst') }}</a>
   </div>
 } @else if (hasNoMatches()) {
   <div class="state">
-    <h2 class="state__title">Nothing matches these filters</h2>
-    <p class="state__body">
-      There are requests on the board, just none that match what you asked for. Widen the filters
-      or clear them to see everything.
-    </p>
+    <h2 class="state__title">{{ t('board.noMatchesTitle') }}</h2>
+    <p class="state__body">{{ t('board.noMatchesBody') }}</p>
     <button type="button" class="button button--secondary" (click)="clearFilters()">
-      Clear all filters
+      {{ t('board.clearAll') }}
     </button>
   </div>
 } @else if (isPastEnd()) {
   <div class="state">
-    <h2 class="state__title">That page does not exist</h2>
+    <h2 class="state__title">{{ t('board.pastEndTitle') }}</h2>
     <p class="state__body">
-      There {{ meta()?.totalPages === 1 ? 'is only 1 page' : 'are only ' + meta()?.totalPages + ' pages' }}
-      of {{ filtered() ? 'matching requests' : 'requests' }}.
+      @if (meta()?.totalPages === 1) {
+        {{ t('board.pastEndOne') }}
+      } @else {
+        {{ t('board.pastEndBody', { pages: meta()?.totalPages ?? 0 }) }}
+      }
     </p>
     <a class="button button--secondary" routerLink="/requests" [queryParams]="queryFor(1)">
-      Back to the first page
+      {{ t('board.backToFirst') }}
     </a>
   </div>
 } @else {
@@ -112,7 +115,7 @@
             {{ request.status.name }}
           </span>
           @if (request.isPinned) {
-            <span class="chip chip--pinned">Pinned</span>
+            <span class="chip chip--pinned">{{ t('board.pinned') }}</span>
           }
         </div>
 
@@ -121,7 +124,10 @@
         </h2>
 
         <p class="card__excerpt">
-          {{ request.excerpt }}@if (request.excerptTruncated) {<span aria-hidden="true">…</span>}
+          {{ request.excerpt }}
+          @if (request.excerptTruncated) {
+            <span aria-hidden="true">…</span>
+          }
         </p>
 
         <p class="card__byline">
@@ -139,7 +145,7 @@
             [class.vote--active]="request.hasVoted"
             [attr.aria-pressed]="request.canVote ? request.hasVoted : null"
             [attr.aria-label]="voteLabel(request)"
-            [attr.title]="request.canVote ? null : 'You cannot vote on your own request.'"
+            [attr.title]="request.canVote ? null : t('board.cannotVoteOwn')"
             [disabled]="!request.canVote || isVoting(request.id)"
             (click)="toggleVote(request)"
           >
@@ -153,19 +159,22 @@
           </button>
 
           <a class="card__comments" [routerLink]="['/requests', request.id]">
-            {{ request.commentCount }}
-            {{ request.commentCount === 1 ? 'comment' : 'comments' }}
+            {{
+              request.commentCount === 1
+                ? t('board.oneComment')
+                : t('board.comments', { count: request.commentCount })
+            }}
           </a>
 
           @if (request.canPin) {
             <button
               type="button"
               class="pin"
-              [attr.aria-label]="'Pin ' + request.title + ' to the top of the board'"
+              [attr.aria-label]="t('board.pinLabel', { title: request.title })"
               [disabled]="isVoting(request.id)"
               (click)="togglePin(request)"
             >
-              Pin
+              {{ t('pinned.pin') }}
             </button>
           }
         </div>
@@ -175,29 +184,37 @@
 
   @if (meta(); as page) {
     <p class="pager__summary">
-      Showing <strong>{{ rangeStart() }}–{{ rangeEnd() }}</strong> of
-      <strong>{{ page.total }}</strong>
-      {{ page.total === 1 ? 'request' : 'requests' }}{{ filtered() ? ' matching your filters' : '' }}
+      {{
+        filtered()
+          ? t('board.summaryFiltered', summaryParams(page))
+          : t('board.summary', summaryParams(page))
+      }}
       @if (page.totalPages > 1) {
-        <span class="pager__summary-page">page {{ page.page }} of {{ page.totalPages }}</span>
+        <span class="pager__summary-page">
+          {{ t('board.page', { page: page.page, total: page.totalPages }) }}
+        </span>
       }
     </p>
 
     @if (page.totalPages > 1) {
-      <nav class="pager" aria-label="Pagination">
+      <nav class="pager" [attr.aria-label]="t('board.pagination')">
         @if (hasPrevious()) {
           <a
             class="button button--secondary"
             routerLink="/requests"
             [queryParams]="queryFor(currentPage() - 1)"
             rel="prev"
-            >Previous</a
+            >{{ t('board.previous') }}</a
           >
         } @else {
-          <span class="button button--secondary" aria-disabled="true">Previous</span>
+          <span class="button button--secondary" aria-disabled="true">{{
+            t('board.previous')
+          }}</span>
         }
 
-        <p class="pager__position">Page {{ page.page }} of {{ page.totalPages }}</p>
+        <p class="pager__position">
+          {{ t('board.page', { page: page.page, total: page.totalPages }) }}
+        </p>
 
         @if (hasNext()) {
           <a
@@ -205,10 +222,10 @@
             routerLink="/requests"
             [queryParams]="queryFor(currentPage() + 1)"
             rel="next"
-            >Next</a
+            >{{ t('board.next') }}</a
           >
         } @else {
-          <span class="button button--secondary" aria-disabled="true">Next</span>
+          <span class="button button--secondary" aria-disabled="true">{{ t('board.next') }}</span>
         }
       </nav>
     }

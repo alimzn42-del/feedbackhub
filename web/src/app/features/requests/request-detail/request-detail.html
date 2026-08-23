@@ -3,21 +3,21 @@
 </p>
 
 @if (isFirstLoad()) {
-  <div class="detail__state">Loading the request…</div>
+  <div class="detail__state">{{ t('detail.loading') }}</div>
 } @else if (error(); as failure) {
   <div class="detail__state detail__state--error" role="alert">
     <h1 class="detail__state-title">
       @if (failure.status === 404) {
-        That request does not exist
+        {{ t('detail.notFoundTitle') }}
       } @else {
-        The request could not be loaded
+        {{ t('detail.loadFailedTitle') }}
       }
     </h1>
     <p>{{ failure.message }}</p>
     @if (failure.requestId) {
-      <p class="detail__reference">Reference: {{ failure.requestId }}</p>
+      <p class="detail__reference">{{ t('app.reference', { id: failure.requestId }) }}</p>
     }
-    <a class="button button--secondary" routerLink="/requests">Back to the board</a>
+    <a class="button button--secondary" routerLink="/requests">{{ t('common.backToBoard') }}</a>
   </div>
 } @else if (item(); as detail) {
   <!-- Announced rather than only rendered: a status change or a pin alters the
@@ -27,9 +27,9 @@
     @if (isPending('status')) {
       Changing the status.
     } @else if (isPending('pin')) {
-      Updating the pin.
+      {{ t('detail.a11yPin') }}
     } @else if (isPending('delete')) {
-      Deleting the request.
+      {{ t('detail.a11yDelete') }}
     }
   </div>
 
@@ -38,17 +38,13 @@
       <p>{{ message }}</p>
       @if (isGone()) {
         <!-- A retry cannot help: the thing being acted on is gone. -->
-        <a class="button button--secondary" routerLink="/requests">Back to the board</a>
+        <a class="button button--secondary" routerLink="/requests">{{ t('common.backToBoard') }}</a>
       }
     </div>
   }
 
   @if (editing()) {
-    <app-request-edit
-      [request]="detail"
-      (saved)="onSaved($event)"
-      (cancelled)="cancelEdit()"
-    />
+    <app-request-edit [request]="detail" (saved)="onSaved($event)" (cancelled)="cancelEdit()" />
   } @else {
     <article class="detail">
       <div class="detail__meta">
@@ -57,7 +53,7 @@
           {{ detail.status.name }}
         </span>
         @if (detail.isPinned) {
-          <span class="chip chip--pinned">Pinned</span>
+          <span class="chip chip--pinned">{{ t('board.pinned') }}</span>
         }
       </div>
 
@@ -66,15 +62,19 @@
       <p class="detail__byline">
         {{ detail.author.displayName }}
         <span aria-hidden="true">·</span>
-        <time [attr.datetime]="detail.createdAt">{{ detail.createdAt | date: 'medium' : undefined : locale() }}</time>
+        <time [attr.datetime]="detail.createdAt">{{
+          detail.createdAt | date: 'medium' : undefined : locale()
+        }}</time>
         <!-- Read from its own field, not from updatedAt: pinning and status
              changes move that too, and neither is somebody rewriting their own
              words. Same marker the comments use. -->
         @if (detail.editedAt) {
           <span aria-hidden="true">·</span>
           <span class="detail__edited">
-            edited
-            <time [attr.datetime]="detail.editedAt">{{ detail.editedAt | date: 'medium' : undefined : locale() }}</time>
+            {{ t('board.edited') }}
+            <time [attr.datetime]="detail.editedAt">{{
+              detail.editedAt | date: 'medium' : undefined : locale()
+            }}</time>
           </span>
         }
       </p>
@@ -84,7 +84,9 @@
           Pinned by {{ detail.pinnedBy.displayName }}
           @if (detail.pinnedAt) {
             <span aria-hidden="true">·</span>
-            <time [attr.datetime]="detail.pinnedAt">{{ detail.pinnedAt | date: 'medium' : undefined : locale() }}</time>
+            <time [attr.datetime]="detail.pinnedAt">{{
+              detail.pinnedAt | date: 'medium' : undefined : locale()
+            }}</time>
           }
         </p>
       }
@@ -109,8 +111,11 @@
         </span>
 
         <span class="detail__comment-count">
-          {{ detail.commentCount }}
-          {{ detail.commentCount === 1 ? 'comment' : 'comments' }}
+          {{
+            detail.commentCount === 1
+              ? t('board.oneComment')
+              : t('board.comments', { count: detail.commentCount })
+          }}
         </span>
       </div>
     </article>
@@ -119,11 +124,11 @@
          None of them is the guarantee; each endpoint refuses on its own. -->
     @if (detail.canEdit || detail.canDelete || detail.canPin || detail.canChangeStatus) {
       <section class="manage" aria-labelledby="manage-heading">
-        <h2 class="manage__heading" id="manage-heading">Manage this request</h2>
+        <h2 class="manage__heading" id="manage-heading">{{ t('detail.manageHeading') }}</h2>
 
         @if (detail.canChangeStatus) {
           <div class="manage__group">
-            <label class="manage__label" for="detail-status">Status</label>
+            <label class="manage__label" for="detail-status">{{ t('filter.status') }}</label>
             <div class="manage__row">
               <select
                 id="detail-status"
@@ -144,7 +149,7 @@
                 [disabled]="!statusChanged() || isPending('status')"
                 (click)="applyStatus()"
               >
-                {{ isPending('status') ? 'Saving…' : 'Update status' }}
+                {{ isPending('status') ? t('common.saving') : t('detail.updateStatus') }}
               </button>
             </div>
           </div>
@@ -153,7 +158,7 @@
         <div class="manage__row">
           @if (detail.canEdit) {
             <button type="button" class="button button--secondary" (click)="startEdit()">
-              Edit request
+              {{ t('detail.editRequest') }}
             </button>
           }
 
@@ -165,9 +170,9 @@
               (click)="togglePin()"
             >
               @if (isPending('pin')) {
-                Working…
+                {{ t('detail.working') }}
               } @else {
-                {{ detail.isPinned ? 'Unpin from the board' : 'Pin to the board' }}
+                {{ detail.isPinned ? t('detail.unpinFromBoard') : t('detail.pinToBoard') }}
               }
             </button>
           }
@@ -179,7 +184,7 @@
               [disabled]="isPending('delete')"
               (click)="askDelete()"
             >
-              Delete request
+              {{ t('detail.deleteRequest') }}
             </button>
           }
         </div>
@@ -189,9 +194,9 @@
 
   @if (confirmingDelete()) {
     <app-confirm-dialog
-      title="Delete this request?"
-      body="This removes the request, its votes and every comment on it. That cannot be undone."
-      confirmLabel="Delete request"
+      [title]="t('detail.deleteTitle')"
+      [body]="t('detail.deleteBodyLong')"
+      [confirmLabel]="t('detail.deleteRequest')"
       [busy]="isPending('delete')"
       (confirmed)="confirmDelete()"
       (cancelled)="cancelDelete()"

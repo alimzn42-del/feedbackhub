@@ -387,3 +387,68 @@ describe('the level a screen resolves at', () => {
     expect(sort).toMatchObject({ value: 'oldest', source: 'global' });
   });
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The settings screens speak the reader's language.
+ *
+ * Their labels live in the registry rather than in the web app's catalogue,
+ * because the promise this registry makes is that adding a setting is one edit
+ * in one file. That promise is only kept if the label comes with it.
+ * ──────────────────────────────────────────────────────────────────────────── */
+describe('the language a settings document comes back in', () => {
+  it('answers in English by default', async () => {
+    const response = await request(app)
+      .get(`/api/users/${REGULAR_USER.id}/settings`)
+      .expect(200);
+    const theme = response.body.data.find(
+      (row: { key: string }) => row.key === 'profile.theme',
+    );
+
+    expect(theme.label).toBe('Colour scheme');
+  });
+
+  it('answers in French for somebody who chose French', async () => {
+    settingsRepository.readForUser.mockResolvedValue(
+      new Map([['profile.language', 'fr']]),
+    );
+
+    const response = await request(app)
+      .get(`/api/users/${REGULAR_USER.id}/settings`)
+      .expect(200);
+    const theme = response.body.data.find(
+      (row: { key: string }) => row.key === 'profile.theme',
+    );
+
+    expect(theme.label).toBe('Thème de couleurs');
+    expect(theme.description).toContain('Système');
+  });
+
+  /**
+   * Which language an admin READS in is a fact about them, not about the level
+   * they are editing — so the administrative document follows their preference
+   * even though its values ignore their personal rows.
+   */
+  it('follows the admin’s own language on the application settings', async () => {
+    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    settingsRepository.readForUser.mockResolvedValue(
+      new Map([['profile.language', 'fr']]),
+    );
+
+    const response = await request(app).get('/api/settings').expect(200);
+    const limit = response.body.data.find(
+      (row: { key: string }) => row.key === 'submissions.perUserPerDay',
+    );
+
+    expect(limit.label).toBe('Demandes qu’une personne peut déposer par jour');
+  });
+
+  /** Only languages that are actually translated are offered. */
+  it('refuses a language this application does not speak', async () => {
+    const response = await request(app)
+      .patch(`/api/users/${REGULAR_USER.id}/settings`)
+      .send({ 'profile.language': 'de' });
+
+    expect(response.status).toBe(422);
+    nothingWritten();
+  });
+});

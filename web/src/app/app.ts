@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AppConfig } from './core/config/app-config';
+import { Translate } from './core/i18n/translate';
 
 @Component({
   selector: 'app-root',
@@ -9,6 +10,9 @@ import { AppConfig } from './core/config/app-config';
   styleUrl: './app.scss',
 })
 export class App {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   /**
    * The one request the application makes before it can draw anything.
    *

@@ -1,14 +1,16 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import type { CategoryAdminRow, StatusAdminRow } from '../../../core/api/api.types';
+import { Translate } from '../../../core/i18n/translate';
 
 /** Either taxonomy. The optional fields are what makes them different. */
-export type TaxonomyRow = Partial<CategoryAdminRow> & Partial<StatusAdminRow> & {
-  id: number;
-  name: string;
-  slug: string;
-  sortOrder: number;
-  requestCount: number;
-};
+export type TaxonomyRow = Partial<CategoryAdminRow> &
+  Partial<StatusAdminRow> & {
+    id: number;
+    name: string;
+    slug: string;
+    sortOrder: number;
+    requestCount: number;
+  };
 
 export interface RenameIntent {
   id: number;
@@ -38,6 +40,9 @@ export interface CreateIntent {
   styleUrl: './taxonomy-table.scss',
 })
 export class TaxonomyTable {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   readonly heading = input.required<string>();
 
   /** Singular, for the wording of messages and labels: "category", "status". */
@@ -161,12 +166,24 @@ export class TaxonomyTable {
    */
   protected moveUp(index: number): void {
     if (index <= 0) return;
-    this.reordered.emit(swap(this.rows().map((row) => row.id), index, index - 1));
+    this.reordered.emit(
+      swap(
+        this.rows().map((row) => row.id),
+        index,
+        index - 1,
+      ),
+    );
   }
 
   protected moveDown(index: number): void {
     if (index >= this.rows().length - 1) return;
-    this.reordered.emit(swap(this.rows().map((row) => row.id), index, index + 1));
+    this.reordered.emit(
+      swap(
+        this.rows().map((row) => row.id),
+        index,
+        index + 1,
+      ),
+    );
   }
 
   protected isPending(row: TaxonomyRow): boolean {

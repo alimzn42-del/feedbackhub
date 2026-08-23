@@ -116,7 +116,6 @@ export function unassignedIssues(error: ApiError, knownFields: readonly string[]
   return error.details.filter((issue) => !knownFields.includes(issue.field));
 }
 
-
 /**
  * How long to wait, in words somebody can act on.
  *

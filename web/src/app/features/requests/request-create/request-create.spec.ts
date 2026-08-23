@@ -136,7 +136,11 @@ describe('RequestCreate', () => {
 
   it('sends trimmed values and never sends a status or an author', async () => {
     const fixture = await render();
-    const component = fill(fixture, '  A good enough title  ', '  A description long enough to pass validation.  ');
+    const component = fill(
+      fixture,
+      '  A good enough title  ',
+      '  A description long enough to pass validation.  ',
+    );
 
     component.submit();
     fixture.detectChanges();
@@ -156,7 +160,11 @@ describe('RequestCreate', () => {
 
   it('attaches a server field error to the control it names', async () => {
     const fixture = await render();
-    const component = fill(fixture, 'A good enough title', 'A description long enough to pass validation.');
+    const component = fill(
+      fixture,
+      'A good enough title',
+      'A description long enough to pass validation.',
+    );
 
     component.submit();
     fixture.detectChanges();
@@ -191,7 +199,11 @@ describe('RequestCreate', () => {
 
   it('falls back to a banner when the failure names no field', async () => {
     const fixture = await render();
-    const component = fill(fixture, 'A good enough title', 'A description long enough to pass validation.');
+    const component = fill(
+      fixture,
+      'A good enough title',
+      'A description long enough to pass validation.',
+    );
 
     component.submit();
     fixture.detectChanges();
@@ -215,5 +227,4 @@ describe('RequestCreate', () => {
     expect(alert?.textContent).toContain('No default status is configured');
     expect(alert?.textContent).toContain('abc-999');
   });
-
 });

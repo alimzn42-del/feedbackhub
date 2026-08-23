@@ -100,10 +100,33 @@ export interface SettingDefinition<T> {
    */
   control: SettingControl;
 
-  /** Shown on the settings screens. Written for the person changing it. */
-  label: string;
-  description: string;
+  /**
+   * Shown on the settings screens, in the languages this application offers.
+   *
+   * Here rather than in the web app's message catalogue, and that is a
+   * deliberate exception to "the client owns its own words". The promise this
+   * registry makes is that adding a setting is ONE edit in ONE file; it would
+   * be a lie if every new setting also needed two lines in another repository,
+   * in another language, before it could be read by anybody.
+   *
+   * The API picks the language from the caller's own preference, which it has
+   * already resolved in order to answer with it.
+   */
+  label: Localised;
+  description: Localised;
 }
+
+/**
+ * A string in every language the interface offers.
+ *
+ * A record rather than an optional map, so adding a language is a compile
+ * error at every message that has not been translated yet — which is the only
+ * moment anybody will remember to do it.
+ */
+export type Localised = Record<Language, string>;
+
+/** Mirrors profile.language below, and the web app's own catalogue. */
+export type Language = 'en' | 'fr';
 
 /**
  * The controls this application has. Deliberately a short list — a settings
@@ -151,9 +174,15 @@ export const SETTINGS = {
         { value: 'domains', label: 'Only the email domains below' },
       ],
     },
-    label: 'Who may create an account',
+    label: {
+      en: 'Who may create an account',
+      fr: 'Qui peut créer un compte',
+    },
     description:
-      'Open lets anybody who authenticates get an account. Restricted admits only the email domains listed below.',
+      {
+      en: 'Open lets anybody who authenticates get an account. Restricted admits only the email domains listed below.',
+      fr: 'Ouvert : toute personne qui se connecte obtient un compte. Restreint : seuls les domaines listés ci-dessous sont admis.',
+    },
   }),
 
   /**
@@ -179,8 +208,14 @@ export const SETTINGS = {
     fallback: [] as string[],
     firstPaint: false,
     control: { kind: 'lines', placeholder: 'example.com' },
-    label: 'Allowed email domains',
-    description: 'Used only while registration is restricted.',
+    label: {
+      en: 'Allowed email domains',
+      fr: 'Domaines e-mail autorisés',
+    },
+    description: {
+      en: 'Used only while registration is restricted.',
+      fr: 'Utilisé uniquement lorsque l’inscription est restreinte.',
+    },
   }),
 
   /* ── Application: the feature flag ────────────────────────────────────── */
@@ -210,9 +245,15 @@ export const SETTINGS = {
     fallback: false,
     firstPaint: false,
     control: { kind: 'toggle' },
-    label: 'Approve comments before they appear',
+    label: {
+      en: 'Approve comments before they appear',
+      fr: 'Approuver les commentaires avant publication',
+    },
     description:
-      'A new comment waits for an admin. Its author can see it while it waits; nobody else can. Turning this off releases everything still waiting.',
+      {
+      en: 'A new comment waits for an admin. Its author can see it while it waits; nobody else can. Turning this off releases everything still waiting.',
+      fr: 'Un nouveau commentaire attend un administrateur. Son auteur le voit pendant l’attente, personne d’autre. Désactiver ce réglage libère tout ce qui attend encore.',
+    },
   }),
 
   /* ── Application: the rate limit ──────────────────────────────────────── */
@@ -235,9 +276,15 @@ export const SETTINGS = {
     fallback: 20,
     firstPaint: false,
     control: { kind: 'number', min: 1, max: 1000 },
-    label: 'Requests one person may file per day',
+    label: {
+      en: 'Requests one person may file per day',
+      fr: 'Demandes qu’une personne peut déposer par jour',
+    },
     description:
-      'Counted over the last 24 hours, not per calendar day, so the limit does not reset at a moment somebody has to guess.',
+      {
+      en: 'Counted over the last 24 hours, not per calendar day, so the limit does not reset at a moment somebody has to guess.',
+      fr: 'Compté sur les 24 dernières heures, et non par jour calendaire, afin que la limite ne se remette pas à zéro à un moment qu’il faudrait deviner.',
+    },
   }),
 
   /* ── Both levels: the board's opening state ───────────────────────────── */
@@ -264,8 +311,14 @@ export const SETTINGS = {
         { value: 'votes', label: 'Most voted' },
       ],
     },
-    label: 'Order the board opens on',
-    description: 'Applied when you arrive at the board without an ordering in the address.',
+    label: {
+      en: 'Order the board opens on',
+      fr: 'Ordre d’ouverture du tableau',
+    },
+    description: {
+      en: 'Applied when you arrive at the board without an ordering in the address.',
+      fr: 'Appliqué lorsque vous arrivez sur le tableau sans ordre indiqué dans l’adresse.',
+    },
   }),
 
   /**
@@ -288,8 +341,14 @@ export const SETTINGS = {
     fallback: [] as string[],
     firstPaint: true,
     control: { kind: 'slugs', source: 'statuses' },
-    label: 'Statuses the board opens filtered by',
-    description: 'Leave empty to open on everything.',
+    label: {
+      en: 'Statuses the board opens filtered by',
+      fr: 'Statuts sur lesquels le tableau s’ouvre filtré',
+    },
+    description: {
+      en: 'Leave empty to open on everything.',
+      fr: 'Laissez vide pour ouvrir sur tout.',
+    },
   }),
 
   'board.defaultCategories': define({
@@ -299,8 +358,14 @@ export const SETTINGS = {
     fallback: [] as string[],
     firstPaint: true,
     control: { kind: 'slugs', source: 'categories' },
-    label: 'Categories the board opens filtered by',
-    description: 'Leave empty to open on everything.',
+    label: {
+      en: 'Categories the board opens filtered by',
+      fr: 'Catégories sur lesquelles le tableau s’ouvre filtré',
+    },
+    description: {
+      en: 'Leave empty to open on everything.',
+      fr: 'Laissez vide pour ouvrir sur tout.',
+    },
   }),
 
   /* ── Personal: presentation ───────────────────────────────────────────── */
@@ -330,33 +395,52 @@ export const SETTINGS = {
         { value: 'dark', label: 'Dark' },
       ],
     },
-    label: 'Colour scheme',
-    description: 'System follows the setting on your device.',
+    label: {
+      en: 'Colour scheme',
+      fr: 'Thème de couleurs',
+    },
+    description: {
+      en: 'System follows the setting on your device.',
+      fr: 'Système : suit le réglage de votre appareil.',
+    },
   }),
 
   /**
-   * What this actually does, stated plainly because the honest scope is smaller
-   * than the word suggests: it sets the document language and the locale dates
-   * and numbers are formatted in. The interface copy is not translated — there
-   * is no message catalogue and pretending otherwise with a half-populated one
-   * would be worse than not offering it.
+   * What this actually does: it translates the interface, sets the document
+   * language, and picks the locale that dates and numbers are formatted in.
+   *
+   * What it does NOT translate is what people wrote — requests, comments,
+   * display names, and the names an admin gave the categories and statuses.
+   * Those are content in whatever language their author used, and translating
+   * them would mean inventing words nobody said.
+   *
+   * Only languages that are actually translated are offered. A third one in
+   * this list that fell back to English would be a setting that does nothing,
+   * which is the state this replaced.
    */
   'profile.language': define({
     scope: 'user',
     visibility: 'everyone',
-    schema: z.enum(['en', 'fr', 'de']),
-    fallback: 'en' as 'en' | 'fr' | 'de',
+    schema: z.enum(['en', 'fr']),
+    fallback: 'en' as Language,
     firstPaint: true,
     control: {
       kind: 'choice',
+      // Each language names itself, in itself. Somebody who has landed in a
+      // language they do not read has to be able to find their way out.
       options: [
         { value: 'en', label: 'English' },
         { value: 'fr', label: 'Français' },
-        { value: 'de', label: 'Deutsch' },
       ],
     },
-    label: 'Language and formatting',
-    description: 'Sets the document language and how dates and numbers are written.',
+    label: {
+      en: 'Language and formatting',
+      fr: 'Langue et format',
+    },
+    description: {
+      en: 'Translates the interface and sets how dates and numbers are written. What people wrote is left as they wrote it.',
+      fr: 'Traduit l’interface et définit l’écriture des dates et des nombres. Ce que les gens ont écrit reste tel quel.',
+    },
   }),
 
   /* ── Personal: notifications ──────────────────────────────────────────── */
@@ -380,8 +464,14 @@ export const SETTINGS = {
     fallback: true,
     firstPaint: false,
     control: { kind: 'toggle' },
-    label: 'Email me when somebody comments on my request',
-    description: 'Recorded now; no mail is sent until this application can send it.',
+    label: {
+      en: 'Email me when somebody comments on my request',
+      fr: 'M’envoyer un e-mail quand quelqu’un commente ma demande',
+    },
+    description: {
+      en: 'Recorded now; no mail is sent until this application can send it.',
+      fr: 'Enregistré dès maintenant ; aucun e-mail n’est envoyé tant que cette application ne sait pas le faire.',
+    },
   }),
 
   'notifications.emailOnStatusChange': define({
@@ -391,8 +481,14 @@ export const SETTINGS = {
     fallback: true,
     firstPaint: false,
     control: { kind: 'toggle' },
-    label: 'Email me when the status of my request changes',
-    description: 'Recorded now; no mail is sent until this application can send it.',
+    label: {
+      en: 'Email me when the status of my request changes',
+      fr: 'M’envoyer un e-mail quand le statut de ma demande change',
+    },
+    description: {
+      en: 'Recorded now; no mail is sent until this application can send it.',
+      fr: 'Enregistré dès maintenant ; aucun e-mail n’est envoyé tant que cette application ne sait pas le faire.',
+    },
   }),
 } as const;
 

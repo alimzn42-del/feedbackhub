@@ -146,8 +146,7 @@ describe('CommentThread', () => {
       const trigger = Array.from(
         fixture.nativeElement.querySelectorAll('.comment__actions button'),
       ).find((candidate) => (candidate as HTMLButtonElement).textContent?.trim() === 'Reply') as
-        | HTMLButtonElement
-        | undefined;
+        HTMLButtonElement | undefined;
       trigger?.click();
       fixture.detectChanges();
     };
@@ -172,9 +171,11 @@ describe('CommentThread', () => {
     const fixture = await render([]);
     const form = fixture.nativeElement.querySelector('.composer') as HTMLFormElement;
 
-    (fixture.componentInstance as unknown as {
-      newComment: { setValue: (v: string) => void };
-    }).newComment.setValue('anything');
+    (
+      fixture.componentInstance as unknown as {
+        newComment: { setValue: (v: string) => void };
+      }
+    ).newComment.setValue('anything');
 
     const event = new Event('submit', { bubbles: true, cancelable: true });
     form.dispatchEvent(event);

@@ -9,6 +9,7 @@ import { CommentThread } from '../../comments/comment-thread/comment-thread';
 import { ConfirmDialog } from '../../../shared/confirm-dialog/confirm-dialog';
 import { RequestEdit } from '../request-edit/request-edit';
 import type { FeedbackRequestDetail, TaxonomyRef, Wrapped } from '../../../core/api/api.types';
+import { Translate } from '../../../core/i18n/translate';
 
 /** Which action is in flight, so only its own control shows a pending state. */
 type Pending = 'status' | 'pin' | 'delete' | null;
@@ -29,6 +30,9 @@ type Pending = 'status' | 'pin' | 'delete' | null;
   styleUrl: './request-detail.scss',
 })
 export class RequestDetail {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   /**
    * The locale dates are written in. Passed to the pipe rather than provided
    * as LOCALE_ID, which is fixed before the person's preference has arrived.
@@ -64,9 +68,7 @@ export class RequestDetail {
    * because pinning had reloaded the request above it. The thread had nothing
    * to do with the pin.
    */
-  protected readonly isFirstLoad = computed(
-    () => this.request.isLoading() && this.item() === null,
-  );
+  protected readonly isFirstLoad = computed(() => this.request.isLoading() && this.item() === null);
 
   /**
    * Whether the status control is on screen at all.

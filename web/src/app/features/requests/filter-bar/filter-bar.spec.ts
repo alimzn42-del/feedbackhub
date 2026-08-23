@@ -329,6 +329,8 @@ describe('FilterBar', () => {
 
     // The shelf is gone from a filtered board and its contents are in the
     // results. Without saying so, the reader has watched a panel disappear.
-    expect(fixture.nativeElement.textContent).toContain('Pinned requests that match are listed first');
+    expect(fixture.nativeElement.textContent).toContain(
+      'Pinned requests that match are listed first',
+    );
   });
 });

@@ -7,6 +7,7 @@ import * as statusesRepository from '../statuses/statuses.repository.js';
 import {
   SETTINGS,
   isSettingKey,
+  type Language,
   type SettingKey,
   type SettingValue,
 } from './settings.registry.js';
@@ -184,6 +185,16 @@ export async function describe(
    * ────────────────────────────────────────────────────────────────────────── */
   const layers = level === 'global' ? null : user;
 
+  /**
+   * The language these labels come back in, resolved for the caller like any
+   * other setting.
+   *
+   * Read from the person's own layers even on the administrative screen: which
+   * language an admin reads in is a fact about them, not about the level they
+   * happen to be editing.
+   */
+  const language = resolveOne('profile.language', global, user).value as Language;
+
   return (Object.keys(SETTINGS) as SettingKey[])
     .filter((key) => {
       const scope = SETTINGS[key].scope;
@@ -192,8 +203,8 @@ export async function describe(
     .filter((key) => settingPolicy.read(actor, SETTINGS[key].visibility).allowed)
     .map((key) => ({
       key,
-      label: SETTINGS[key].label,
-      description: SETTINGS[key].description,
+      label: SETTINGS[key].label[language],
+      description: SETTINGS[key].description[language],
       control: SETTINGS[key].control,
       ...resolveOne(key, global, layers),
       editable:

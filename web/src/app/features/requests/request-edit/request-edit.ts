@@ -11,6 +11,7 @@ import { RequestsApi } from '../data/requests.api';
 import { AppConfig } from '../../../core/config/app-config';
 import { toApiError, type ApiError, type FieldIssue } from '../../../core/api/api-error';
 import type { FeedbackRequestDetail, TaxonomyRef, Wrapped } from '../../../core/api/api.types';
+import { Translate } from '../../../core/i18n/translate';
 
 /**
  * Mirrors the server's limits so the user is told before a round trip. The
@@ -50,6 +51,9 @@ interface EditForm {
   styleUrl: './request-edit.scss',
 })
 export class RequestEdit implements OnInit {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   private readonly api = inject(RequestsApi);
   private readonly config = inject(AppConfig);
 

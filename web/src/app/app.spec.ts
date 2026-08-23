@@ -27,11 +27,24 @@ const BOOTSTRAP = {
     },
     settings: {
       'profile.theme': { value: 'dark', source: 'user', editable: true },
-      'profile.language': { value: 'fr', source: 'user', editable: true },
+      'profile.language': { value: 'en', source: 'user', editable: true },
     },
     taxonomy: { categories: [], statuses: [] },
   },
 };
+
+/** The same payload, read by somebody who chose French. */
+function inFrench() {
+  return {
+    data: {
+      ...BOOTSTRAP.data,
+      settings: {
+        ...BOOTSTRAP.data.settings,
+        'profile.language': { value: 'fr', source: 'user', editable: true },
+      },
+    },
+  };
+}
 
 describe('App', () => {
   let http: HttpTestingController;
@@ -142,12 +155,31 @@ describe('App', () => {
   it('applies the chosen colour scheme and language to the document', async () => {
     const fixture = await render();
 
-    http.expectOne('/api/bootstrap').flush(BOOTSTRAP);
+    http.expectOne('/api/bootstrap').flush(inFrench());
     await fixture.whenStable();
     fixture.detectChanges();
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
     expect(document.documentElement.lang).toBe('fr');
+  });
+
+  /**
+   * The language setting translates the interface. It used to set the document
+   * language and the date locale and nothing else, which read to anybody trying
+   * it as a setting that did nothing.
+   */
+  it('renders the navigation in the language the person chose', async () => {
+    const fixture = await render();
+
+    http.expectOne('/api/bootstrap').flush(inFrench());
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const nav = fixture.nativeElement.querySelector('nav').textContent;
+
+    expect(nav).toContain('Tableau');
+    expect(nav).toContain('Nouvelle demande');
+    expect(nav).not.toContain('Board');
   });
 
   /**

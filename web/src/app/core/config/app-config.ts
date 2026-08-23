@@ -125,9 +125,13 @@ export class AppConfig {
    * this getter answers before the payload has arrived, and nothing renders
    * from them because the outlet does not exist until it has.
    */
-  readonly defaultSort = computed<SortOption>(() => this.value<SortOption>('board.defaultSort', 'newest'));
+  readonly defaultSort = computed<SortOption>(() =>
+    this.value<SortOption>('board.defaultSort', 'newest'),
+  );
 
-  readonly defaultStatuses = computed<string[]>(() => this.value<string[]>('board.defaultStatuses', []));
+  readonly defaultStatuses = computed<string[]>(() =>
+    this.value<string[]>('board.defaultStatuses', []),
+  );
 
   readonly defaultCategories = computed<string[]>(() =>
     this.value<string[]>('board.defaultCategories', []),

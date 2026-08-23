@@ -2,7 +2,7 @@
      here. On a bare form it is not, and binding it means the browser submits
      natively and reloads the page. -->
 <form class="edit" [formGroup]="form" (ngSubmit)="submit()" novalidate>
-  <h2 class="edit__heading">Edit this request</h2>
+  <h2 class="edit__heading">{{ t('edit.heading') }}</h2>
 
   @if (formFailure(); as message) {
     <p class="edit__failure" role="alert">{{ message }}</p>
@@ -13,7 +13,7 @@
   }
 
   <div class="field">
-    <label class="field__label" for="edit-title">Title</label>
+    <label class="field__label" for="edit-title">{{ t('request.title') }}</label>
     <input
       id="edit-title"
       class="field__input"
@@ -29,7 +29,7 @@
   </div>
 
   <div class="field">
-    <label class="field__label" for="edit-description">Description</label>
+    <label class="field__label" for="edit-description">{{ t('request.description') }}</label>
     <textarea
       id="edit-description"
       class="field__input field__input--area"
@@ -45,7 +45,7 @@
   </div>
 
   <div class="field">
-    <label class="field__label" for="edit-category">Category</label>
+    <label class="field__label" for="edit-category">{{ t('request.category') }}</label>
     <select
       id="edit-category"
       class="field__input"
@@ -63,7 +63,9 @@
   </div>
 
   <div class="edit__actions">
-    <button type="button" class="button button--secondary" (click)="cancel()">Cancel</button>
+    <button type="button" class="button button--secondary" (click)="cancel()">
+      {{ t('common.cancel') }}
+    </button>
     <button type="submit" class="button" [disabled]="saving()">
       {{ saving() ? 'Saving…' : 'Save changes' }}
     </button>

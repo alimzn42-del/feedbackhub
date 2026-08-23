@@ -706,12 +706,42 @@ attribute rather than writing a third value.** The stylesheet's own
 have to agree. `color-scheme` is set alongside it so scrollbars and form controls
 the application does not style follow too.
 
-**The language sets the document language and the locale dates are formatted in,
-and does not translate the interface.** There is no message catalogue, and a
-half-populated one would be worse than an application that formats correctly and
-speaks one language. It is passed to the date pipe rather than provided as
-`LOCALE_ID`, which is fixed when the injector is created — before the person's
-choice has arrived — so changing it takes effect without a reload.
+**The language translates the interface, and only languages that are actually
+translated are offered.** It was previously a preference that set the document
+language and the date locale and nothing else — which, to anybody who tried it,
+was a setting that did nothing. English and French are both complete; German was
+removed rather than left in a list where choosing it would have changed nothing.
+
+**A runtime message catalogue, not Angular's `$localize`.** Angular's own i18n is
+a build-time mechanism: one compiled bundle per locale, chosen by the URL or the
+server. It produces smaller bundles and it cannot do the thing this application
+needs — change language because somebody picked one from a list, without a
+reload, on a preference that arrives from the API after startup. The catalogue is
+`web/src/app/core/i18n/messages.ts`, and the French half is typed against the
+English keys so a missing one is a compile error rather than an English word in
+the middle of a French sentence.
+
+**What is not translated is what people wrote.** Requests, comments, display
+names and the names an admin gave the categories and statuses are content in
+whatever language their author used. Translating them would mean inventing words
+nobody said.
+
+**The settings screens' labels come from the API, not from the catalogue.** They
+live in the registry, in both languages, next to the setting they describe —
+which is the one exception to the client owning its own words, and it exists to
+keep the registry's promise honest: adding a setting is ONE edit in ONE file, and
+it would not be if every new setting also needed two lines in another repository
+before anybody could read it. The server picks the language from the caller's own
+preference, which it has already resolved in order to answer with it.
+
+**The locale is passed to the date pipe rather than provided as `LOCALE_ID`,**
+which is fixed when the injector is created — before the person's choice has
+arrived — so changing it takes effect without a reload.
+
+**Server messages are still English.** Validation and refusal messages are
+written once each, next to the rule that raises them, and translating them means
+a second catalogue on the server. It is a visible seam: a French screen can show
+an English 422. Named here rather than left to be discovered.
 
 **Which control edits a setting is sent by the server.** A screen that decided
 per key would be a second list of the settings, in another language, in another

@@ -188,8 +188,8 @@ describe('RequestList filtering', () => {
   it('carries the filters into the pager links, so a page turn keeps them', async () => {
     const { fixture } = await render({ status: 'done', sort: 'oldest' }, page([item()], 60));
 
-    const next = Array.from(fixture.nativeElement.querySelectorAll('a')).find((anchor) =>
-      (anchor as HTMLAnchorElement).textContent?.trim() === 'Next',
+    const next = Array.from(fixture.nativeElement.querySelectorAll('a')).find(
+      (anchor) => (anchor as HTMLAnchorElement).textContent?.trim() === 'Next',
     ) as HTMLAnchorElement;
 
     expect(next).toBeDefined();
@@ -203,8 +203,8 @@ describe('RequestList filtering', () => {
     const { fixture } = await render({ page: '3', status: 'done' }, page([item()], 60, 3));
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
 
-    const bar = fixture.debugElement.children.find((child) =>
-      child.nativeElement.tagName.toLowerCase() === 'app-filter-bar',
+    const bar = fixture.debugElement.children.find(
+      (child) => child.nativeElement.tagName.toLowerCase() === 'app-filter-bar',
     );
     bar!.componentInstance.changed.emit({
       statuses: ['new'],
@@ -227,8 +227,8 @@ describe('RequestList filtering', () => {
     const { fixture } = await render({ status: 'done' });
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
 
-    const bar = fixture.debugElement.children.find((child) =>
-      child.nativeElement.tagName.toLowerCase() === 'app-filter-bar',
+    const bar = fixture.debugElement.children.find(
+      (child) => child.nativeElement.tagName.toLowerCase() === 'app-filter-bar',
     );
     bar!.componentInstance.changed.emit({
       statuses: [],
@@ -326,18 +326,24 @@ describe('RequestList filtering', () => {
     fixture.detectChanges();
 
     // No shelf request: a status filter is applied, so there is no shelf.
-    http.expectOne((r) => r.url === '/api/requests').flush(
-      {
-        error: {
-          code: 'VALIDATION_FAILED',
-          message: 'The query parameters are not valid.',
-          details: [
-            { field: 'status', code: 'NOT_FOUND', message: 'There is no status called "planed".' },
-          ],
+    http
+      .expectOne((r) => r.url === '/api/requests')
+      .flush(
+        {
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'The query parameters are not valid.',
+            details: [
+              {
+                field: 'status',
+                code: 'NOT_FOUND',
+                message: 'There is no status called "planed".',
+              },
+            ],
+          },
         },
-      },
-      { status: 422, statusText: 'Unprocessable Content' },
-    );
+        { status: 422, statusText: 'Unprocessable Content' },
+      );
 
     await fixture.whenStable();
     fixture.detectChanges();
@@ -404,7 +410,10 @@ describe('RequestList filtering', () => {
   it('shows a matching pinned request in the results, badged, once filtered', async () => {
     const { fixture } = await render(
       { q: 'dark' },
-      page([item({ id: 9, isPinned: true, pinnedAt: '2026-08-21T09:00:00.000Z' }), item({ id: 10 })]),
+      page([
+        item({ id: 9, isPinned: true, pinnedAt: '2026-08-21T09:00:00.000Z' }),
+        item({ id: 10 }),
+      ]),
     );
 
     const cards = fixture.nativeElement.querySelectorAll('.card');
@@ -417,10 +426,7 @@ describe('RequestList filtering', () => {
   });
 
   it('counts the pinned rows in the total once they are in the results', async () => {
-    const { fixture } = await render(
-      { q: 'dark' },
-      page([item({ id: 9, isPinned: true })], 4),
-    );
+    const { fixture } = await render({ q: 'dark' }, page([item({ id: 9, isPinned: true })], 4));
 
     // One result set, one total: the pinned exclusion from the count belongs to
     // the default board only.

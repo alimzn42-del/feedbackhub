@@ -151,7 +151,5 @@ export function explicitSort(filters: BoardFilters): SortOption | undefined {
 
 /** Adds or removes one value from a filter, preserving the order of the rest. */
 export function toggleValue(values: readonly string[], value: string): string[] {
-  return values.includes(value)
-    ? values.filter((entry) => entry !== value)
-    : [...values, value];
+  return values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value];
 }

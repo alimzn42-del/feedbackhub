@@ -1,6 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { TaxonomyTable, type CreateIntent, type RenameIntent, type TaxonomyRow } from './taxonomy-table';
+import {
+  TaxonomyTable,
+  type CreateIntent,
+  type RenameIntent,
+  type TaxonomyRow,
+} from './taxonomy-table';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * The taxonomy table, used for both categories and statuses.
@@ -60,7 +65,9 @@ describe('TaxonomyTable', () => {
     expect(fixture.nativeElement.textContent).toContain('feature');
     // The slug is in URLs people have shared. It is rendered as text, never as
     // an input, and there is no endpoint for it either.
-    const inputs = Array.from(fixture.nativeElement.querySelectorAll('input')) as HTMLInputElement[];
+    const inputs = Array.from(
+      fixture.nativeElement.querySelectorAll('input'),
+    ) as HTMLInputElement[];
     expect(inputs.map((input) => input.value)).not.toContain('feature');
   });
 
@@ -83,7 +90,10 @@ describe('TaxonomyTable', () => {
 
   it('marks the default status and does not offer to make it the default again', () => {
     const fixture = render(
-      [row({ id: 1, name: 'New', slug: 'new', isDefault: true }), row({ id: 5, name: 'Done', slug: 'done', isDefault: false })],
+      [
+        row({ id: 1, name: 'New', slug: 'new', isDefault: true }),
+        row({ id: 5, name: 'Done', slug: 'done', isDefault: false }),
+      ],
       { noun: 'status', hasDefault: true },
     );
 
@@ -93,9 +103,12 @@ describe('TaxonomyTable', () => {
   });
 
   it('shows a retired row as retired without hiding it', () => {
-    const fixture = render([row({ id: 2, name: 'Feature', archivedAt: '2026-08-22T09:00:00.000Z' })], {
-      retirable: true,
-    });
+    const fixture = render(
+      [row({ id: 2, name: 'Feature', archivedAt: '2026-08-22T09:00:00.000Z' })],
+      {
+        retirable: true,
+      },
+    );
 
     // Still on screen: it is still real, still carried by requests, and still
     // the thing an admin came here to reconsider.
@@ -178,7 +191,9 @@ describe('TaxonomyTable', () => {
     byLabel(fixture, 'Rename Bug')!.click();
     fixture.detectChanges();
 
-    const form = fixture.nativeElement.querySelector('#rename-4')!.closest('form') as HTMLFormElement;
+    const form = fixture.nativeElement
+      .querySelector('#rename-4')!
+      .closest('form') as HTMLFormElement;
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     expect(renames).toHaveLength(0);

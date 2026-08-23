@@ -1,13 +1,13 @@
 <!-- A region rather than a bare div: it is a landmark somebody tabs to on
      purpose, and it is the one control that changes what the list below says. -->
 <section class="filters" aria-labelledby="filters-heading">
-  <h2 class="filters__heading" id="filters-heading">Filter and sort</h2>
+  <h2 class="filters__heading" id="filters-heading">{{ t('filter.heading') }}</h2>
 
   <!-- No [formGroup] and no NgForm, so (submit) is the event that exists here.
        Binding (ngSubmit) instead would register a listener for something
        nothing raises, and the browser would submit natively and reload. -->
   <form class="filters__search" (submit)="onSearchSubmit($event)" role="search">
-    <label class="filters__label" for="filter-search">Search</label>
+    <label class="filters__label" for="filter-search">{{ t('filter.search') }}</label>
 
     <div class="filters__search-row">
       <input
@@ -15,25 +15,25 @@
         class="filters__input"
         type="search"
         name="q"
-        placeholder="Title or description"
+        [placeholder]="t('filter.searchPlaceholder2')"
         autocomplete="off"
         aria-describedby="filter-search-hint"
         [value]="searchText()"
         (input)="onSearchInput($any($event.target).value)"
       />
-      <button type="submit" class="button button--secondary">Search</button>
+      <button type="submit" class="button button--secondary">{{ t('filter.search') }}</button>
     </div>
 
     <p class="filters__hint" id="filter-search-hint">
-      Results update as you type, from two characters. Enter searches straight away.
+      {{ t('filter.searchHint') }}
     </p>
   </form>
 
   <fieldset class="filters__group">
-    <legend class="filters__label">Status</legend>
+    <legend class="filters__label">{{ t('filter.status') }}</legend>
 
     @if (statuses().length === 0) {
-      <p class="filters__hint">Loading statuses…</p>
+      <p class="filters__hint">{{ t('filter.loadingStatuses') }}</p>
     } @else {
       <div class="filters__options">
         @for (status of statuses(); track status.id) {
@@ -52,10 +52,10 @@
   </fieldset>
 
   <fieldset class="filters__group">
-    <legend class="filters__label">Category</legend>
+    <legend class="filters__label">{{ t('filter.category') }}</legend>
 
     @if (categories().length === 0) {
-      <p class="filters__hint">Loading categories…</p>
+      <p class="filters__hint">{{ t('filter.loadingCategories') }}</p>
     } @else {
       <div class="filters__options">
         @for (category of categories(); track category.id) {
@@ -81,11 +81,11 @@
         [checked]="filters().mine"
         (change)="onMineToggle($any($event.target).checked)"
       />
-      <span class="toggle__label">Only my requests</span>
+      <span class="toggle__label">{{ t('filter.onlyMine') }}</span>
     </label>
 
     <div class="filters__sort">
-      <label class="filters__label" for="filter-sort">Sort by</label>
+      <label class="filters__label" for="filter-sort">{{ t('filter.sortBy') }}</label>
       <select
         id="filter-sort"
         class="filters__select"
@@ -94,7 +94,7 @@
       >
         @for (option of sortOptions; track option.value) {
           <option [value]="option.value" [selected]="option.value === filters().sort">
-            {{ option.label }}
+            {{ t(option.label) }}
           </option>
         }
       </select>
@@ -105,20 +105,23 @@
     <div class="filters__summary">
       <p class="filters__summary-text">
         @if (matchCount() === null) {
-          Filtering…
+          {{ t('filter.filtering') }}
         } @else {
-          <strong>{{ matchCount() }}</strong>
-          {{ matchCount() === 1 ? 'request matches' : 'requests match' }} these filters.
+          {{
+            matchCount() === 1
+              ? t('filter.matchCountOne')
+              : t('filter.matchCount', { count: matchCount() ?? 0 })
+          }}
         }
         <!-- Said plainly, because the shelf above has just disappeared and the
              reader is owed an explanation of where those requests went. -->
         <span class="filters__summary-note">
-          Pinned requests that match are listed first, not on the shelf.
+          {{ t('filter.pinnedNote') }}
         </span>
       </p>
 
       <button type="button" class="button button--secondary" (click)="clear()">
-        Clear all filters
+        {{ t('board.clearAll') }}
       </button>
     </div>
   }

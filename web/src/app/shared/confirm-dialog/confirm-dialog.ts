@@ -7,6 +7,7 @@ import {
   output,
   viewChild,
 } from '@angular/core';
+import { Translate } from '../../core/i18n/translate';
 
 /**
  * A modal confirmation.
@@ -32,12 +33,20 @@ import {
   },
 })
 export class ConfirmDialog {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   readonly title = input.required<string>();
   readonly body = input.required<string>();
 
-  /** The wording of the destructive action. Never "OK": say what happens. */
-  readonly confirmLabel = input('Delete');
-  readonly cancelLabel = input('Cancel');
+  /**
+   * The wording of the destructive action. Never "OK": say what happens.
+   *
+   * Both defaults are looked up rather than written, so a dialog opened without
+   * an explicit label still speaks the reader's language.
+   */
+  readonly confirmLabel = input(this.t('common.delete'));
+  readonly cancelLabel = input(this.t('common.cancel'));
 
   /** Disables both buttons while the action it confirmed is in flight. */
   readonly busy = input(false);

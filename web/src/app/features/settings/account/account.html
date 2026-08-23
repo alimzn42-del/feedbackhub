@@ -1,26 +1,28 @@
 <p class="account__back">
-  <a routerLink="/requests">← Back to the board</a>
+  <a routerLink="/requests">{{ t('common.backToBoard') }}</a>
 </p>
 
-<h1 class="account__title">Your account</h1>
+<h1 class="account__title">{{ t('account.title') }}</h1>
 
 @if (settings.isLoading() && rows().length === 0) {
-  <div class="account__state">Loading your settings…</div>
+  <div class="account__state">{{ t('account.loading') }}</div>
 } @else if (loadFailure(); as failure) {
   <div class="account__state account__state--error" role="alert">
-    <h2 class="account__state-title">Your settings could not be loaded</h2>
+    <h2 class="account__state-title">{{ t('account.loadFailed') }}</h2>
     <p>{{ failure.message }}</p>
     @if (failure.requestId) {
-      <p class="account__reference">Reference: {{ failure.requestId }}</p>
+      <p class="account__reference">{{ t('app.reference', { id: failure.requestId }) }}</p>
     }
-    <button type="button" class="button button--secondary" (click)="retry()">Try again</button>
+    <button type="button" class="button button--secondary" (click)="retry()">
+      {{ t('common.tryAgain') }}
+    </button>
   </div>
 } @else {
   <div class="visually-hidden" role="status" aria-live="polite">
     @if (saving()) {
-      Saving.
+      {{ t('common.savingNow') }}
     } @else if (saved()) {
-      Saved.
+      {{ t('common.saved') }}
     }
   </div>
 
@@ -29,7 +31,7 @@
   }
 
   <section class="account__section">
-    <h2>Who you are</h2>
+    <h2>{{ t('account.whoYouAre') }}</h2>
 
     <!-- (submit) with preventDefault, not (ngSubmit): this is a bare form with
          standalone controls, and ngSubmit is an output of NgForm that nothing
@@ -37,7 +39,7 @@
          reload the page. -->
     <form class="account__name" (submit)="$event.preventDefault(); saveName()">
       <div class="field">
-        <label class="field__label" for="displayName">Display name</label>
+        <label class="field__label" for="displayName">{{ t('account.displayName') }}</label>
         <input
           id="displayName"
           class="field__input"
@@ -47,21 +49,22 @@
           [attr.aria-invalid]="displayName.touched && displayName.invalid ? 'true' : null"
         />
         @if (displayName.touched && displayName.hasError('required')) {
-          <p class="field__error">A display name is required.</p>
+          <p class="field__error">{{ t('account.displayNameRequired') }}</p>
         }
       </div>
 
       <p class="setting__description">
-        Your email is {{ config.user()?.email }}. It comes from the account you signed in with and
-        is not editable here.
+        {{ t('account.emailNote', { email: config.user()?.email ?? '' }) }}
       </p>
 
-      <button type="submit" class="button" [disabled]="saving()">Save name</button>
+      <button type="submit" class="button" [disabled]="saving()">
+        {{ t('account.saveName') }}
+      </button>
     </form>
   </section>
 
   <section class="account__section">
-    <h2>How the board looks</h2>
+    <h2>{{ t('account.looks') }}</h2>
 
     @for (setting of presentation(); track setting.key) {
       <app-setting-control
@@ -74,14 +77,13 @@
   </section>
 
   <section class="account__section">
-    <h2>How the board opens for you</h2>
+    <h2>{{ t('account.opens') }}</h2>
 
     <!-- The same three settings an admin sets for everybody. Saying so is what
          stops this reading as the administrative screen repeated: these are
          yours, and yours win. -->
     <p class="setting__description">
-      Your own starting point, which overrides whatever the board is set to. Leave one on the board
-      default and it follows the admin's choice as that changes.
+      {{ t('account.opensNote') }}
     </p>
 
     @for (setting of boardDefaults(); track setting.key) {
@@ -95,11 +97,10 @@
   </section>
 
   <section class="account__section">
-    <h2>Email</h2>
+    <h2>{{ t('account.email') }}</h2>
 
     <p class="setting__description">
-      These are recorded against the day this application can send mail. Nothing sends any today,
-      and this screen would rather say so than imply otherwise.
+      {{ t('account.emailIntro') }}
     </p>
 
     @for (setting of notifications(); track setting.key) {
@@ -112,7 +113,7 @@
   </section>
 
   <section class="account__section account__section--danger">
-    <h2>Delete your account</h2>
+    <h2>{{ t('account.deleteHeading') }}</h2>
 
     <!--
       Said plainly, before the button, and again in the dialog. This is
@@ -120,14 +121,14 @@
       deletion to erase their comments and finds them still there has been
       misled by an interface that was too brief to be honest.
     -->
-    <p>Deleting your account cannot be undone. Here is exactly what happens:</p>
+    <p>{{ t('account.deleteIntro') }}</p>
 
     <ul class="account__consequences">
-      <li>Your name and email are erased from this board.</li>
-      <li>Your requests and comments stay, shown as written by a deleted user.</li>
-      <li>Votes you cast stay counted.</li>
-      <li>Your preferences on this screen are deleted.</li>
-      <li>You cannot sign in again with this account.</li>
+      <li>{{ t('account.deleteName') }}</li>
+      <li>{{ t('account.deleteContent') }}</li>
+      <li>{{ t('account.deleteVotes') }}</li>
+      <li>{{ t('account.deletePrefs') }}</li>
+      <li>{{ t('account.deleteSignIn') }}</li>
     </ul>
 
     <button
@@ -136,15 +137,15 @@
       [disabled]="saving()"
       (click)="confirmingDeletion.set(true)"
     >
-      Delete my account
+      {{ t('account.deleteButton') }}
     </button>
   </section>
 
   @if (confirmingDeletion()) {
     <app-confirm-dialog
-      title="Delete your account?"
-      body="Your name and email are erased and you cannot sign in again. Your requests and comments stay on the board, shown as written by a deleted user, and your votes stay counted. This cannot be undone."
-      confirmLabel="Delete my account"
+      [title]="t('account.deleteTitle')"
+      [body]="t('account.deleteBody')"
+      [confirmLabel]="t('account.deleteButton')"
       [busy]="saving()"
       (confirmed)="confirmDeletion()"
       (cancelled)="confirmingDeletion.set(false)"

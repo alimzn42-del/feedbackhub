@@ -1,40 +1,42 @@
 <p class="admin__back">
-  <a routerLink="/requests">← Back to the board</a>
+  <a routerLink="/requests">{{ t('common.backToBoard') }}</a>
 </p>
 
-<h1 class="admin__title">Categories and statuses</h1>
+<h1 class="admin__title">{{ t('taxonomy.title') }}</h1>
 
 @if (isLoading()) {
-  <div class="admin__state">Loading the taxonomy…</div>
+  <div class="admin__state">{{ t('taxonomy.loading') }}</div>
 } @else if (refused()) {
   <div class="admin__state admin__state--error" role="alert">
-    <h2 class="admin__state-title">This screen is for admins</h2>
+    <h2 class="admin__state-title">{{ t('admin.forAdmins') }}</h2>
     <!-- The server's own words. The screen being hidden from the navigation is
          a courtesy; this is what happens when somebody types the URL anyway,
          and it is the same refusal the endpoints give. -->
     <p>{{ loadFailure()?.message }}</p>
-    <a class="button button--secondary" routerLink="/requests">Back to the board</a>
+    <a class="button button--secondary" routerLink="/requests">{{ t('common.backToBoard') }}</a>
   </div>
 } @else if (loadFailure(); as failure) {
   <div class="admin__state admin__state--error" role="alert">
-    <h2 class="admin__state-title">The taxonomy could not be loaded</h2>
+    <h2 class="admin__state-title">{{ t('taxonomy.loadFailed') }}</h2>
     <p>{{ failure.message }}</p>
     @if (failure.requestId) {
-      <p class="admin__reference">Reference: {{ failure.requestId }}</p>
+      <p class="admin__reference">{{ t('app.reference', { id: failure.requestId }) }}</p>
     }
-    <button type="button" class="button button--secondary" (click)="retry()">Try again</button>
+    <button type="button" class="button button--secondary" (click)="retry()">
+      {{ t('common.tryAgain') }}
+    </button>
   </div>
 } @else {
   <p class="admin__intro">
-    The order set here is the order these appear in everywhere: the filters, the create form and
-    the status selector on a request.
+    The order set here is the order these appear in everywhere: the filters, the create form and the
+    status selector on a request.
   </p>
 
   <div class="visually-hidden" role="status" aria-live="polite">
     @if (isBusy('categories')) {
-      Saving a change to the categories.
+      {{ t('taxonomy.savingCategories') }}
     } @else if (isBusy('statuses')) {
-      Saving a change to the statuses.
+      {{ t('taxonomy.savingStatuses') }}
     }
   </div>
 
@@ -43,7 +45,7 @@
   }
 
   <app-taxonomy-table
-    heading="Categories"
+    [heading]="t('taxonomy.categories')"
     noun="category"
     [rows]="categoryRows()"
     [retirable]="true"
@@ -61,7 +63,7 @@
        status is a position requests are sitting in, and retiring one would
        strand them somewhere that no longer exists. -->
   <app-taxonomy-table
-    heading="Statuses"
+    [heading]="t('taxonomy.statuses')"
     noun="status"
     [rows]="statusRows()"
     [hasDefault]="true"
@@ -77,9 +79,9 @@
 
 @if (retiring(); as row) {
   <app-confirm-dialog
-    [title]="'Retire ' + row.name + '?'"
+    [title]="t('taxonomy.retireTitle', { name: row.name })"
     [body]="retireBody()"
-    confirmLabel="Retire it"
+    [confirmLabel]="t('taxonomy.retireConfirm')"
     [busy]="pendingId() === row.id"
     (confirmed)="confirmRetire()"
     (cancelled)="cancelRetire()"

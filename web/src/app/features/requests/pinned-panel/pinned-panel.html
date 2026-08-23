@@ -6,10 +6,10 @@
           <path d="M9 3h6l-1 6 4 3v2H6v-2l4-3-1-6Z" />
           <path d="M12 14v7" />
         </svg>
-        Pinned
+        {{ t('pinned.title') }}
         <span class="pinned__count">{{ total() }}</span>
       </h2>
-      <p class="pinned__note">Kept at the top by an admin, regardless of votes.</p>
+      <p class="pinned__note">{{ t('pinned.note') }}</p>
     </header>
 
     <ul class="pinned__list" [class.pinned__list--scroll]="expanded()">
@@ -36,14 +36,19 @@
             </p>
 
             <p class="pinned__attribution">
-              <svg class="pinned__attribution-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <svg
+                class="pinned__attribution-icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
                 <path d="M9 3h6l-1 6 4 3v2H6v-2l4-3-1-6Z" />
                 <path d="M12 14v7" />
               </svg>
               @if (request.pinnedBy) {
-                Pinned by {{ request.pinnedBy.displayName }}
+                {{ t('pinned.pinnedBy', { name: request.pinnedBy.displayName }) }}
               } @else {
-                Pinned
+                {{ t('board.pinned') }}
               }
               @if (request.pinnedAt) {
                 <span aria-hidden="true">·</span>
@@ -83,11 +88,11 @@
               <button
                 type="button"
                 class="pinned__unpin"
-                [attr.aria-label]="'Unpin ' + request.title"
+                [attr.aria-label]="t('pinned.unpinLabel', { title: request.title })"
                 [disabled]="isBusy(request.id)"
                 (click)="unpin.emit(request)"
               >
-                Unpin
+                {{ t('pinned.unpin') }}
               </button>
             }
           </div>
@@ -104,9 +109,9 @@
         (click)="toggle()"
       >
         @if (expanded()) {
-          Show less
+          {{ t('pinned.showLess') }}
         } @else {
-          Show {{ expandable() }} more
+          {{ t('pinned.showMore', { count: expandable() }) }}
         }
       </button>
     }

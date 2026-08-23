@@ -1,6 +1,6 @@
 <section class="thread" aria-labelledby="thread-heading">
   <h2 class="thread__heading" id="thread-heading">
-    Discussion
+    {{ t('comment.heading') }}
     @if (thread.hasValue()) {
       <span class="thread__count">{{ total() }}</span>
     }
@@ -11,15 +11,14 @@
   }
 
   <form class="composer" (submit)="submitComment($event)" novalidate>
-    <label class="visually-hidden" for="new-comment">Add a comment</label>
+    <label class="visually-hidden" for="new-comment">{{ t('comment.add') }}</label>
 
     @if (awaitsApproval()) {
       <!-- Said before they write it, not after they post it. Being told your
            comment is waiting only once it has vanished from the page reads as a
            failure rather than as a rule. -->
       <p class="composer__notice">
-        Comments on this board are approved by an admin before anybody else sees them. Yours will
-        be visible to you while it waits.
+        {{ t('comment.awaitingApproval') }}
       </p>
     }
 
@@ -27,7 +26,7 @@
       id="new-comment"
       class="composer__input"
       rows="3"
-      placeholder="Add to the discussion…"
+      [placeholder]="t('comment.placeholder')"
       [formControl]="newComment"
       [attr.maxlength]="limits.BODY_MAX"
       [attr.aria-invalid]="errorFor(newComment) ? 'true' : null"
@@ -40,23 +39,23 @@
 
     <div class="composer__actions">
       <button type="submit" class="button" [disabled]="busy()">
-        {{ busy() ? 'Posting…' : 'Comment' }}
+        {{ busy() ? t('comment.posting') : t('comment.post') }}
       </button>
     </div>
   </form>
 
   @if (thread.isLoading()) {
-    <p class="thread__state">Loading the discussion…</p>
+    <p class="thread__state">{{ t('comment.loading') }}</p>
   } @else if (loadFailure(); as problem) {
     <div class="thread__state thread__state--error" role="alert">
       <p>{{ problem.message }}</p>
       <button type="button" class="button button--secondary" (click)="thread.reload()">
-        Try again
+        {{ t('common.tryAgain') }}
       </button>
     </div>
   } @else if (comments().length === 0) {
     <p class="thread__state">
-      No comments yet. If this request needs detail or a counter-argument, this is where it goes.
+      {{ t('comment.emptyLong') }}
     </p>
   } @else {
     <ul class="thread__list">
@@ -73,18 +72,26 @@
                 comment.createdAt | date: 'medium' : undefined : locale()
               }}</time>
               @if (comment.editedAt) {
-                <span class="comment__edited" title="This comment was edited">edited</span>
+                <span class="comment__edited" [title]="t('comment.editedTitle')">{{
+                  t('comment.edited')
+                }}</span>
               }
               <!-- Only ever true on your own, or to an admin: nobody else is
                    sent a comment that is still waiting. -->
               @if (comment.isPending) {
-                <span class="pending-flag">Waiting for approval</span>
+                <span class="pending-flag">{{ t('comment.pending') }}</span>
               }
             </p>
 
             @if (editing() === comment.id) {
-              <form class="composer composer--inline" (submit)="submitEdit($event, comment)" novalidate>
-                <label class="visually-hidden" [attr.for]="'edit-' + comment.id">Edit comment</label>
+              <form
+                class="composer composer--inline"
+                (submit)="submitEdit($event, comment)"
+                novalidate
+              >
+                <label class="visually-hidden" [attr.for]="'edit-' + comment.id">{{
+                  t('comment.editComment')
+                }}</label>
                 <textarea
                   [id]="'edit-' + comment.id"
                   class="composer__input"
@@ -96,9 +103,11 @@
                   <p class="field__error">{{ message }}</p>
                 }
                 <div class="composer__actions">
-                  <button type="submit" class="button" [disabled]="busy()">Save</button>
+                  <button type="submit" class="button" [disabled]="busy()">
+                    {{ t('common.save') }}
+                  </button>
                   <button type="button" class="button button--secondary" (click)="cancel()">
-                    Cancel
+                    {{ t('common.cancel') }}
                   </button>
                 </div>
               </form>
@@ -108,12 +117,12 @@
               <div class="comment__actions">
                 @if (comment.canReply) {
                   <button type="button" class="link-button" (click)="openReply(comment)">
-                    Reply
+                    {{ t('comment.reply') }}
                   </button>
                 }
                 @if (comment.canEdit) {
                   <button type="button" class="link-button" (click)="openEdit(comment)">
-                    Edit
+                    {{ t('common.edit') }}
                   </button>
                 }
                 @if (comment.canDelete) {
@@ -123,7 +132,7 @@
                     [disabled]="busy()"
                     (click)="remove(comment)"
                   >
-                    Delete
+                    {{ t('common.delete') }}
                   </button>
                 }
               </div>
@@ -131,7 +140,11 @@
           }
 
           @if (replyingTo() === comment.id) {
-            <form class="composer composer--inline" (submit)="submitReply($event, comment)" novalidate>
+            <form
+              class="composer composer--inline"
+              (submit)="submitReply($event, comment)"
+              novalidate
+            >
               <label class="visually-hidden" [attr.for]="'reply-' + comment.id">
                 Reply to {{ comment.author?.displayName }}
               </label>
@@ -139,7 +152,7 @@
                 [id]="'reply-' + comment.id"
                 class="composer__input"
                 rows="2"
-                placeholder="Write a reply…"
+                [placeholder]="t('comment.replyPlaceholder')"
                 [formControl]="replyBody"
                 [attr.maxlength]="limits.BODY_MAX"
               ></textarea>
@@ -147,7 +160,9 @@
                 <p class="field__error">{{ message }}</p>
               }
               <div class="composer__actions">
-                <button type="submit" class="button" [disabled]="busy()">Reply</button>
+                <button type="submit" class="button" [disabled]="busy()">
+                  {{ t('comment.reply') }}
+                </button>
                 <button type="button" class="button button--secondary" (click)="cancel()">
                   Cancel
                 </button>
@@ -169,16 +184,24 @@
                         reply.createdAt | date: 'medium' : undefined : locale()
                       }}</time>
                       @if (reply.editedAt) {
-                        <span class="comment__edited" title="This reply was edited">edited</span>
+                        <span class="comment__edited" [title]="t('comment.editedReplyTitle')">{{
+                          t('comment.edited')
+                        }}</span>
                       }
                       @if (reply.isPending) {
-                        <span class="pending-flag">Waiting for approval</span>
+                        <span class="pending-flag">{{ t('comment.pending') }}</span>
                       }
                     </p>
 
                     @if (editing() === reply.id) {
-                      <form class="composer composer--inline" (submit)="submitEdit($event, reply)" novalidate>
-                        <label class="visually-hidden" [attr.for]="'edit-' + reply.id">Edit reply</label>
+                      <form
+                        class="composer composer--inline"
+                        (submit)="submitEdit($event, reply)"
+                        novalidate
+                      >
+                        <label class="visually-hidden" [attr.for]="'edit-' + reply.id">{{
+                          t('comment.editReply')
+                        }}</label>
                         <textarea
                           [id]="'edit-' + reply.id"
                           class="composer__input"
@@ -187,9 +210,11 @@
                           [attr.maxlength]="limits.BODY_MAX"
                         ></textarea>
                         <div class="composer__actions">
-                          <button type="submit" class="button" [disabled]="busy()">Save</button>
+                          <button type="submit" class="button" [disabled]="busy()">
+                            {{ t('common.save') }}
+                          </button>
                           <button type="button" class="button button--secondary" (click)="cancel()">
-                            Cancel
+                            {{ t('common.cancel') }}
                           </button>
                         </div>
                       </form>
@@ -200,7 +225,7 @@
                       <div class="comment__actions">
                         @if (reply.canEdit) {
                           <button type="button" class="link-button" (click)="openEdit(reply)">
-                            Edit
+                            {{ t('common.edit') }}
                           </button>
                         }
                         @if (reply.canDelete) {
@@ -210,7 +235,7 @@
                             [disabled]="busy()"
                             (click)="remove(reply)"
                           >
-                            Delete
+                            {{ t('common.delete') }}
                           </button>
                         }
                       </div>

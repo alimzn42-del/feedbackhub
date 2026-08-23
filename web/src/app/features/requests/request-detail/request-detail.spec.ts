@@ -116,7 +116,10 @@ describe('RequestDetail actions', () => {
     return fixture;
   }
 
-  function button(fixture: { nativeElement: HTMLElement }, label: string): HTMLButtonElement | null {
+  function button(
+    fixture: { nativeElement: HTMLElement },
+    label: string,
+  ): HTMLButtonElement | null {
     return (
       (Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[]).find(
         (candidate) => candidate.textContent?.trim().startsWith(label),
@@ -195,7 +198,11 @@ describe('RequestDetail actions', () => {
     });
 
     sent.flush({
-      data: detail({ canEdit: true, title: 'Dark mode for the entire board', editedAt: '2026-08-22T09:00:00.000Z' }),
+      data: detail({
+        canEdit: true,
+        title: 'Dark mode for the entire board',
+        editedAt: '2026-08-22T09:00:00.000Z',
+      }),
     });
     await settle();
     fixture.detectChanges();
@@ -279,14 +286,16 @@ describe('RequestDetail actions', () => {
     // turn later, so the refetch does not exist until then.
     await settle();
 
-    http.expectOne((r) => r.url === '/api/requests/7').flush({
-      data: detail({
-        canPin: true,
-        isPinned: true,
-        pinnedBy: { id: 9, displayName: 'Robin Alvarez' },
-        pinnedAt: '2026-08-22T09:00:00.000Z',
-      }),
-    });
+    http
+      .expectOne((r) => r.url === '/api/requests/7')
+      .flush({
+        data: detail({
+          canPin: true,
+          isPinned: true,
+          pinnedBy: { id: 9, displayName: 'Robin Alvarez' },
+          pinnedAt: '2026-08-22T09:00:00.000Z',
+        }),
+      });
 
     await settle();
     fixture.detectChanges();
@@ -333,10 +342,12 @@ describe('RequestDetail actions', () => {
     confirm.click();
     await settle();
 
-    http.expectOne((r) => r.url === '/api/requests/7' && r.method === 'DELETE').flush(null, {
-      status: 204,
-      statusText: 'No Content',
-    });
+    http
+      .expectOne((r) => r.url === '/api/requests/7' && r.method === 'DELETE')
+      .flush(null, {
+        status: 204,
+        statusText: 'No Content',
+      });
     await settle();
 
     expect(navigate).toHaveBeenCalledWith(['/requests']);
@@ -354,16 +365,18 @@ describe('RequestDetail actions', () => {
     button(fixture, 'Update status')!.click();
     await settle();
 
-    http.expectOne((r) => r.url === '/api/requests/7/status').flush(
-      {
-        error: {
-          code: 'FORBIDDEN',
-          message: 'Only an admin can change a request status.',
-          requestId: 'abc-123',
+    http
+      .expectOne((r) => r.url === '/api/requests/7/status')
+      .flush(
+        {
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Only an admin can change a request status.',
+            requestId: 'abc-123',
+          },
         },
-      },
-      { status: 403, statusText: 'Forbidden' },
-    );
+        { status: 403, statusText: 'Forbidden' },
+      );
     await settle();
     fixture.detectChanges();
 
@@ -377,12 +390,14 @@ describe('RequestDetail actions', () => {
     button(fixture, 'Pin to the board')!.click();
     await settle();
 
-    http.expectOne((r) => r.url === '/api/requests/7/pin').flush(
-      {
-        error: { code: 'NOT_FOUND', message: 'That request does not exist.', requestId: 'x' },
-      },
-      { status: 404, statusText: 'Not Found' },
-    );
+    http
+      .expectOne((r) => r.url === '/api/requests/7/pin')
+      .flush(
+        {
+          error: { code: 'NOT_FOUND', message: 'That request does not exist.', requestId: 'x' },
+        },
+        { status: 404, statusText: 'Not Found' },
+      );
     await settle();
     fixture.detectChanges();
 

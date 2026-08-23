@@ -1,4 +1,12 @@
-import { Component, DestroyRef, computed, inject, input, linkedSignal, output } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  input,
+  linkedSignal,
+  output,
+} from '@angular/core';
 import { SORT_OPTIONS, type SortOption, type TaxonomyRef } from '../../../core/api/api.types';
 import {
   SEARCH_DEBOUNCE_MS,
@@ -7,12 +15,19 @@ import {
   toggleValue,
   type BoardFilters,
 } from '../data/board-filters';
+import { Translate } from '../../../core/i18n/translate';
+import type { MessageKey } from '../../../core/i18n/messages';
 
-/** The label shown against each ordering. The values are the API's. */
-const SORT_LABELS: Record<SortOption, string> = {
-  newest: 'Newest first',
-  oldest: 'Oldest first',
-  votes: 'Most voted',
+/**
+ * The catalogue key for each ordering. The values are the API's.
+ *
+ * Keys rather than words, so the select re-labels itself when somebody changes
+ * language instead of holding whatever English it was built with.
+ */
+const SORT_LABEL_KEYS: Record<SortOption, MessageKey> = {
+  newest: 'filter.sortNewest',
+  oldest: 'filter.sortOldest',
+  votes: 'filter.sortVotes',
 };
 
 /** The default leads, so the list reads in the order somebody meets it. */
@@ -38,6 +53,9 @@ const SORT_ORDER: readonly SortOption[] = ['newest', 'votes', 'oldest'];
   styleUrl: './filter-bar.scss',
 })
 export class FilterBar {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   readonly filters = input.required<BoardFilters>();
 
   /** The options an admin curates. Empty while they are still loading. */
@@ -59,9 +77,15 @@ export class FilterBar {
   /** A complete replacement for the current state. The parent navigates. */
   readonly changed = output<BoardFilters>();
 
+  /**
+   * The orderings, as catalogue keys rather than words.
+   *
+   * The label is looked up when it is rendered, so changing language re-labels
+   * the select without this list being rebuilt.
+   */
   protected readonly sortOptions = SORT_ORDER.map((value) => ({
     value,
-    label: SORT_LABELS[value],
+    label: SORT_LABEL_KEYS[value],
   }));
 
   private readonly destroyRef = inject(DestroyRef);

@@ -1,34 +1,36 @@
 <p class="admin__back">
-  <a routerLink="/requests">← Back to the board</a>
+  <a routerLink="/requests">{{ t('common.backToBoard') }}</a>
 </p>
 
-<h1 class="admin__title">Application settings</h1>
+<h1 class="admin__title">{{ t('admin.settingsTitle') }}</h1>
 
 @if (settings.isLoading() && rows().length === 0) {
-  <div class="admin__state">Loading the settings…</div>
+  <div class="admin__state">{{ t('admin.settingsLoading') }}</div>
 } @else if (refused()) {
   <div class="admin__state admin__state--error" role="alert">
-    <h2 class="admin__state-title">This screen is for admins</h2>
+    <h2 class="admin__state-title">{{ t('admin.forAdmins') }}</h2>
     <!-- The server's own words. Being hidden from the navigation was never the
          guarantee; this is what happens when somebody types the URL. -->
     <p>{{ loadFailure()?.message }}</p>
-    <a class="button button--secondary" routerLink="/requests">Back to the board</a>
+    <a class="button button--secondary" routerLink="/requests">{{ t('common.backToBoard') }}</a>
   </div>
 } @else if (loadFailure(); as failure) {
   <div class="admin__state admin__state--error" role="alert">
-    <h2 class="admin__state-title">The settings could not be loaded</h2>
+    <h2 class="admin__state-title">{{ t('admin.settingsLoadFailed') }}</h2>
     <p>{{ failure.message }}</p>
     @if (failure.requestId) {
-      <p class="admin__reference">Reference: {{ failure.requestId }}</p>
+      <p class="admin__reference">{{ t('app.reference', { id: failure.requestId }) }}</p>
     }
-    <button type="button" class="button button--secondary" (click)="retry()">Try again</button>
+    <button type="button" class="button button--secondary" (click)="retry()">
+      {{ t('common.tryAgain') }}
+    </button>
   </div>
 } @else {
   <div class="visually-hidden" role="status" aria-live="polite">
     @if (saving()) {
-      Saving.
+      {{ t('common.savingNow') }}
     } @else if (saved()) {
-      Saved.
+      {{ t('common.saved') }}
     }
   </div>
 
@@ -37,10 +39,9 @@
   }
 
   <section class="admin__section">
-    <h2>Who may create an account</h2>
+    <h2>{{ t('admin.registration') }}</h2>
     <p class="setting__description">
-      Checked when somebody arrives for the first time. Signing in successfully and being admitted
-      here are two different decisions, and this is the second one.
+      {{ t('admin.registrationNote') }}
     </p>
 
     @for (setting of registration(); track setting.key) {
@@ -54,7 +55,7 @@
   </section>
 
   <section class="admin__section">
-    <h2>Comments</h2>
+    <h2>{{ t('admin.comments') }}</h2>
 
     @for (setting of moderation(); track setting.key) {
       <app-setting-control
@@ -72,13 +73,13 @@
     -->
     @if (pendingComments().length > 0) {
       <h3 class="admin__queue-title">
-        Waiting for approval
+        {{ t('admin.queue') }}
         <span class="admin__count">{{ pendingTotal() }}</span>
       </h3>
 
       @if (!approvalOn()) {
         <p class="setting__description">
-          Approval is off, so these are visible to everybody already. Approving one just settles it.
+          {{ t('admin.queueOpenNote') }}
         </p>
       }
 
@@ -87,7 +88,7 @@
           <li class="admin__queued">
             <p class="admin__queued-meta">
               <strong>{{ comment.author.displayName }}</strong>
-              on
+              {{ t('admin.on') }}
               <a [routerLink]="['/requests', comment.requestId]">{{ comment.requestTitle }}</a>
             </p>
             <!-- The words themselves. A moderation decision made without reading
@@ -99,18 +100,18 @@
               [disabled]="saving()"
               (click)="approve(comment.id)"
             >
-              Approve
+              {{ t('admin.approve') }}
             </button>
           </li>
         }
       </ul>
     } @else if (approvalOn()) {
-      <p class="setting__description">Nothing is waiting.</p>
+      <p class="setting__description">{{ t('admin.queueEmpty') }}</p>
     }
   </section>
 
   <section class="admin__section">
-    <h2>How often anybody may post</h2>
+    <h2>{{ t('admin.limits') }}</h2>
 
     @for (setting of limits(); track setting.key) {
       <app-setting-control
@@ -123,10 +124,9 @@
   </section>
 
   <section class="admin__section">
-    <h2>How the board opens for everybody</h2>
+    <h2>{{ t('admin.boardDefaults') }}</h2>
     <p class="setting__description">
-      The starting point for everybody who has not chosen their own. The same three settings appear
-      on each person's own account screen, and a choice made there wins over what is set here.
+      {{ t('admin.boardDefaultsNote') }}
     </p>
 
     @for (setting of boardDefaults(); track setting.key) {

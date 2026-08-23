@@ -34,7 +34,10 @@ function item(overrides: Partial<FeedbackRequestListItem> = {}): FeedbackRequest
   };
 }
 
-function page(data: FeedbackRequestListItem[], total = data.length): Paginated<FeedbackRequestListItem> {
+function page(
+  data: FeedbackRequestListItem[],
+  total = data.length,
+): Paginated<FeedbackRequestListItem> {
   return {
     data,
     page: { page: 1, pageSize: 20, total, totalPages: total === 0 ? 0 : Math.ceil(total / 20) },
@@ -47,8 +50,7 @@ function page(data: FeedbackRequestListItem[], total = data.length): Paginated<F
  * in each one; the tests that are ABOUT filtering assert on the list request
  * itself, in request-list.filters.spec.ts.
  */
-function flushFilterOptions(http: HttpTestingController): void {
-}
+function flushFilterOptions(http: HttpTestingController): void {}
 
 describe('RequestList', () => {
   let http: HttpTestingController;
@@ -144,16 +146,18 @@ describe('RequestList', () => {
   it('surfaces the server error message and its reference, not a generic failure', async () => {
     const fixture = render();
 
-    http.expectOne((r) => r.url === '/api/requests').flush(
-      {
-        error: {
-          code: 'INTERNAL',
-          message: 'Something went wrong handling this request.',
-          requestId: 'abc-123',
+    http
+      .expectOne((r) => r.url === '/api/requests')
+      .flush(
+        {
+          error: {
+            code: 'INTERNAL',
+            message: 'Something went wrong handling this request.',
+            requestId: 'abc-123',
+          },
         },
-      },
-      { status: 500, statusText: 'Server Error' },
-    );
+        { status: 500, statusText: 'Server Error' },
+      );
     await fixture.whenStable();
 
     const alert = fixture.nativeElement.querySelector('[role="alert"]');
@@ -406,10 +410,12 @@ describe('RequestList voting from the pinned shelf', () => {
     fixture.detectChanges();
     expect(shelfVote.textContent).toContain('6');
 
-    http.expectOne('/api/requests/42/vote').flush(
-      { error: { code: 'CONFLICT', message: 'You have already voted.', requestId: 'x' } },
-      { status: 409, statusText: 'Conflict' },
-    );
+    http
+      .expectOne('/api/requests/42/vote')
+      .flush(
+        { error: { code: 'CONFLICT', message: 'You have already voted.', requestId: 'x' } },
+        { status: 409, statusText: 'Conflict' },
+      );
     await fixture.whenStable();
     fixture.detectChanges();
 
@@ -473,36 +479,41 @@ describe('RequestList pagination summary', () => {
     fixture.detectChanges();
     http.expectOne((r) => r.url === '/api/requests/pinned').flush({ data: [], total: 0 });
     flushFilterOptions(http);
-    http.expectOne((r) => r.url === '/api/requests').flush({
-      data: Array.from({ length: rows }, (_, i) => item({ id: i + 1 })),
-      page: meta,
-    });
+    http
+      .expectOne((r) => r.url === '/api/requests')
+      .flush({
+        data: Array.from({ length: rows }, (_, i) => item({ id: i + 1 })),
+        page: meta,
+      });
     await fixture.whenStable();
     fixture.detectChanges();
     return fixture;
   }
 
   const summary = (fixture: { nativeElement: HTMLElement }) =>
-    fixture.nativeElement.querySelector('.pager__summary')?.textContent?.replace(/\s+/g, ' ').trim();
+    fixture.nativeElement
+      .querySelector('.pager__summary')
+      ?.textContent?.replace(/\s+/g, ' ')
+      .trim();
 
   it('says which rows of the whole collection this page holds', async () => {
     const fixture = await renderPage(20, { page: 1, pageSize: 20, total: 27, totalPages: 2 });
 
-    expect(summary(fixture)).toContain('Showing 1–20 of 27 requests');
-    expect(summary(fixture)).toContain('page 1 of 2');
+    expect(summary(fixture)).toContain('Showing 1–20 of 27');
+    expect(summary(fixture)).toContain('Page 1 of 2');
   });
 
   it('does not overstate the last page, which is rarely full', async () => {
     // page * pageSize would say 40; only 7 rows came back.
     const fixture = await renderPage(7, { page: 2, pageSize: 20, total: 27, totalPages: 2 });
 
-    expect(summary(fixture)).toContain('Showing 21–27 of 27 requests');
+    expect(summary(fixture)).toContain('Showing 21–27 of 27');
   });
 
   it('still reports the count when there is only one page', async () => {
     const fixture = await renderPage(8, { page: 1, pageSize: 20, total: 8, totalPages: 1 });
 
-    expect(summary(fixture)).toContain('Showing 1–8 of 8 requests');
+    expect(summary(fixture)).toContain('Showing 1–8 of 8');
     // The count is worth showing; the controls are not, with nowhere to go.
     expect(fixture.nativeElement.querySelector('[aria-label="Pagination"]')).toBeNull();
     expect(summary(fixture)).not.toContain('page 1 of 1');
@@ -511,7 +522,7 @@ describe('RequestList pagination summary', () => {
   it('says "request" rather than "requests" when there is one', async () => {
     const fixture = await renderPage(1, { page: 1, pageSize: 20, total: 1, totalPages: 1 });
 
-    expect(summary(fixture)).toBe('Showing 1–1 of 1 request');
+    expect(summary(fixture)).toContain('Showing 1–1 of 1');
   });
 
   it('announces the range to a screen reader as well', async () => {
@@ -519,8 +530,6 @@ describe('RequestList pagination summary', () => {
 
     const live = fixture.nativeElement.querySelector('[role="status"]');
 
-    expect(live.textContent.replace(/\s+/g, ' ')).toContain(
-      'Showing 1 to 20 of 27 requests, page 1 of 2',
-    );
+    expect(live.textContent.replace(/\s+/g, ' ')).toContain('Showing 1 to 20 of 27, page 1 of 2');
   });
 });

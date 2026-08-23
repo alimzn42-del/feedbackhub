@@ -147,7 +147,7 @@ export interface Bootstrap {
 }
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
-export type LanguageChoice = 'en' | 'fr' | 'de';
+export type LanguageChoice = 'en' | 'fr';
 
 export interface AuthorRef {
   id: number;

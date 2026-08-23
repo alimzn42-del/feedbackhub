@@ -19,6 +19,7 @@ import type {
   CommentThread as CommentThreadPayload,
   Wrapped,
 } from '../../../core/api/api.types';
+import { Translate } from '../../../core/i18n/translate';
 
 const BODY_MAX = 5000;
 
@@ -40,6 +41,9 @@ function notBlank(control: AbstractControl): ValidationErrors | null {
   styleUrl: './comment-thread.scss',
 })
 export class CommentThread {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   private readonly api = inject(CommentsApi);
 
   readonly requestId = input.required<number>();
@@ -284,11 +288,11 @@ export class CommentThread {
   protected tombstone(comment: Comment): string {
     switch (comment.deletedReason) {
       case 'moderator':
-        return 'An admin removed this comment.';
+        return this.t('comment.removedByAdmin');
       case 'with-parent':
-        return 'Removed along with the comment it replied to.';
+        return this.t('comment.removedWithParentLong');
       default:
-        return 'The author removed this comment.';
+        return this.t('comment.removedByAuthor');
     }
   }
 

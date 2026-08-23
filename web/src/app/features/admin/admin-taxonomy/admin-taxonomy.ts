@@ -3,14 +3,16 @@ import { httpResource } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import type { Observable } from 'rxjs';
 import { TaxonomyApi } from '../data/taxonomy.api';
-import { TaxonomyTable, type CreateIntent, type RenameIntent, type TaxonomyRow } from '../taxonomy-table/taxonomy-table';
+import {
+  TaxonomyTable,
+  type CreateIntent,
+  type RenameIntent,
+  type TaxonomyRow,
+} from '../taxonomy-table/taxonomy-table';
 import { ConfirmDialog } from '../../../shared/confirm-dialog/confirm-dialog';
 import { toApiError, type ApiError } from '../../../core/api/api-error';
-import type {
-  CategoryAdminRow,
-  StatusAdminRow,
-  Wrapped,
-} from '../../../core/api/api.types';
+import type { CategoryAdminRow, StatusAdminRow, Wrapped } from '../../../core/api/api.types';
+import { Translate } from '../../../core/i18n/translate';
 
 /** Which taxonomy an error or a pending action belongs to. */
 type Which = 'categories' | 'statuses';
@@ -29,6 +31,9 @@ type Which = 'categories' | 'statuses';
   styleUrl: './admin-taxonomy.scss',
 })
 export class AdminTaxonomy {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   private readonly api = inject(TaxonomyApi);
 
   private readonly tables = viewChildren(TaxonomyTable);
@@ -122,10 +127,12 @@ export class AdminTaxonomy {
 
     const usage =
       row.requestCount === 0
-        ? 'Nothing uses it yet.'
-        : `${row.requestCount} ${row.requestCount === 1 ? 'request keeps' : 'requests keep'} it and go on showing it.`;
+        ? this.t('taxonomy.retireUnused')
+        : row.requestCount === 1
+          ? this.t('taxonomy.retireUsedOne')
+          : this.t('taxonomy.retireUsed', { count: row.requestCount });
 
-    return `${row.name} stops being offered on the create and edit forms and in the filters. ${usage} It can be restored.`;
+    return this.t('taxonomy.retireBody', { name: row.name, usage });
   });
 
   protected askRetire(row: TaxonomyRow): void {
@@ -150,15 +157,10 @@ export class AdminTaxonomy {
   /* ── Categories ────────────────────────────────────────────────────────── */
 
   protected createCategory(intent: CreateIntent): void {
-    this.run(
-      'categories',
-      null,
-      this.api.createCategory(intent.name, intent.slug),
-      () => {
-        this.clearForms();
-        this.categories.reload();
-      },
-    );
+    this.run('categories', null, this.api.createCategory(intent.name, intent.slug), () => {
+      this.clearForms();
+      this.categories.reload();
+    });
   }
 
   protected renameCategory(intent: RenameIntent): void {

@@ -93,10 +93,18 @@ describe('AdminSettings', () => {
       },
       { status: 403, statusText: 'Forbidden' },
     );
-    http.expectOne('/api/comments/pending').flush(
-      { error: { code: 'FORBIDDEN', message: 'Only an admin can approve comments.', requestId: 'abc-2' } },
-      { status: 403, statusText: 'Forbidden' },
-    );
+    http
+      .expectOne('/api/comments/pending')
+      .flush(
+        {
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Only an admin can approve comments.',
+            requestId: 'abc-2',
+          },
+        },
+        { status: 403, statusText: 'Forbidden' },
+      );
 
     await fixture.whenStable();
     fixture.detectChanges();
@@ -109,7 +117,9 @@ describe('AdminSettings', () => {
   it('sends only the setting that changed', async () => {
     const fixture = await render();
 
-    const toggle = fixture.nativeElement.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const toggle = fixture.nativeElement.querySelector(
+      'input[type="checkbox"]',
+    ) as HTMLInputElement;
     toggle.checked = false;
     toggle.dispatchEvent(new Event('change'));
 
@@ -137,9 +147,9 @@ describe('AdminSettings', () => {
   it('approves one comment and asks for the queue again', async () => {
     const fixture = await render();
 
-    const approve = ([...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[]).find(
-      (button) => button.textContent?.includes('Approve'),
-    )!;
+    const approve = (
+      [...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[]
+    ).find((button) => button.textContent?.includes('Approve'))!;
 
     approve.click();
 

@@ -1,29 +1,29 @@
-<a class="skip-link" href="#main">Skip to main content</a>
+<a class="skip-link" href="#main">{{ t('app.skipToContent') }}</a>
 
 <header class="masthead">
   <div class="masthead__inner">
     <a class="masthead__brand" routerLink="/requests">
       FeedbackHub
-      <span class="masthead__tagline">Internal product feedback</span>
+      <span class="masthead__tagline">{{ t('app.tagline') }}</span>
     </a>
 
     <!-- Only once the application knows what it may offer. Rendering the
          navigation against defaults first would flash an Admin link into
          existence, or out of it, on every load. -->
     @if (config.isReady()) {
-      <nav class="masthead__nav" aria-label="Primary">
+      <nav class="masthead__nav" [attr.aria-label]="t('nav.primary')">
         <a
           routerLink="/requests"
           routerLinkActive="is-active"
           [routerLinkActiveOptions]="{ exact: true }"
-          >Board</a
+          >{{ t('nav.board') }}</a
         >
-        <a routerLink="/requests/new" routerLinkActive="is-active">New request</a>
+        <a routerLink="/requests/new" routerLinkActive="is-active">{{ t('nav.newRequest') }}</a>
         @if (canManageTaxonomy()) {
-          <a routerLink="/admin/taxonomy" routerLinkActive="is-active">Categories</a>
+          <a routerLink="/admin/taxonomy" routerLinkActive="is-active">{{ t('nav.categories') }}</a>
         }
         @if (canManageSettings()) {
-          <a routerLink="/admin/settings" routerLinkActive="is-active">Settings</a>
+          <a routerLink="/admin/settings" routerLinkActive="is-active">{{ t('nav.settings') }}</a>
         }
         <a class="masthead__account" routerLink="/account" routerLinkActive="is-active">
           {{ displayName() }}
@@ -37,7 +37,7 @@
   @if (config.isStarting()) {
     <!-- Guarded by "have I anything to show": this replaces the page only
          before the first answer, never on a refetch after saving a setting. -->
-    <div class="startup" role="status">Starting FeedbackHub…</div>
+    <div class="startup" role="status">{{ t('app.starting') }}</div>
   } @else if (config.failure(); as failure) {
     <!--
       The deliberate failure case. The application does not know its own
@@ -47,12 +47,14 @@
       anything went wrong.
     -->
     <div class="startup startup--error" role="alert">
-      <h1 class="startup__title">FeedbackHub could not start</h1>
+      <h1 class="startup__title">{{ t('app.startFailed') }}</h1>
       <p>{{ failure.message }}</p>
       @if (failure.requestId) {
-        <p class="startup__reference">Reference: {{ failure.requestId }}</p>
+        <p class="startup__reference">{{ t('app.reference', { id: failure.requestId }) }}</p>
       }
-      <button type="button" class="button" (click)="config.retry()">Try again</button>
+      <button type="button" class="button" (click)="config.retry()">
+        {{ t('common.tryAgain') }}
+      </button>
     </div>
   } @else {
     <router-outlet />

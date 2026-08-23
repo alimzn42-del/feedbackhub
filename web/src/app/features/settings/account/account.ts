@@ -8,6 +8,7 @@ import type { SettingDescriptor, Wrapped } from '../../../core/api/api.types';
 import { ConfirmDialog } from '../../../shared/confirm-dialog/confirm-dialog';
 import { SettingControl } from '../setting-control/setting-control';
 import { SettingsApi } from '../data/settings.api';
+import { Translate } from '../../../core/i18n/translate';
 
 const DISPLAY_NAME_MAX = 120;
 
@@ -27,6 +28,9 @@ const DISPLAY_NAME_MAX = 120;
   styleUrl: './account.scss',
 })
 export class Account {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   private readonly api = inject(SettingsApi);
   private readonly router = inject(Router);
   protected readonly config = inject(AppConfig);

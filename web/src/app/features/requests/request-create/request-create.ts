@@ -10,8 +10,14 @@ import {
 import { Router, RouterLink } from '@angular/router';
 import { RequestsApi } from '../data/requests.api';
 import { AppConfig } from '../../../core/config/app-config';
-import { toApiError, waitInWords, type ApiError, type FieldIssue } from '../../../core/api/api-error';
+import {
+  toApiError,
+  waitInWords,
+  type ApiError,
+  type FieldIssue,
+} from '../../../core/api/api-error';
 import type { TaxonomyRef, Wrapped } from '../../../core/api/api.types';
+import { Translate } from '../../../core/i18n/translate';
 
 /**
  * Mirrors the server's limits so the user is told before a round trip. The
@@ -38,6 +44,9 @@ interface RequestForm {
   styleUrl: './request-create.scss',
 })
 export class RequestCreate {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   private readonly api = inject(RequestsApi);
   private readonly router = inject(Router);
   private readonly config = inject(AppConfig);
@@ -114,19 +123,17 @@ export class RequestCreate {
 
     switch (name) {
       case 'title':
-        if (errors['required']) return 'Give the request a title.';
-        if (errors['minlength']) return `The title must be at least ${TITLE_MIN} characters.`;
-        if (errors['maxlength']) return `The title cannot be longer than ${TITLE_MAX} characters.`;
-        return 'That title is not valid.';
+        if (errors['required']) return this.t('create.titleRequired');
+        if (errors['minlength']) return this.t('create.titleMin', { min: TITLE_MIN });
+        if (errors['maxlength']) return this.t('create.titleMax', { max: TITLE_MAX });
+        return this.t('create.titleInvalid');
       case 'description':
-        if (errors['required']) return 'Describe what you are asking for.';
-        if (errors['minlength'])
-          return `Use at least ${DESCRIPTION_MIN} characters so others can judge the request.`;
-        if (errors['maxlength'])
-          return `The description cannot be longer than ${DESCRIPTION_MAX} characters.`;
-        return 'That description is not valid.';
+        if (errors['required']) return this.t('create.descriptionRequired');
+        if (errors['minlength']) return this.t('create.descriptionMin', { min: DESCRIPTION_MIN });
+        if (errors['maxlength']) return this.t('create.descriptionMax', { max: DESCRIPTION_MAX });
+        return this.t('create.descriptionInvalid');
       case 'categoryId':
-        return 'Choose a category.';
+        return this.t('create.categoryRequired');
       default:
         return 'That value is not valid.';
     }

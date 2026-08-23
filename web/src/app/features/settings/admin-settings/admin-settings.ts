@@ -7,6 +7,7 @@ import { toApiError, type ApiError } from '../../../core/api/api-error';
 import type { PendingComment, SettingDescriptor, Wrapped } from '../../../core/api/api.types';
 import { SettingControl } from '../setting-control/setting-control';
 import { SettingsApi } from '../data/settings.api';
+import { Translate } from '../../../core/i18n/translate';
 
 /**
  * The application settings, and the queue the one feature flag creates.
@@ -26,6 +27,9 @@ import { SettingsApi } from '../data/settings.api';
   styleUrl: './admin-settings.scss',
 })
 export class AdminSettings {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   private readonly api = inject(SettingsApi);
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(API_BASE_URL);

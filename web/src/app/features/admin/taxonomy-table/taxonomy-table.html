@@ -10,7 +10,7 @@
                raises, and the browser would submit natively and reload. -->
           <form class="row__rename" (submit)="submitRename($event, row)">
             <label class="visually-hidden" [attr.for]="'rename-' + row.id">
-              New name for {{ row.name }}
+              {{ t('taxonomy.renameLabel', { name: row.name }) }}
             </label>
             <input
               class="row__input"
@@ -24,7 +24,7 @@
               {{ isPending(row) ? 'Saving…' : 'Save' }}
             </button>
             <button type="button" class="button button--secondary" (click)="cancelRename()">
-              Cancel
+              {{ t('common.cancel') }}
             </button>
           </form>
         } @else {
@@ -35,10 +35,10 @@
             <code class="row__slug">{{ row.slug }}</code>
 
             @if (hasDefault() && row.isDefault) {
-              <span class="chip">Default</span>
+              <span class="chip">{{ t('taxonomy.isDefault') }}</span>
             }
             @if (isRetired(row)) {
-              <span class="chip">Retired</span>
+              <span class="chip">{{ t('taxonomy.retired') }}</span>
             }
           </div>
 
@@ -54,7 +54,7 @@
             <button
               type="button"
               class="button button--secondary button--icon"
-              [attr.aria-label]="'Move ' + row.name + ' up'"
+              [attr.aria-label]="t('taxonomy.moveUpLabel', { name: row.name })"
               [disabled]="index === 0 || busy()"
               (click)="moveUp(index)"
             >
@@ -63,7 +63,7 @@
             <button
               type="button"
               class="button button--secondary button--icon"
-              [attr.aria-label]="'Move ' + row.name + ' down'"
+              [attr.aria-label]="t('taxonomy.moveDownLabel', { name: row.name })"
               [disabled]="index === count - 1 || busy()"
               (click)="moveDown(index)"
             >
@@ -73,11 +73,11 @@
             <button
               type="button"
               class="button button--secondary"
-              [attr.aria-label]="'Rename ' + row.name"
+              [attr.aria-label]="t('taxonomy.renameRow', { name: row.name })"
               [disabled]="isPending(row)"
               (click)="startRename(row)"
             >
-              Rename
+              {{ t('taxonomy.rename') }}
             </button>
 
             @if (hasDefault() && !row.isDefault) {
@@ -88,7 +88,7 @@
                 [disabled]="isPending(row)"
                 (click)="defaulted.emit(row)"
               >
-                Make default
+                {{ t('taxonomy.makeDefault') }}
               </button>
             }
 
@@ -101,7 +101,7 @@
                   [disabled]="isPending(row)"
                   (click)="restored.emit(row)"
                 >
-                  Restore
+                  {{ t('taxonomy.restore') }}
                 </button>
               } @else {
                 <button
@@ -111,7 +111,7 @@
                   [disabled]="isPending(row)"
                   (click)="retired.emit(row)"
                 >
-                  Retire
+                  {{ t('taxonomy.retire') }}
                 </button>
               }
             }
@@ -122,11 +122,17 @@
   </ul>
 
   <form class="add" (submit)="submitNew($event)">
-    <h3 class="add__heading">Add a {{ noun() }}</h3>
+    <h3 class="add__heading">
+      {{
+        noun() === 'category' ? t('taxonomy.addHeadingCategory') : t('taxonomy.addHeadingStatus')
+      }}
+    </h3>
 
     <div class="add__fields">
       <div class="field">
-        <label class="field__label" [attr.for]="'new-name-' + noun()">Name</label>
+        <label class="field__label" [attr.for]="'new-name-' + noun()">{{
+          t('taxonomy.name')
+        }}</label>
         <input
           class="field__input"
           [id]="'new-name-' + noun()"
@@ -143,7 +149,9 @@
       </div>
 
       <div class="field">
-        <label class="field__label" [attr.for]="'new-slug-' + noun()">Slug</label>
+        <label class="field__label" [attr.for]="'new-slug-' + noun()">{{
+          t('taxonomy.slug')
+        }}</label>
         <input
           class="field__input"
           [id]="'new-slug-' + noun()"
@@ -155,7 +163,7 @@
           [attr.aria-describedby]="'new-slug-hint-' + noun()"
         />
         <p class="field__hint" [id]="'new-slug-hint-' + noun()">
-          Suggested from the name. Permanent once created — it goes in shared links.
+          {{ t('taxonomy.slugHint') }}
         </p>
         @if (issues()['slug']; as message) {
           <p class="field__error">{{ message }}</p>
@@ -168,7 +176,11 @@
     }
 
     <button type="submit" class="button" [disabled]="busy()">
-      {{ busy() ? 'Working…' : 'Add ' + noun() }}
+      @if (busy()) {
+        {{ t('taxonomy.working') }}
+      } @else {
+        {{ noun() === 'category' ? t('taxonomy.addCategory') : t('taxonomy.addStatus') }}
+      }
     </button>
   </form>
 </section>

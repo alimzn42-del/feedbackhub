@@ -3,6 +3,7 @@ import { DatePipe } from '@angular/common';
 import { AppConfig } from '../../../core/config/app-config';
 import { RouterLink } from '@angular/router';
 import type { FeedbackRequestListItem } from '../../../core/api/api.types';
+import { Translate } from '../../../core/i18n/translate';
 
 /** How many are visible before the panel is expanded. */
 const COLLAPSED_COUNT = 3;
@@ -25,6 +26,9 @@ const COLLAPSED_COUNT = 3;
   styleUrl: './pinned-panel.scss',
 })
 export class PinnedPanel {
+  /** The message catalogue, in the language this person chose. */
+  protected readonly t = inject(Translate).t;
+
   /**
    * The locale dates are written in. Passed to the pipe rather than provided
    * as LOCALE_ID, which is fixed before the person's preference has arrived.

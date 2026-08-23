@@ -1377,3 +1377,62 @@ branch is now where the registration policy runs. The old test asserted the 500.
 Rewriting it turned one test into three better ones — a stranger provisioned on
 an open board, a stranger refused on a restricted one, and the seam still failing
 loudly when it is the server that is misconfigured.
+
+## 2026-08-23 — Making the language setting mean something
+
+The setting existed and did almost nothing: it set `<html lang>` and the locale
+dates were formatted in, which is invisible unless you are looking at a date.
+Reported, fairly, as "the language doesn't do anything".
+
+### Runtime catalogue, not `$localize`
+
+Angular's own i18n compiles one bundle per locale and picks it by URL or server
+config. It cannot change language because somebody chose one from a list, without
+a reload, on a preference that arrives from the API after the application has
+started — which is exactly the shape of this feature. So the catalogue is a
+typed object and `t()` reads the language signal on every call. Changing the
+setting re-renders every message with no subscription anywhere.
+
+The type does the work that matters: `french` is `Record<MessageKey, string>`, so
+a missing key does not compile. Three tests cover what types cannot — nothing
+blank, nothing still in English, and the same placeholders on both sides. That
+last one matters more than it looks: a French message that dropped `{count}`
+renders a sentence with the number missing and nothing fails.
+
+### The one thing that does NOT live in the catalogue
+
+Setting labels. They are in the API's registry, in both languages, beside the
+setting they describe.
+
+That looks inconsistent and is the opposite. The registry's promise is that
+adding a setting is one edit in one file, and it would be a lie if every new
+setting also needed two lines in the web app before its label could be read. The
+server already resolves the caller's language in order to answer with it, so it
+picks the label too.
+
+### Dropping German rather than shipping three
+
+The setting offered `en | fr | de`. Two catalogues is honest work; three is the
+same work again in a language I would be guessing at, and a half-translated
+option is the same bug as the one being fixed — a choice that appears to do
+nothing. Only languages that are actually translated are offered.
+
+### Things that cost time
+
+**Substring replacements across templates.** `"        Cancel\n"` is a substring
+of `"                Cancel\n"`, so replacing the shallow one first mangles the
+deep one and the deep one's own replacement then fails to match. Anchor each
+replacement with enough surrounding lines to be unique, or work outermost-first.
+
+**Two catalogues, one anchor.** Inserting French keys "before `'comment.heading'`"
+put them in the ENGLISH object, because both catalogues contain that key and the
+first match won. It compiled — the object simply had duplicate keys — and TypeScript
+caught it, but only after two blocks had gone to the wrong place.
+
+**`npx prettier --write` from the repository root reformatted the whole API.**
+The prettier config lives in `web/.prettierrc`; the API has none and was never
+prettier-formatted, so prettier applied its defaults and rewrote 67 files to
+double quotes and 80 columns. Reverted with `git checkout -- api/src` and the
+three intended files re-applied from the scripts that made them, which is the
+argument for making changes with a script you can re-run rather than by hand.
+**Format the web workspace from inside it, and leave the API alone.**

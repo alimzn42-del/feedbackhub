@@ -2,11 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { Observable } from 'rxjs';
 import { API_BASE_URL } from '../../../core/api/api-base-url';
-import type {
-  CategoryAdminRow,
-  StatusAdminRow,
-  Wrapped,
-} from '../../../core/api/api.types';
+import type { CategoryAdminRow, StatusAdminRow, Wrapped } from '../../../core/api/api.types';
 
 /**
  * The management half of the two taxonomy endpoints.

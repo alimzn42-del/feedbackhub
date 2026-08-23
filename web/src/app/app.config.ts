@@ -2,12 +2,13 @@ import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 import { registerLocaleData } from '@angular/common';
-import localeDe from '@angular/common/locales/de';
 import localeFr from '@angular/common/locales/fr';
 import { routes } from './app.routes';
 
 /**
  * The formatting data for the languages the settings screen offers.
+ *
+ * One entry, because English needs none: it is Angular's built-in locale.
  *
  * Registered here rather than provided as LOCALE_ID, because LOCALE_ID is
  * resolved once when the injector is created and the person's choice does not
@@ -16,7 +17,6 @@ import { routes } from './app.routes';
  * what a preference is supposed to do.
  */
 registerLocaleData(localeFr);
-registerLocaleData(localeDe);
 
 export const appConfig: ApplicationConfig = {
   providers: [
