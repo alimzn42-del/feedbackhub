@@ -230,4 +230,33 @@ describe('Account', () => {
     expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
     http.expectNone((r) => r.method === 'DELETE');
   });
+
+  /**
+   * The board defaults are chosen from the taxonomy the application already
+   * holds, so this control asks for nothing extra — and picking one has to
+   * actually send it.
+   */
+  it('sends a default status filter when one is ticked', async () => {
+    const fixture = await render([
+      setting({
+        key: 'board.defaultStatuses',
+        label: 'Statuses the board opens filtered by',
+        value: [],
+        source: 'default',
+        control: { kind: 'slugs', source: 'statuses' },
+      }),
+    ]);
+
+    const boxes = fixture.nativeElement.querySelectorAll('input[type="checkbox"]');
+    expect(boxes.length).toBeGreaterThan(0);
+
+    boxes[0].checked = true;
+    boxes[0].dispatchEvent(new Event('change'));
+
+    const sent = http.expectOne((r) => r.url === '/api/users/2/settings' && r.method === 'PATCH');
+    expect(sent.request.body).toEqual({ 'board.defaultStatuses': ['new'] });
+
+    sent.flush({ data: [] });
+    await settleReload(fixture);
+  });
 });
