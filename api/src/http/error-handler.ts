@@ -4,11 +4,12 @@ import {
   AppError,
   BadRequestError,
   NotFoundError,
+  ProviderUnavailableError,
   RateLimitedError,
+  UnauthenticatedError,
   type ErrorCode,
   type FieldIssue,
 } from './errors.js';
-
 
 /** The single error envelope. Every non-2xx response from this API looks like this. */
 export interface ErrorResponseBody {
@@ -78,6 +79,25 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
     if (appError instanceof RateLimitedError) {
       body.error.retryAfterSeconds = appError.retryAfterSeconds;
       res.setHeader('Retry-After', String(appError.retryAfterSeconds));
+    }
+
+    /**
+     * A refused sign-in says more in the log than it says on the wire.
+     *
+     * The caller gets one sentence and no detail about why the token was not
+     * good enough — telling an unauthenticated stranger that the signature was
+     * fine and the audience was wrong tells them something about the
+     * installation. The operator gets the reason, because a missing token, an
+     * expired one, a malformed one and a client pointed at the wrong realm are
+     * four different problems that would otherwise be one line reading 401.
+     *
+     * warn and not error: most of these are ordinary. A token expiring while
+     * somebody was reading is what expiry is for.
+     */
+    if (appError instanceof UnauthenticatedError || appError instanceof ProviderUnavailableError) {
+      console.warn(
+        `[${requestId}] ${appError.status} ${appError.reason} on ${req.method} ${req.originalUrl}`,
+      );
     }
 
     // 5xx AppErrors are still our fault and still worth a log line.

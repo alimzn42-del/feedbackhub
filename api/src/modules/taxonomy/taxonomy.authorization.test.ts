@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../auth/actor.js';
+import { bearerFor, signedIn } from '../../auth/tokens.test-support.js';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Managing the taxonomy: who may, and what happens when they may not.
@@ -15,7 +16,11 @@ import type { Actor } from '../../auth/actor.js';
  * one that covers all five.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-const usersRepository = vi.hoisted(() => ({ findByEmail: vi.fn() }));
+const usersRepository = vi.hoisted(() => ({
+  findByEmail: vi.fn(),
+  findByExternalId: vi.fn(),
+  updateEmail: vi.fn(),
+}));
 
 const categoriesRepository = vi.hoisted(() => ({
   listActive: vi.fn(),
@@ -76,6 +81,20 @@ vi.mock('../comments/comments.repository.js', () => commentsRepository);
 vi.mock('../categories/categories.repository.js', () => categoriesRepository);
 vi.mock('../statuses/statuses.repository.js', () => statusesRepository);
 
+/**
+ * The whole of what the test suite fakes about authentication: where the
+ * public keys come from.
+ *
+ * Everything downstream of this runs for real against these tokens — the
+ * signature, the issuer, the audience, the expiry, and which key in the set
+ * the header's `kid` selects. What is not exercised is the fetch, which is
+ * the one part a container would have proved and nothing else would.
+ */
+vi.mock('../../auth/jwks.js', async () => {
+  const { testVerificationKeys } = await import('../../auth/tokens.test-support.js');
+  return { verificationKeys: () => testVerificationKeys };
+});
+
 const { createApp } = await import('../../app.js');
 
 const REGULAR_USER: Actor = {
@@ -110,7 +129,7 @@ beforeEach(() => {
   settingsRepository.readGlobal.mockResolvedValue(new Map());
   commentsRepository.countPending.mockResolvedValue(3);
   settingsRepository.readForUser.mockResolvedValue(new Map());
-  usersRepository.findByEmail.mockResolvedValue(REGULAR_USER);
+  usersRepository.findByExternalId.mockResolvedValue(REGULAR_USER);
 
   categoriesRepository.listAll.mockResolvedValue(CATEGORY_ROWS);
   categoriesRepository.listActive.mockResolvedValue([{ id: 2, name: 'Feature', slug: 'feature' }]);
@@ -145,7 +164,7 @@ function nothingWritten(): void {
 
 describe('a regular user, refused at every category mutation', () => {
   it('cannot create one', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .post('/api/categories')
       .send({ name: 'Documentation', slug: 'documentation' });
 
@@ -155,42 +174,46 @@ describe('a regular user, refused at every category mutation', () => {
   });
 
   it('cannot rename one', async () => {
-    const response = await request(app).patch('/api/categories/2').send({ name: 'Features' });
+    const response = await signedIn(request(app))
+      .patch('/api/categories/2')
+      .send({ name: 'Features' });
 
     expect(response.status).toBe(403);
     nothingWritten();
   });
 
   it('cannot reorder them', async () => {
-    const response = await request(app).put('/api/categories/order').send({ ids: [4, 2] });
+    const response = await signedIn(request(app))
+      .put('/api/categories/order')
+      .send({ ids: [4, 2] });
 
     expect(response.status).toBe(403);
     nothingWritten();
   });
 
   it('cannot retire one', async () => {
-    const response = await request(app).put('/api/categories/2/archive');
+    const response = await signedIn(request(app)).put('/api/categories/2/archive');
 
     expect(response.status).toBe(403);
     nothingWritten();
   });
 
   it('cannot restore one', async () => {
-    const response = await request(app).delete('/api/categories/2/archive');
+    const response = await signedIn(request(app)).delete('/api/categories/2/archive');
 
     expect(response.status).toBe(403);
     nothingWritten();
   });
 
   it('cannot read the managed listing, with its counts', async () => {
-    const response = await request(app).get('/api/categories?scope=all');
+    const response = await signedIn(request(app)).get('/api/categories?scope=all');
 
     expect(response.status).toBe(403);
     expect(categoriesRepository.listAll).not.toHaveBeenCalled();
   });
 
   it('can still read the plain listing, which every form needs', async () => {
-    const response = await request(app).get('/api/categories').expect(200);
+    const response = await signedIn(request(app)).get('/api/categories').expect(200);
 
     // Refusing this would break filing a request for everybody.
     expect(response.body.data).toHaveLength(1);
@@ -200,7 +223,7 @@ describe('a regular user, refused at every category mutation', () => {
   it('is refused before the body is validated', async () => {
     // Nonsense in three ways. A handler that validated first would answer 422
     // and describe the payload to somebody who may not send one.
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .post('/api/categories')
       .send({ name: '', slug: 'Not A Slug', nonsense: true });
 
@@ -211,7 +234,7 @@ describe('a regular user, refused at every category mutation', () => {
 
 describe('a regular user, refused at every status mutation', () => {
   it('cannot create one', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .post('/api/statuses')
       .send({ name: 'Blocked', slug: 'blocked' });
 
@@ -221,28 +244,30 @@ describe('a regular user, refused at every status mutation', () => {
   });
 
   it('cannot rename one', async () => {
-    const response = await request(app).patch('/api/statuses/1').send({ name: 'Triage' });
+    const response = await signedIn(request(app)).patch('/api/statuses/1').send({ name: 'Triage' });
 
     expect(response.status).toBe(403);
     nothingWritten();
   });
 
   it('cannot reorder them', async () => {
-    const response = await request(app).put('/api/statuses/order').send({ ids: [5, 1] });
+    const response = await signedIn(request(app))
+      .put('/api/statuses/order')
+      .send({ ids: [5, 1] });
 
     expect(response.status).toBe(403);
     nothingWritten();
   });
 
   it('cannot move the default', async () => {
-    const response = await request(app).put('/api/statuses/5/default');
+    const response = await signedIn(request(app)).put('/api/statuses/5/default');
 
     expect(response.status).toBe(403);
     nothingWritten();
   });
 
   it('cannot read the managed listing', async () => {
-    const response = await request(app).get('/api/statuses?scope=all');
+    const response = await signedIn(request(app)).get('/api/statuses?scope=all');
 
     expect(response.status).toBe(403);
     expect(statusesRepository.listAll).not.toHaveBeenCalled();
@@ -251,7 +276,7 @@ describe('a regular user, refused at every status mutation', () => {
 
 describe('what the interface is told it may do', () => {
   it('tells a regular user it may manage nothing', async () => {
-    const response = await request(app).get('/api/bootstrap').expect(200);
+    const response = await signedIn(request(app)).get('/api/bootstrap').expect(200);
 
     expect(response.body.data.capabilities).toEqual({
       canManageCategories: false,
@@ -261,9 +286,9 @@ describe('what the interface is told it may do', () => {
   });
 
   it('tells an admin it may manage all three', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    const response = await request(app).get('/api/bootstrap').expect(200);
+    const response = await signedIn(request(app)).get('/api/bootstrap').expect(200);
 
     expect(response.body.data.capabilities).toEqual({
       canManageCategories: true,
@@ -286,9 +311,15 @@ describe('what the interface is told it may do', () => {
    * protecting.
    */
   it('says who the caller is, and never what they are', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    const response = await request(app).get('/api/bootstrap').expect(200);
+    // One of the few places the token has to describe the same person the
+    // repository returns: this asserts the caller's own address, and a token
+    // naming somebody else would be reconciled onto the row before the payload
+    // was built — which is correct behaviour and a different test.
+    const response = await signedIn(request(app), await bearerFor(ADMIN))
+      .get('/api/bootstrap')
+      .expect(200);
 
     expect(response.body.data.user).toEqual({
       id: ADMIN.id,
@@ -307,7 +338,7 @@ describe('what the interface is told it may do', () => {
    * registration policy are absent from a regular user's payload, by name.
    */
   it('withholds the administrative settings from a regular user', async () => {
-    const response = await request(app).get('/api/bootstrap').expect(200);
+    const response = await signedIn(request(app)).get('/api/bootstrap').expect(200);
     const keys = Object.keys(response.body.data.settings);
 
     expect(keys).not.toContain('submissions.perUserPerDay');
@@ -334,10 +365,10 @@ describe('how many comments are waiting', () => {
     );
 
   it('tells an admin, while the gate is up', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     gateUp();
 
-    const response = await request(app).get('/api/bootstrap').expect(200);
+    const response = await signedIn(request(app)).get('/api/bootstrap').expect(200);
 
     expect(response.body.data.pendingComments).toBe(3);
   });
@@ -345,7 +376,7 @@ describe('how many comments are waiting', () => {
   it('says nothing to a regular user, even while the gate is up', async () => {
     gateUp();
 
-    const response = await request(app).get('/api/bootstrap').expect(200);
+    const response = await signedIn(request(app)).get('/api/bootstrap').expect(200);
 
     expect(response.body.data).not.toHaveProperty('pendingComments');
     expect(commentsRepository.countPending).not.toHaveBeenCalled();
@@ -353,9 +384,9 @@ describe('how many comments are waiting', () => {
 
   /** With approval off there is no such thing as a waiting comment. */
   it('says nothing to anybody while the gate is down', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    const response = await request(app).get('/api/bootstrap').expect(200);
+    const response = await signedIn(request(app)).get('/api/bootstrap').expect(200);
 
     expect(response.body.data).not.toHaveProperty('pendingComments');
     expect(commentsRepository.countPending).not.toHaveBeenCalled();

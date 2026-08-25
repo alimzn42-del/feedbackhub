@@ -1,0 +1,102 @@
+{
+  "realm": "feedbackhub",
+  "displayName": "FeedbackHub (development realm)",
+  "displayNameHtml": "<strong>FeedbackHub</strong> <em>development realm</em>",
+  "enabled": true,
+  "sslRequired": "none",
+
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "editUsernameAllowed": false,
+
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+
+  "clients": [
+    {
+      "clientId": "feedbackhub-web",
+      "name": "FeedbackHub (browser)",
+      "description": "The Angular application. A public client: it holds no secret, because a secret shipped to a browser is not one.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": ["http://localhost:4200/auth/callback"],
+      "webOrigins": ["http://localhost:4200"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4200"
+      },
+      "defaultClientScopes": ["acr", "basic", "email", "profile", "roles", "web-origins"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "feedbackhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "feedbackhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "feedbackhub-api",
+      "name": "FeedbackHub (API)",
+      "description": "Not something anybody signs in as. It exists so that the name in a token's `aud` belongs to something, and so the audience check has a subject.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ],
+
+  "users": [
+    {
+      "id": "3f2a9c14-7d51-4c8e-9b62-1a0d5e8f4a01",
+      "username": "admin@feedbackhub.local",
+      "email": "admin@feedbackhub.local",
+      "firstName": "Robin",
+      "lastName": "Alvarez",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "feedbackhub-dev", "temporary": false }]
+    },
+    {
+      "id": "3f2a9c14-7d51-4c8e-9b62-1a0d5e8f4a02",
+      "username": "dana@feedbackhub.local",
+      "email": "dana@feedbackhub.local",
+      "firstName": "Dana",
+      "lastName": "Okafor",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "feedbackhub-dev", "temporary": false }]
+    },
+    {
+      "id": "3f2a9c14-7d51-4c8e-9b62-1a0d5e8f4a03",
+      "username": "sam@feedbackhub.local",
+      "email": "sam@feedbackhub.local",
+      "firstName": "Sam",
+      "lastName": "Lindqvist",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "feedbackhub-dev", "temporary": false }]
+    }
+  ]
+}

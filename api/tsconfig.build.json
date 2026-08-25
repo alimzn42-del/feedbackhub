@@ -2,5 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": { "rootDir": "src" },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "vitest.config.ts"]
+  // *.test-support.ts is excluded for a stronger reason than tidiness: it is
+  // the code that signs access tokens for the test suite, and it must not exist
+  // in a built artefact. See src/auth/tokens.test-support.ts.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test-support.ts", "vitest.config.ts"]
 }

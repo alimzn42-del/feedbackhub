@@ -1,9 +1,11 @@
 import { TestBed } from '@angular/core/testing';
+import type { Provider } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from './app';
+import { provideStubbedSession } from './core/auth/session.testing';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Startup.
@@ -53,6 +55,10 @@ describe('App', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([{ path: '**', children: [] }]),
+        // Signed in already. What this spec is about is the ONE startup request
+        // and the shell's honesty when it does not answer; the identity in
+        // front of it has its own tests below.
+        provideStubbedSession(),
         provideHttpClient(),
         provideHttpClientTesting(),
       ],
@@ -278,5 +284,132 @@ describe('App', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.masthead__pending')).toBeNull();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ *                        IDENTITY, BEFORE ANYTHING ELSE
+ *
+ * The shell is where route guarding happens in this application, and these are
+ * the tests that say so. There is no per-route guard: the outlet does not exist
+ * until the session has resolved, which covers a route added later because it
+ * cannot be mounted rather than because somebody remembered to list it.
+ *
+ * The first test is the one the brief asks for by name — a guarded screen must
+ * not flash its content before the identity resolves.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe('the shell, before there is anybody', () => {
+  let http: HttpTestingController;
+
+  function render(session: Provider) {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([{ path: '**', children: [] }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        session,
+      ],
+    });
+
+    http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('draws no screen and asks for no configuration while the identity resolves', () => {
+    const fixture = render(provideStubbedSession({ state: 'resolving', token: null }));
+
+    expect(fixture.nativeElement.querySelector('router-outlet')).toBeNull();
+    expect(fixture.nativeElement.querySelector('nav')).toBeNull();
+    // And the startup request has not been made, because there is nobody to
+    // make it for. It would come back 401.
+    http.expectNone(() => true);
+  });
+
+  /**
+   * There is no sign-in form here and there must never be one. Collecting a
+   * password would mean this application had handled one, which is the entire
+   * thing delegating authentication exists to avoid.
+   */
+  it('offers a way in, and never a password field', () => {
+    let asked = false;
+    const fixture = render(
+      provideStubbedSession({ state: 'signed-out', token: null, onSignIn: () => (asked = true) }),
+    );
+
+    expect(fixture.nativeElement.querySelector('input[type="password"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('form')).toBeNull();
+    expect(fixture.nativeElement.querySelector('router-outlet')).toBeNull();
+
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    expect(button.textContent).toContain('Sign in');
+
+    button.click();
+    expect(asked).toBe(true);
+  });
+
+  /**
+   * Not the same statement as "you are signed out": nobody has been asked yet.
+   * Offering a sign-in button here would send somebody to a page that is not
+   * answering.
+   */
+  it('separates a provider that cannot be reached from nobody being signed in', () => {
+    const fixture = render(
+      provideStubbedSession({
+        state: 'unavailable',
+        token: null,
+        failure: 'The identity provider could not be reached.',
+      }),
+    );
+
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('Sign-in is unavailable');
+    expect(text).toContain('could not be reached');
+    expect(text).not.toContain('Sign in to FeedbackHub');
+  });
+
+  /** The one route that renders without a session, because it produces one. */
+  it('lets the sign-in callback render while there is still nobody', () => {
+    const fixture = render(
+      provideStubbedSession({ state: 'signed-out', token: null, completingSignIn: true }),
+    );
+
+    expect(fixture.nativeElement.querySelector('router-outlet')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Sign in to FeedbackHub');
+  });
+
+  it('offers a way out once somebody is in', async () => {
+    let signedOut = false;
+    const fixture = render(provideStubbedSession({ onSignOut: () => (signedOut = true) }));
+
+    http.expectOne('/api/bootstrap').flush(BOOTSTRAP);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('.masthead__signout') as HTMLButtonElement;
+    expect(button.textContent).toContain('Sign out');
+
+    button.click();
+    expect(signedOut).toBe(true);
+  });
+
+  /**
+   * Under the development seam the API establishes an identity without a token
+   * and there is no provider session to end. A sign-out control there would be
+   * a button that cannot do what it says.
+   */
+  it('offers no way out when there is no session to end', async () => {
+    const fixture = render(provideStubbedSession({ usesProvider: false, token: null }));
+
+    http.expectOne('/api/bootstrap').flush(BOOTSTRAP);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.masthead__signout')).toBeNull();
   });
 });

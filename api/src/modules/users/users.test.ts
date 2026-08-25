@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../auth/actor.js';
+import { signedIn } from '../../auth/tokens.test-support.js';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Leaving, and being told to wait.
@@ -16,6 +17,8 @@ import type { Actor } from '../../auth/actor.js';
 
 const usersRepository = vi.hoisted(() => ({
   findByEmail: vi.fn(),
+  findByExternalId: vi.fn(),
+  updateEmail: vi.fn(),
   findById: vi.fn(),
   insert: vi.fn(),
   updateDisplayName: vi.fn(),
@@ -47,6 +50,20 @@ vi.mock('../requests/requests.repository.js', () => requestsRepository);
 vi.mock('../categories/categories.repository.js', () => categoriesRepository);
 vi.mock('../statuses/statuses.repository.js', () => statusesRepository);
 
+/**
+ * The whole of what the test suite fakes about authentication: where the
+ * public keys come from.
+ *
+ * Everything downstream of this runs for real against these tokens — the
+ * signature, the issuer, the audience, the expiry, and which key in the set
+ * the header's `kid` selects. What is not exercised is the fetch, which is
+ * the one part a container would have proved and nothing else would.
+ */
+vi.mock('../../auth/jwks.js', async () => {
+  const { testVerificationKeys } = await import('../../auth/tokens.test-support.js');
+  return { verificationKeys: () => testVerificationKeys };
+});
+
 const { createApp } = await import('../../app.js');
 
 const REGULAR_USER: Actor = {
@@ -63,7 +80,7 @@ const app = createApp();
 
 beforeEach(() => {
   vi.clearAllMocks();
-  usersRepository.findByEmail.mockResolvedValue(REGULAR_USER);
+  usersRepository.findByExternalId.mockResolvedValue(REGULAR_USER);
   usersRepository.findById.mockResolvedValue(REGULAR_USER);
   usersRepository.countOtherAdmins.mockResolvedValue(3);
   settingsRepository.readGlobal.mockResolvedValue(new Map());
@@ -75,13 +92,13 @@ beforeEach(() => {
 
 describe('deleting an account', () => {
   it('anonymises rather than deleting, and says nothing back', async () => {
-    await request(app).delete(`/api/users/${REGULAR_USER.id}`).expect(204);
+    await signedIn(request(app)).delete(`/api/users/${REGULAR_USER.id}`).expect(204);
 
     expect(usersRepository.anonymise).toHaveBeenCalledWith(REGULAR_USER.id);
   });
 
   it('403s deleting somebody else, and anonymises nobody', async () => {
-    const response = await request(app).delete(`/api/users/${ADMIN.id}`);
+    const response = await signedIn(request(app)).delete(`/api/users/${ADMIN.id}`);
 
     expect(response.status).toBe(403);
     expect(usersRepository.anonymise).not.toHaveBeenCalled();
@@ -89,10 +106,10 @@ describe('deleting an account', () => {
 
   /** An admin is not an exception here either. */
   it('403s an admin deleting another person’s account', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     usersRepository.findById.mockResolvedValue(REGULAR_USER);
 
-    const response = await request(app).delete(`/api/users/${REGULAR_USER.id}`);
+    const response = await signedIn(request(app)).delete(`/api/users/${REGULAR_USER.id}`);
 
     expect(response.status).toBe(403);
     expect(usersRepository.anonymise).not.toHaveBeenCalled();
@@ -107,22 +124,22 @@ describe('deleting an account', () => {
    * world is what stands in the way.
    */
   it('refuses the last admin, with 409, and anonymises nobody', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     usersRepository.findById.mockResolvedValue(ADMIN);
     usersRepository.countOtherAdmins.mockResolvedValue(0);
 
-    const response = await request(app).delete(`/api/users/${ADMIN.id}`);
+    const response = await signedIn(request(app)).delete(`/api/users/${ADMIN.id}`);
 
     expect(response.status).toBe(409);
     expect(usersRepository.anonymise).not.toHaveBeenCalled();
   });
 
   it('lets an admin go while another one remains', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     usersRepository.findById.mockResolvedValue(ADMIN);
     usersRepository.countOtherAdmins.mockResolvedValue(1);
 
-    await request(app).delete(`/api/users/${ADMIN.id}`).expect(204);
+    await signedIn(request(app)).delete(`/api/users/${ADMIN.id}`).expect(204);
 
     expect(usersRepository.anonymise).toHaveBeenCalledWith(ADMIN.id);
   });
@@ -130,7 +147,7 @@ describe('deleting an account', () => {
 
 describe('changing a display name', () => {
   it('403s changing somebody else’s, and writes nothing', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch(`/api/users/${ADMIN.id}`)
       .send({ displayName: 'Not mine to set' });
 
@@ -139,7 +156,7 @@ describe('changing a display name', () => {
   });
 
   it('refuses an empty one', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch(`/api/users/${REGULAR_USER.id}`)
       .send({ displayName: '   ' });
 
@@ -153,7 +170,7 @@ describe('changing a display name', () => {
    * privilege escalation hides in.
    */
   it('refuses a role in the payload rather than ignoring it', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch(`/api/users/${REGULAR_USER.id}`)
       .send({ displayName: 'Dana Okafor', role: 'admin' });
 
@@ -173,7 +190,7 @@ describe('the submission limit', () => {
     requestsRepository.countRecentByAuthor.mockResolvedValue({ filed: 3, oldestInWindow: null });
     requestsRepository.insert.mockResolvedValue(11);
 
-    const response = await request(app).post('/api/requests').send(VALID_BODY);
+    const response = await signedIn(request(app)).post('/api/requests').send(VALID_BODY);
 
     // What matters here is that the limiter did not refuse and the write was
     // reached. Reading the request back afterwards is the create path's own
@@ -194,7 +211,7 @@ describe('the submission limit', () => {
       oldestInWindow: twentyThreeHoursAgo,
     });
 
-    const response = await request(app).post('/api/requests').send(VALID_BODY);
+    const response = await signedIn(request(app)).post('/api/requests').send(VALID_BODY);
 
     expect(response.status).toBe(429);
     expect(response.body.error.code).toBe('RATE_LIMITED');
@@ -215,7 +232,7 @@ describe('the submission limit', () => {
       oldestInWindow: new Date(),
     });
 
-    const response = await request(app).post('/api/requests').send(VALID_BODY);
+    const response = await signedIn(request(app)).post('/api/requests').send(VALID_BODY);
 
     expect(response.status).toBe(429);
     expect(requestsRepository.insert).not.toHaveBeenCalled();
@@ -231,7 +248,7 @@ describe('the submission limit', () => {
       oldestInWindow: new Date(),
     });
 
-    await request(app).post('/api/requests').send(VALID_BODY);
+    await signedIn(request(app)).post('/api/requests').send(VALID_BODY);
 
     expect(requestsRepository.countRecentByAuthor).toHaveBeenCalledWith(REGULAR_USER.id, 24);
   });

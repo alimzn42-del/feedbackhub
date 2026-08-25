@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AppConfig } from './core/config/app-config';
+import { Session } from './core/auth/session';
 import { Translate } from './core/i18n/translate';
 
 @Component({
@@ -46,4 +47,22 @@ export class App {
 
   /** Shown in the navigation, so it is obvious which account the board is being read as. */
   protected readonly displayName = computed(() => this.config.user()?.displayName ?? '');
+
+  /**
+   * Who is calling, resolved before anything below the shell is mounted.
+   *
+   * This is what replaces a route guard. The outlet does not exist until the
+   * session has an answer, so no screen can render against an identity that has
+   * not arrived — including a screen added later, which is covered because it
+   * cannot be mounted rather than because somebody remembered to list it.
+   *
+   * One mechanism, not two. A guard per route and a gate on the outlet would be
+   * the same rule written twice, and the day they disagreed the one that was
+   * wrong would be the one nobody was reading.
+   */
+  protected readonly session = inject(Session);
+
+  protected signIn(): void {
+    void this.session.signIn();
+  }
 }

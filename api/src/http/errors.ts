@@ -16,6 +16,7 @@ export type ErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'RATE_LIMITED'
+  | 'PROVIDER_UNAVAILABLE'
   | 'SERVER_MISCONFIGURED'
   | 'INTERNAL';
 
@@ -61,10 +62,50 @@ export class ValidationError extends AppError {
   }
 }
 
+/**
+ * Why a request could not be given an identity.
+ *
+ * A 401 is the one refusal this application produces where the caller's copy
+ * and the operator's copy want to say different things. The caller needs to
+ * know whether to refresh and try again or to sign in from the start; the
+ * operator needs to be able to tell a clock skew problem from a client pointed
+ * at the wrong realm from somebody probing with a made-up string — and those
+ * three read identically as "401" in a log.
+ *
+ * So the reason is a stable, machine-readable token that goes to the log and
+ * never to the response body. The sentence the caller reads is the message.
+ */
+export type UnauthenticatedReason =
+  /** No Authorization header, or one that is not a Bearer credential. */
+  | 'token.missing'
+  /** Not three base64url segments, or the header/payload is not JSON. */
+  | 'token.malformed'
+  /** Well-formed, and no key in the provider's set produces this signature. */
+  | 'token.signature'
+  /** Signed correctly, by a realm this API does not accept tokens from. */
+  | 'token.issuer'
+  /** Signed correctly, minted for a different client. */
+  | 'token.audience'
+  /** Signed correctly, and past `exp`. */
+  | 'token.expired'
+  /** Signed correctly, and `nbf` has not arrived — almost always a clock. */
+  | 'token.not-yet-valid'
+  /** No `sub`, or nothing usable to identify a person with. */
+  | 'token.unusable'
+  /** The key set could not be reached, so nothing can be verified right now. */
+  | 'provider.unreachable';
+
 /** No identity could be established for the request. */
 export class UnauthenticatedError extends AppError {
-  constructor(message = 'This request has no identity.') {
+  /** For the log. Never serialised into the response — see the error handler. */
+  readonly reason: UnauthenticatedReason;
+
+  constructor(
+    message = 'This request has no identity.',
+    reason: UnauthenticatedReason = 'token.missing',
+  ) {
     super(401, 'UNAUTHENTICATED', message);
+    this.reason = reason;
   }
 }
 
@@ -113,6 +154,27 @@ export class RateLimitedError extends AppError {
     // Never below one: a Retry-After of 0 invites an immediate retry that is
     // certain to be refused again.
     this.retryAfterSeconds = Math.max(1, Math.ceil(retryAfterSeconds));
+  }
+}
+
+/**
+ * The identity provider could not be reached, so nothing can be verified.
+ *
+ * DELIBERATELY NOT A 401. The caller may be holding a perfectly good token; we
+ * are simply unable to check it. A 401 would tell every client in the building
+ * that its session had ended, and this application's own interceptor would act
+ * on that and sign everybody out — turning a provider restart into a mass
+ * sign-out that outlasts the restart.
+ *
+ * A 503 says the correct thing to both audiences: try again shortly, and this
+ * is ours to fix.
+ */
+export class ProviderUnavailableError extends AppError {
+  constructor(
+    message = 'Sign-in is temporarily unavailable. Try again shortly.',
+    readonly reason: UnauthenticatedReason = 'provider.unreachable',
+  ) {
+    super(503, 'PROVIDER_UNAVAILABLE', message);
   }
 }
 

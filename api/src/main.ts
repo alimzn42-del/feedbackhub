@@ -21,7 +21,16 @@ async function main(): Promise<void> {
   const server = app.listen(env.API_PORT, () => {
     console.log(`FeedbackHub API listening on http://localhost:${env.API_PORT}`);
     console.log(`  environment: ${env.NODE_ENV}`);
-    console.log(`  identity:    ${IDENTITY_MODE} (${env.DEV_CURRENT_USER_EMAIL ?? 'n/a'})`);
+    // Which identity mode is compiled in, and the one fact that matters about
+    // it: which realm this build trusts, or — when the seam is in — whose
+    // identity every caller is being handed.
+    console.log(
+      `  identity:    ${IDENTITY_MODE} (${
+        IDENTITY_MODE === 'keycloak'
+          ? env.OIDC_ISSUER_URL
+          : `every request as ${env.DEV_CURRENT_USER_EMAIL}`
+      })`,
+    );
   });
 
   const shutdown = (signal: string) => {

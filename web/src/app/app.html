@@ -45,13 +45,67 @@
         <a class="masthead__account" routerLink="/account" routerLinkActive="is-active">
           {{ displayName() }}
         </a>
+
+        <!--
+          Ends the session at Keycloak, not only here. Clearing local state
+          alone would be a sign-out that undoes itself on the next click.
+          Absent under the development seam, where there is no session to end.
+        -->
+        @if (session.usesProvider()) {
+          <button type="button" class="masthead__signout" (click)="session.signOut()">
+            {{ t('auth.signOut') }}
+          </button>
+        }
       </nav>
     }
   </div>
 </header>
 
 <main id="main" class="page" tabindex="-1">
-  @if (config.isStarting()) {
+  <!--
+    IDENTITY FIRST, AND NOTHING BELOW HERE UNTIL IT RESOLVES.
+
+    This is the whole of route guarding in this application. A screen cannot
+    flash its content before the identity arrives, because until then there is
+    no <router-outlet> for it to be mounted into — and that holds for a route
+    added next year without anybody remembering to guard it.
+
+    The one exception is the sign-in callback, which renders while there is no
+    session because it is the thing that produces one.
+  -->
+  @if (session.isCompletingSignIn()) {
+    <router-outlet />
+  } @else if (session.isResolving()) {
+    <div class="startup" role="status">{{ t('auth.checking') }}</div>
+  } @else if (session.isUnavailable()) {
+    <!--
+      Not "you are signed out" — nobody has been asked yet. The API or the
+      provider could not be reached, and offering a sign-in button here would
+      send somebody to a page that is not there.
+    -->
+    <div class="startup startup--error" role="alert">
+      <h1 class="startup__title">{{ t('auth.unavailable') }}</h1>
+      <p>{{ session.failure() }}</p>
+      <button type="button" class="button" (click)="session.retry()">
+        {{ t('common.tryAgain') }}
+      </button>
+    </div>
+  } @else if (session.isSignedOut()) {
+    <!--
+      There is no sign-in form here and there must never be one. This button
+      leaves for Keycloak; a field that collected a password would mean this
+      application had handled one, which is the entire thing that delegating
+      authentication exists to avoid.
+    -->
+    <div class="startup startup--signin">
+      <h1 class="startup__title">{{ t('auth.signInTitle') }}</h1>
+      <p>{{ t('auth.signInHint') }}</p>
+      @if (session.failure(); as problem) {
+        <p class="startup__problem" role="alert">{{ problem }}</p>
+      }
+      <button type="button" class="button" (click)="signIn()">{{ t('auth.signIn') }}</button>
+    </div>
+  } @else if (config.isStarting()) {
     <!-- Guarded by "have I anything to show": this replaces the page only
          before the first answer, never on a refetch after saving a setting. -->
     <div class="startup" role="status">{{ t('app.starting') }}</div>

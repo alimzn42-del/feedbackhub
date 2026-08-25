@@ -17,7 +17,7 @@
   --radius-md: 10px;
   --radius-pill: 999px;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   --surface: #ffffff;
   --surface-sunken: #f5f6f8;
@@ -96,7 +96,6 @@
 :root[data-theme='dark'] {
   @include dark-tokens;
 }
-
 
 /* ── Reset ─────────────────────────────────────────────────────────────── */
 
@@ -237,7 +236,6 @@ ul {
   font-variant-numeric: tabular-nums;
 }
 
-
 .button {
   display: inline-flex;
   align-items: center;
@@ -311,7 +309,6 @@ ul {
   filter: brightness(0.92);
 }
 
-
 /* ── Startup ───────────────────────────────────────────────────────────────
    The shell before it knows anything, and the state it shows when the one
    request it makes did not answer. Deliberately not a skeleton board: an
@@ -347,6 +344,26 @@ ul {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8125rem;
   color: var(--text-muted);
+}
+
+/* The way in. Not an error state and not a loading one: nobody has been asked
+   yet, and this is the asking. */
+.startup--signin {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.startup--signin p {
+  margin: 0 0 var(--space-5);
+  color: var(--text-muted);
+}
+
+/* A sign-in that did not complete: shown above the button that tries again,
+   rather than replacing it. */
+.startup__problem {
+  color: var(--danger);
 }
 
 /* ── Settings screens ──────────────────────────────────────────────────────

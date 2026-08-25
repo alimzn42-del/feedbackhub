@@ -5,19 +5,20 @@ feedback, everyone browses and upvotes, and admins triage. The point is to stop
 the same suggestion arriving five times by email, and to make visible what is
 actually being worked on.
 
-**Status: slice 7.** A feedback request can be created, listed, voted on,
+**Status: slice 9.** A feedback request can be created, listed, voted on,
 pinned, discussed, filtered, searched, sorted, edited, deleted and moved
-between statuses — and the categories and statuses themselves are now managed
-from an admin screen. Comment moderation, application settings and
-authentication are not built yet — see
-[Scope](#what-is-and-is-not-built) below.
+between statuses; the categories and statuses are managed from an admin screen;
+comments can be held for approval; the installation and each person have
+settings, in English or French — and **people now sign in**, against Keycloak,
+with a realm this repository imports. See
+[Scope](#what-is-and-is-not-built) below for what is still deliberately absent.
 
 ## Requirements
 
 | | |
 |---|---|
 | Node.js | **24.19.0** — pinned in [`.node-version`](.node-version) |
-| Docker | for the MySQL 8.4 container |
+| Docker | for the MySQL 8.4 and Keycloak 26.4 containers |
 
 The repository pins its Node version rather than relying on whatever is
 installed. With [fnm](https://github.com/Schniz/fnm) or
@@ -33,7 +34,7 @@ fnm use          # or: nvm use
 cp .env.example .env     # every setting the app reads, with working defaults
 npm install
 
-npm run db:up            # start MySQL 8.4 (docker compose)
+npm run up               # MySQL 8.4 and Keycloak 26.4 (docker compose)
 npm run migrate          # create the schema
 npm run seed             # one admin, two users, categories and statuses
                          # (no settings rows: the defaults live in code)
@@ -43,8 +44,15 @@ npm run dev:api          # http://localhost:3000
 npm run dev:web          # http://localhost:4200   (in a second terminal)
 ```
 
-Open <http://localhost:4200>. The web dev server proxies `/api` to the API, so
-the browser talks to both same-origin.
+Open <http://localhost:4200> and **sign in as `admin@feedbackhub.local` with
+the password `feedbackhub-dev`.** The web dev server proxies `/api` to the API,
+so the browser talks to both same-origin.
+
+Keycloak takes about thirty seconds to come up the first time. Nothing has to
+be configured in its admin console — the realm, the client, the audience mapper
+and the three people are all imported from
+[`keycloak/realm-feedbackhub-development.json`](keycloak/realm-feedbackhub-development.json)
+when the container starts.
 
 ### Tests
 
@@ -61,39 +69,131 @@ npm run demo             # a populated board: 14 requests, 7 people, votes, thre
 npm run migrate -- 2     # migrate to a specific schema version, either direction
 npm run migrate:down     # undo the most recent migration
 npm run db:reset         # destroy the database volume and start clean
-npm run db:down          # stop MySQL, keep the data
+npm run auth:up          # Keycloak only
+npm run auth:google      # optional: add Google as a sign-in method — see below
+npm run down             # stop everything, keep the database
 ```
 
-## Acting as a different user
+## Signing in
 
-Authentication is deliberately deferred; authorization is not. Every endpoint
-enforces permissions from this slice onward, against an identity supplied by a
-single replaceable function — [`api/src/auth/current-user.ts`](api/src/auth/current-user.ts).
+**People sign in against Keycloak, and this application never sees a password.**
+It redirects to the provider, the person authenticates there, and comes back
+with an authorization code it exchanges for tokens — the standard OpenID Connect
+authorization code flow with PKCE, as a public client with no secret. There is
+no sign-in form in this application and there must never be one.
 
-To act as somebody else, change `DEV_CURRENT_USER_EMAIL` in `.env` and restart
-the API — worth doing, since admins and regular users now see different
-controls. Pointing it at an address **nobody has used** exercises the
-registration policy instead: an open board provisions the account on the spot,
-a restricted one refuses by name. The seeded users are:
+### Who you can sign in as
 
-| Email | Name | Role |
-|---|---|---|
-| `admin@feedbackhub.local` | Robin Alvarez | admin |
-| `dana@feedbackhub.local` | Dana Okafor | user |
-| `sam@feedbackhub.local` | Sam Lindqvist | user |
+These three are in the imported realm **and** in the database seed, joined by a
+fixed id — see [Two sets of people, one join](#two-sets-of-people-one-join).
 
-`npm run demo` adds four more, including a second admin, so the rules that
-depend on *who* you are can actually be exercised:
+| Email | Password | Name | Role |
+|---|---|---|---|
+| `admin@feedbackhub.local` | `feedbackhub-dev` | Robin Alvarez | admin |
+| `dana@feedbackhub.local` | `feedbackhub-dev` | Dana Okafor | user |
+| `sam@feedbackhub.local` | `feedbackhub-dev` | Sam Lindqvist | user |
 
-| Email | Name | Role |
-|---|---|---|
-| `priya@feedbackhub.local` | Priya Raman | admin |
-| `marcus@feedbackhub.local` | Marcus Bell | user |
-| `lena@feedbackhub.local` | Lena Fischer | user |
-| `omar@feedbackhub.local` | Omar Haddad | user |
+**Those passwords are not secrets.** They are three fixed development
+credentials, published deliberately, for a realm that only runs on a laptop —
+so that bringing the system up is followed by a working sign-in rather than a
+question. A real deployment imports a realm with no `credentials` block at all.
+The file is named `-development` so nothing mistakes it for one.
 
-This is a development backdoor and is treated as one: the API **refuses to
-start** if it is still compiled in when `NODE_ENV=production`. See
+`npm run demo` adds four more people to the **database** — including a second
+admin, so the rules that depend on *who* you are can be exercised. They are
+authors of content and **cannot sign in**: they have no realm identities, and
+giving them some would buy nothing. Everything a reviewer needs is reachable
+from the three above.
+
+### Two sets of people, one join
+
+A returning person is matched on `external_id` — the token's `sub` — and never
+on their email address. So the seeded rows and the realm's users have to agree
+about what those subjects are, and both files write the same three ids down:
+the `id` field of each user in the realm import, and the `external_id` column
+in [`api/src/db/seeds/001_baseline.sql`](api/src/db/seeds/001_baseline.sql).
+
+Without that, the seeded admin authenticates perfectly, matches nothing, is
+sent to provisioning, and collides with the unique constraint on `email`. The
+symptom would be the one account that can reach the admin screens being unable
+to get in, on a board where nothing can promote anybody else.
+
+**Change an id in one file and change it in the other, in the same commit.**
+
+Anybody else — including anyone arriving through Google — has no row until they
+arrive, and is created by the registration policy below.
+
+### What the API does with a token
+
+Verification is local. The realm's public keys are fetched once from its JWKS
+endpoint and cached; Keycloak is not called per request.
+
+Four things are checked, and none is optional: the **signature**, the
+**issuer**, the **audience** — a token minted for a different client of the
+same realm is a valid token and is not valid here — and the **expiry**. The
+algorithm list is closed to `RS256`.
+
+A refusal is one sentence to the caller and a named reason in the log:
+`token.missing`, `token.expired`, `token.malformed`, `token.signature`,
+`token.audience`, `token.issuer`. A missing token, an expired one and a client
+pointed at the wrong realm are three different problems, and they should not be
+one line that reads `401`.
+
+**A provider that cannot be reached is a `503`, not a `401`.** The token may be
+perfectly good and the API simply unable to check it; answering `401` would tell
+every client its session had ended and sign the building out over a restart.
+Because the keys are cached, a restart usually costs nothing at all.
+
+### Tokens in the browser
+
+The access token is held **in memory only**. The refresh token is in
+`sessionStorage`, scoped to one tab and gone when it closes; a new tab redirects
+and comes back without anybody typing anything, because the provider's own
+session is still open. It renews a minute before expiry rather than after a
+request has failed, and signing out ends the session **at Keycloak**, not only
+here — otherwise the next sign-in would return immediately and the sign-out
+would have undone itself.
+
+The honest limit: anything that can run script on this origin can read the
+refresh token. Closing that means a back-end-for-frontend holding tokens in an
+httpOnly cookie, which is infrastructure this application does not have. The
+trade is written down in [DECISIONS.md](DECISIONS.md).
+
+### Google
+
+The realm ships with **no** identity providers, and the sign-in page shows email
+and password. That is deliberate: a reviewer cannot obtain Google OAuth
+credentials, and a Google button that leads to an error is worse than no button.
+
+With credentials, it is one command and no admin console:
+
+```bash
+# in .env
+GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=...
+
+npm run auth:google      # prints the redirect URI to register with Google
+```
+
+It links a Google identity to an existing account **only on a verified email
+address**. Linking on an unverified one is an account-takeover path: register
+somebody else's address at a provider that does not check it, and you arrive
+inside their account. The API asserts the same rule again on its own side, where
+it does not depend on the realm being configured correctly.
+
+### Running without Keycloak
+
+The identity seam this was built on is still compiled in as a second mode:
+`IDENTITY_MODE` in
+[`api/src/auth/identity-mode.ts`](api/src/auth/identity-mode.ts). Set it to
+`development-seam`, set `DEV_CURRENT_USER_EMAIL`, remove the `OIDC_` variables,
+and every request is that person — no container, no sign-in. The web
+application asks the API which mode it is in and skips the whole flow.
+
+It is a total authentication bypass and is treated as one: the API **refuses to
+start** with it compiled in when `NODE_ENV=production`, and refuses to start
+with both identity mechanisms configured at once, so nobody has to guess which
+is in effect. See
 [`api/src/config/env.schema.ts`](api/src/config/env.schema.ts).
 
 ## Layout
@@ -103,7 +203,8 @@ api/                     Node + TypeScript + Express
   src/config/            the only module that reads process.env
   src/db/migrations/     plain .sql, run by postgrator
   src/db/seeds/          idempotent baseline data
-  src/auth/              the identity seam, and the provisioning check behind it
+  src/auth/              the identity seam: token verification, the JWKS cache,
+                         and the provisioning check behind them
   src/policy/            every permission rule, and nowhere else
   src/http/              error taxonomy, error middleware, validation mapping
   src/modules/*/         routes → controller → service → repository
@@ -112,11 +213,15 @@ api/                     Node + TypeScript + Express
                          its validator, default, scope, visibility and control
 web/                     Angular, standalone components, typed reactive forms
   src/app/core/api/      API types and error mapping
+  src/app/core/auth/     the sign-in lifecycle, and the one place a token is
+                         attached to a request
   src/app/core/config/   the startup payload, and everything drawn from it
   src/app/features/      one directory per screen
+keycloak/                the imported realm, and the optional Google script
 notes/ai-log.md          raw working log of the AI collaboration
 DECISIONS.md             what was decided and why
-docker-compose.yml       MySQL only; the rest joins in the deployment slice
+docker-compose.yml       MySQL and Keycloak; the API and web join in the
+                         deployment slice
 ```
 
 ## API
@@ -127,6 +232,7 @@ a single envelope; see [DECISIONS.md](DECISIONS.md#error-shape).
 | | |
 |---|---|
 | `GET /health` | liveness, no identity required |
+| `GET /api/auth/config` | **the only route under `/api` without a token**: which provider to sign in against. A browser has to be told where to go before it can present anything |
 | `GET /api/requests` | paginated, unpinned only; filtered, searched and sorted — see below |
 | `GET /api/requests/pinned?sort=` | the pinned shelf; not paginated, capped at 100; the default board only |
 | `POST /api/requests` | `{ title, description, categoryId }` |
@@ -264,11 +370,22 @@ promotes anybody, so a board that reaches zero admins could never have one again
 ### Who may create an account
 
 `registration.policy` is `open` or `domains`, checked in
-`api/src/auth/provision.ts` when somebody arrives with no local row. That check
-lives in this application and not in the identity provider: when Keycloak lands,
-a person will be able to authenticate perfectly and still be refused an account
-here. Point `DEV_CURRENT_USER_EMAIL` at an address nobody has used to see it —
-an open board admits you, a restricted one refuses by name.
+`api/src/auth/provision.ts` when somebody arrives with no local row.
+
+**That check lives in this application and not in the identity provider.**
+Authenticating and being admitted are two different decisions and only one of
+them is Keycloak's: a person can present a perfectly valid token, from a realm
+this API trusts, and still be refused an account — because this board decided
+who it lets in. Putting the rule in the provider would move a product decision
+into infrastructure and hide it from the screen that configures it.
+
+To see it, set the policy to `domains` on `/admin/settings`, list a domain, and
+sign in as somebody outside it. They authenticate; the board refuses them, by
+naming the rule rather than the admitted domains — which would answer a question
+about the installation for somebody who has not been let into it.
+
+Everybody arrives as an ordinary user. Nothing in a token decides a role, and
+the first admin is the one the seed creates.
 
 `invite-only` is deliberately not offered. There are no invitations to check
 against, so it would mean "closed" while claiming to mean something else.
@@ -349,9 +466,12 @@ listing with server-side pagination, filtering, search and sort switching;
 voting, with counts derived rather than stored; admin pinning, recorded with
 actor and time; comment threads one reply deep, with optional approval before
 publication; a submission rate limit and a registration policy, both settings
-rather than constants; the identity seam and the provisioning check behind it;
-the policy module; one error shape with one middleware producing it; and six
-screens with real loading, empty and error states, in English or French.
+rather than constants; **authentication against Keycloak** — a realm imported
+from this repository, the authorization code flow with PKCE, local token
+verification, provisioning on first arrival, and the registration policy applied
+at that moment; the policy module; one error shape with one middleware producing
+it; and six screens with real loading, empty and error states, in English or
+French.
 
 **Deleting a comment** does one of two things, and which one is a judgement the
 server makes rather than the browser:
@@ -378,6 +498,7 @@ demotes or deactivates anybody else, which is why the last admin cannot leave;
 invitations, which is why `invite-only` is not a registration policy this
 application offers; avatar uploads, there being no file storage; sending email,
 so the notification preferences are recorded and consumed by nothing;
-translation of the interface copy, the language setting covering the document
-language and date formatting only; Keycloak; and deployment beyond the database
-container.
+translation of what people wrote, and of the API's own validation and refusal
+messages, so a French screen can still show an English 422; and deployment
+beyond the two containers — the API and the web application are still run from
+a terminal, and the realm that ships here is a development one.

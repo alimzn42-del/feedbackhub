@@ -42,6 +42,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/admin/admin-taxonomy/admin-taxonomy').then((m) => m.AdminTaxonomy),
   },
+  {
+    // Where Keycloak returns to, and the one address registered with it. It
+    // renders under the shell like everything else, but the shell lets it
+    // through while there is no session — it is what produces one.
+    path: 'auth/callback',
+    title: 'Signing in · FeedbackHub',
+    loadComponent: () =>
+      import('./core/auth/auth-callback/auth-callback').then((m) => m.AuthCallback),
+  },
   { path: '', pathMatch: 'full', redirectTo: 'requests' },
   { path: '**', redirectTo: 'requests' },
 ];

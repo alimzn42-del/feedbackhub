@@ -70,6 +70,24 @@
   background: var(--accent-subtle);
 }
 
+/* Reads as part of the navigation rather than as a call to action: signing out
+   is an action somebody takes deliberately, not one the interface pushes. */
+.masthead__signout {
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.masthead__signout:hover {
+  color: var(--text);
+  background: var(--surface-sunken);
+}
+
 .page {
   max-width: var(--content-width);
   margin-inline: auto;

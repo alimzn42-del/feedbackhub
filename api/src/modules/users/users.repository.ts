@@ -43,6 +43,28 @@ export async function findByEmail(email: string): Promise<Actor | null> {
   return row ? toActor(row) : null;
 }
 
+/**
+ * The lookup authentication runs on every request.
+ *
+ * `external_id` is the provider's `sub`. Matching on it rather than on the
+ * email is the whole reason the column exists: an address can change upstream,
+ * be reassigned, or be claimed at a second provider, and none of those is the
+ * same event as a different person. A returning user is the same row because
+ * the subject says so.
+ *
+ * `deleted_at IS NULL` for the same reason as findByEmail — and anonymisation
+ * clears external_id anyway, so a departed account cannot be matched even by a
+ * token that was minted before they left.
+ */
+export async function findByExternalId(externalId: string): Promise<Actor | null> {
+  const [rows] = await pool.execute<UserRow[]>(
+    `${SELECT_USER} WHERE external_id = :externalId AND deleted_at IS NULL LIMIT 1`,
+    { externalId },
+  );
+  const row = rows[0];
+  return row ? toActor(row) : null;
+}
+
 export async function findById(id: number): Promise<Actor | null> {
   const [rows] = await pool.execute<UserRow[]>(
     `${SELECT_USER} WHERE id = :id AND deleted_at IS NULL LIMIT 1`,
@@ -50,6 +72,23 @@ export async function findById(id: number): Promise<Actor | null> {
   );
   const row = rows[0];
   return row ? toActor(row) : null;
+}
+
+/**
+ * Copies an address the provider has moved on to.
+ *
+ * The email is the provider's field, not the person's: nothing in this
+ * application lets somebody type a new one, and the account screen edits only
+ * the display name. So when a token arrives carrying a different address for a
+ * subject we already know, the local copy is stale and this is how it stops
+ * being stale.
+ *
+ * It is an UPDATE by id and never a way to find a row. Matching happens on
+ * external_id, always — an address that changed upstream updates the account it
+ * belongs to and can never re-point the token at a different one.
+ */
+export async function updateEmail(id: number, email: string): Promise<void> {
+  await pool.execute('UPDATE users SET email = :email WHERE id = :id', { id, email });
 }
 
 export async function updateDisplayName(id: number, displayName: string): Promise<void> {

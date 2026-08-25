@@ -40,6 +40,15 @@ const english = {
   'app.startFailed': 'FeedbackHub could not start',
   'app.reference': 'Reference: {id}',
 
+  /* ── Signing in ────────────────────────────────────────────────────────── */
+  'auth.checking': 'Checking who you are…',
+  'auth.completing': 'Signing you in…',
+  'auth.signInTitle': 'Sign in to FeedbackHub',
+  'auth.signInHint': 'You will be taken to the sign-in page and brought back here.',
+  'auth.signIn': 'Sign in',
+  'auth.signOut': 'Sign out',
+  'auth.unavailable': 'Sign-in is unavailable',
+
   'nav.primary': 'Primary',
   'nav.board': 'Board',
   'nav.newRequest': 'New request',
@@ -372,6 +381,15 @@ const french: Record<MessageKey, string> = {
   'app.starting': 'Démarrage de FeedbackHub…',
   'app.startFailed': 'FeedbackHub n’a pas pu démarrer',
   'app.reference': 'Référence : {id}',
+
+  /* ── Signing in ────────────────────────────────────────────────────────── */
+  'auth.checking': 'Vérification de votre identité…',
+  'auth.completing': 'Connexion en cours…',
+  'auth.signInTitle': 'Connectez-vous à FeedbackHub',
+  'auth.signInHint': 'Vous serez dirigé vers la page de connexion, puis ramené ici.',
+  'auth.signIn': 'Se connecter',
+  'auth.signOut': 'Se déconnecter',
+  'auth.unavailable': 'La connexion est indisponible',
 
   'nav.primary': 'Principale',
   'nav.board': 'Tableau',

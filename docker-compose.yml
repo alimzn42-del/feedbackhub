@@ -1,7 +1,8 @@
 name: feedbackhub
 
-# Slice 1 brings up only the database. The API and web services join this file
-# in the deployment slice; nothing here is intended to be the final topology.
+# The database and the identity provider. The API and web services join this
+# file in the deployment slice; nothing here is intended to be the final
+# topology.
 services:
   mysql:
     image: mysql:8.4.6
@@ -37,5 +38,51 @@ services:
       retries: 20
       start_period: 20s
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.2
+    container_name: feedbackhub-keycloak
+    restart: unless-stopped
+    # start-dev: HTTP without a certificate, and an in-container database. Both
+    # are correct for a laptop and neither is correct anywhere else, which is
+    # the same line the development identity seam was drawn on.
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      # The realm URL is baked into every token's `iss`, so the port the browser
+      # uses and the port the API verifies against have to be the same one.
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    volumes:
+      # Read-only: the container imports this realm, it does not own it. The
+      # file in the repository stays the description of what the realm is.
+      - ./keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      # The image ships no curl and no wget on purpose. This is Keycloak's own
+      # documented workaround: bash's /dev/tcp, against the management port.
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/9000; echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; cat <&3 | grep -q '\"status\": \"UP\"'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+# There is deliberately no volume for Keycloak.
+#
+# Everything the realm is, is in keycloak/realm-feedbackhub-development.json,
+# and it is re-imported whenever the container is created. That makes the file
+# the only source of truth: a reviewer cannot end up looking at a realm that
+# drifted away from what the repository says, and `docker compose down` cannot
+# leave a stale one behind. The cost is that anything added through the admin
+# console — or by `npm run auth:google` — is gone after a `down`, and re-running
+# the script is how it comes back.
+#
+# A `stop` and `start` is a different thing: the container's own filesystem
+# survives, so the realm and its signing keys do, and tokens issued before the
+# restart keep working.
 volumes:
   mysql-data:

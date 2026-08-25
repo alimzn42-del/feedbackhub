@@ -1,5 +1,6 @@
 import type { Actor } from './actor.js';
-import { ForbiddenError } from '../http/errors.js';
+import { isDuplicateEntry } from '../db/errors.js';
+import { ConflictError, ForbiddenError } from '../http/errors.js';
 import { globalValue } from '../modules/settings/settings.service.js';
 import * as usersRepository from '../modules/users/users.repository.js';
 
@@ -31,7 +32,7 @@ export interface ProvisionRequest {
   externalId: string | null;
 
   /** What the provider says they are called, if it says anything. */
-  displayName?: string;
+  displayName?: string | undefined;
 }
 
 function domainOf(email: string): string {
@@ -78,9 +79,35 @@ export async function assertMayRegister(email: string): Promise<void> {
 export async function provision(input: ProvisionRequest): Promise<Actor> {
   await assertMayRegister(input.email);
 
-  return usersRepository.insert({
-    email: input.email,
-    displayName: input.displayName?.trim() || nameFromEmail(input.email),
-    externalId: input.externalId,
-  });
+  try {
+    return await usersRepository.insert({
+      email: input.email,
+      displayName: input.displayName?.trim() || nameFromEmail(input.email),
+      externalId: input.externalId,
+    });
+  } catch (error) {
+    /**
+     * An account already holds this address, under a different subject.
+     *
+     * This is the shape of the failure that the pinned identities in the realm
+     * import exist to prevent: a local row whose external_id does not match the
+     * token, so matching misses and provisioning tries to create a second
+     * account for the same person. It is also what a social login would produce
+     * if the realm were configured to create a fresh account rather than link
+     * to the existing one on a verified address.
+     *
+     * A 409 naming the collision rather than the driver's ER_DUP_ENTRY reaching
+     * the error handler as an opaque 500 — because the person hitting this can
+     * do nothing about it and the operator reading the log needs to know which
+     * of those two things went wrong.
+     */
+    if (isDuplicateEntry(error, 'uq_users_email')) {
+      throw new ConflictError(
+        'An account on this board already uses that email address under a different ' +
+          'sign-in. Ask an admin to link them.',
+      );
+    }
+
+    throw error;
+  }
 }

@@ -301,6 +301,78 @@ between the two statements rolls back.
 
 ## Authorization and identity
 
+**The seam was the whole bet, and it paid.** Authentication landed by changing
+one constant and the body of one function. Nothing in `src/policy/` moved, no
+service learned what a token is, no handler gained a null check, and `req.actor`
+is still non-nullable behind the middleware. The 220 route tests changed in two
+mechanical ways — the repository they resolve identity through, and a header on
+each call — and not one of them changed what it asserts.
+
+**The development seam was retained, not deleted.** It is a second identity mode
+that still cannot start in production, and keeping it does three things:
+`assertIdentityIsSafeFor` keeps a subject it can be tested against, the API can
+be run without a container, and the boot guard stays a live rule rather than
+dead code guarding a branch nobody can select. The web application asks the API
+which mode it is in and skips the sign-in flow entirely when the answer is the
+seam — better than redirecting a browser to a realm that is not running.
+
+**Verification is local, and four things are checked.** Signature, issuer,
+audience, expiry — with a closed algorithm list. The audience check is the one
+easiest to leave out and the one most worth having: a token minted for a
+different client of the same realm carries a perfect signature from an issuer
+this API trusts, and without it every other client of that realm would be a way
+in. Calling Keycloak per request was never considered: it would put an outage in
+front of every call and a round trip inside every one that survived.
+
+**A 401 says one sentence on the wire and a named reason in the log.** Telling
+an unauthenticated stranger that their signature was fine and their audience was
+wrong describes the installation to somebody who has not been let into it. An
+operator, meanwhile, cannot tell a clock skew from a client pointed at the wrong
+realm from somebody probing, if all three are one line reading `401`. So the
+reason is a stable token — `token.expired`, `token.audience` — and it is only
+ever logged.
+
+**A provider that cannot be reached is a 503 and not a 401.** The caller may be
+holding a perfectly good token; the API is simply unable to check it. Answering
+401 would tell every client in the building that its session had ended, and this
+application's own interceptor would act on it — turning a provider restart into
+a mass sign-out that outlasts the restart. The cached key set means most
+restarts cost nothing at all, which is the other half of the same reasoning.
+
+**The role still comes from the local table and never from a claim.** The token
+establishes WHICH user this is; it does not establish what they may do. There is
+no realm role mapped into the access token, and nothing in the identity path
+reads one — so no realm misconfiguration can promote anybody.
+
+**The email is the provider's field; the display name is the person's.** The
+name is copied once, at provisioning, and the account screen owns it from then
+on: overwriting it on every request would make that screen a control that
+appears to work and silently does nothing. The email is the opposite — nothing
+in this application edits it, so a difference can only mean the provider moved
+and the local copy is stale. It is reconciled onto the row the SUBJECT names,
+and an address that changed upstream can never re-point a token at a different
+account.
+
+**An unverified address is never provisioned, and never overwrites a verified
+one.** Without that, an installation restricted to a domain could be entered by
+registering somebody else's address at a provider that does not check it. The
+realm is configured to link only on a verified email; this asserts the same rule
+where it does not depend on the realm being configured correctly.
+
+**The seeded users' subjects are pinned in the realm file.** Matching is on
+`external_id` and never on an address, so the two sets of people have to agree
+about what those subjects are. Letting Keycloak generate them would mean the
+seeded admin authenticates, matches nothing, is sent to provisioning, and
+collides with the unique constraint on `email` — the one account that can reach
+the admin screens unable to get in, on a board that cannot promote a replacement.
+
+**`GET /api/auth/config` is the only route under `/api` without a token, and it
+is not a second `/api/bootstrap`.** Bootstrap answers "who am I and how is this
+board configured for me", every word of which presupposes an identity. This
+answers "where do I go to become somebody", which by definition cannot. It also
+keeps the browser from carrying its own copy of the realm and client id, where
+it could be pointed at a realm the API does not trust.
+
 **A settings screen resolves at the level it WRITES, not at the level the
 person experiences.** The administrative document is resolved with the caller's
 own preferences left out entirely: its source is `global` or `default` and can
@@ -951,7 +1023,88 @@ to the banner.
 keeps the line breaks somebody typed; nothing they typed is interpreted. There
 is no markdown, and therefore no HTML to sanitise.
 
+**There is no route guard, and adding one would be a second copy of a rule that
+already holds.** Nothing below the shell renders until the session resolves,
+because the `<router-outlet>` does not exist until then. That is stronger than a
+guard per route — it covers a route added later, because that route cannot be
+mounted rather than because somebody remembered to list it — and it is one
+mechanism rather than two that can disagree. The sign-in callback is the single
+exception, and it renders without a session because it is the thing that
+produces one.
+
+**The access token lives in memory; the refresh token lives in
+`sessionStorage`.** In memory alone, every reload signs the person out, and
+people work around applications that appear broken. `localStorage` would put a
+longer-lived credential in a wider place — shared across every tab of the origin
+and surviving the browser closing. `sessionStorage` is scoped to one tab and
+dies with it, and a new tab redirects and returns without anybody typing
+anything, because the provider's own session is still open.
+
+The honest limit is that anything which can run script on this origin can read
+it. Closing that means a back-end-for-frontend holding tokens in an httpOnly
+cookie — a piece of infrastructure this application does not have, and one that
+would change what "the browser talks to the API" means. It is written down here
+rather than left as an assumption.
+
+**Renewal happens before expiry, not after a failure.** Reacting to a 401 works
+and is still the fallback in the interceptor, but on its own it means one request
+per session lifetime fails first — and when that request is a POST somebody
+typed, retrying it is a decision rather than a detail.
+
+**Signing out ends the session at Keycloak, not only here.** Clearing local state
+alone leaves the provider's SSO session open, so the next sign-in returns
+immediately without asking for anything: a sign-out that undoes itself, on the
+shared machine where it mattered most.
+
+**The endpoints come from the provider's discovery document, not from string
+concatenation.** The paths beneath a realm are Keycloak's, and assembling them
+in the browser would put knowledge of one provider's URL shape into the client.
+The API derives only the JWKS URL that way, and deliberately takes no second
+variable for it: a `OIDC_JWKS_URL` that could disagree with `OIDC_ISSUER_URL`
+would be a verifier checking one realm's keys while insisting on another realm's
+`iss`.
+
 ## Scope
+
+**The test suite mints its own tokens, and replaces exactly one thing.** The
+420-odd tests had to keep running without a live Keycloak: a suite that stands
+up a container and performs real logins is slow, dependent on a network, and
+able to fail for reasons unrelated to the code under test, which destroys the
+thing a suite is for. So the tests own an RSA key and sign their own tokens, and
+the ONLY thing stubbed is the network fetch of the public keys. The signature,
+the issuer, the audience, the expiry and the `kid` selection all run through the
+real implementation. The alternative — retaining the seam as a test-only
+identity mode — would have been simpler and would have left verification, the
+part most worth covering, untested.
+
+**The code that signs those tokens is not compiled.** `tsconfig.build.json`
+excludes `*.test-support.ts` alongside the test files, so it is absent from
+`dist/` rather than present and guarded. There is no environment variable that
+switches it on and no identity mode it corresponds to. Absent beats guarded: a
+guard is a runtime claim about a code path that exists.
+
+**Google is added by a script rather than shipped in the realm file.** A
+reviewer cannot obtain Google OAuth credentials, and a realm import is a static
+document that cannot omit a provider when they are missing. An identity provider
+configured with an empty client id is not degradation — it is a Google button
+that leads to an error. So the realm ships without one, the sign-in page shows
+email and password, and one documented command adds it when there is something
+real to configure. No step of it is a walk through the admin console.
+
+**The realm has no volume, so it is re-imported whenever the container is
+created.** The file in the repository stays the only description of what the
+realm is, and a reviewer cannot end up looking at one that drifted from it. The
+cost is that anything added at runtime — including the Google provider — is
+discarded by `docker compose down`, and the script is re-runnable for exactly
+that reason. A `stop`/`start` keeps the container's own filesystem, so a restart
+costs nothing and existing tokens stay valid.
+
+**The demo people have no realm identities.** They are authors of content, so
+the board has something to read; they are not people who sign in. The three
+seeded users cover every path a reviewer needs: promote one and there are two
+admins, which is what the successful demotion path requires; demote again and
+the last-admin refusal appears; account deletion works signed in as an ordinary
+user.
 
 **Comment moderation before publication was built in this slice, not
 the moderation slice it was parked for.** It was the strongest available

@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../auth/actor.js';
+import { signedIn } from '../../auth/tokens.test-support.js';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Settings: resolution, and who may see or change what.
@@ -19,6 +20,8 @@ import type { Actor } from '../../auth/actor.js';
 
 const usersRepository = vi.hoisted(() => ({
   findByEmail: vi.fn(),
+  findByExternalId: vi.fn(),
+  updateEmail: vi.fn(),
   findById: vi.fn(),
   insert: vi.fn(),
   updateDisplayName: vi.fn(),
@@ -43,6 +46,20 @@ vi.mock('./settings.repository.js', () => settingsRepository);
 vi.mock('../categories/categories.repository.js', () => categoriesRepository);
 vi.mock('../statuses/statuses.repository.js', () => statusesRepository);
 
+/**
+ * The whole of what the test suite fakes about authentication: where the
+ * public keys come from.
+ *
+ * Everything downstream of this runs for real against these tokens — the
+ * signature, the issuer, the audience, the expiry, and which key in the set
+ * the header's `kid` selects. What is not exercised is the fetch, which is
+ * the one part a container would have proved and nothing else would.
+ */
+vi.mock('../../auth/jwks.js', async () => {
+  const { testVerificationKeys } = await import('../../auth/tokens.test-support.js');
+  return { verificationKeys: () => testVerificationKeys };
+});
+
 const { createApp } = await import('../../app.js');
 const settingsService = await import('./settings.service.js');
 
@@ -60,7 +77,7 @@ const app = createApp();
 
 beforeEach(() => {
   vi.clearAllMocks();
-  usersRepository.findByEmail.mockResolvedValue(REGULAR_USER);
+  usersRepository.findByExternalId.mockResolvedValue(REGULAR_USER);
   settingsRepository.readGlobal.mockResolvedValue(new Map());
   settingsRepository.readForUser.mockResolvedValue(new Map());
   categoriesRepository.listActive.mockResolvedValue([{ id: 2, name: 'Feature', slug: 'feature' }]);
@@ -141,13 +158,13 @@ describe('resolution', () => {
 
 describe('the application settings are refused at the route', () => {
   it('403s a regular user reading them', async () => {
-    const response = await request(app).get('/api/settings');
+    const response = await signedIn(request(app)).get('/api/settings');
 
     expect(response.status).toBe(403);
   });
 
   it('403s a regular user writing them, and writes nothing', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch('/api/settings')
       .send({ 'submissions.perUserPerDay': 5000 });
 
@@ -167,11 +184,14 @@ describe('the application settings are refused at the route', () => {
   });
 
   it('lets an admin read and write them', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    await request(app).get('/api/settings').expect(200);
+    await signedIn(request(app)).get('/api/settings').expect(200);
 
-    await request(app).patch('/api/settings').send({ 'submissions.perUserPerDay': 5 }).expect(200);
+    await signedIn(request(app))
+      .patch('/api/settings')
+      .send({ 'submissions.perUserPerDay': 5 })
+      .expect(200);
 
     expect(settingsRepository.applyGlobal).toHaveBeenCalled();
   });
@@ -179,7 +199,7 @@ describe('the application settings are refused at the route', () => {
 
 describe('preferences belong to the person they are about', () => {
   it('403s writing somebody else’s, and writes nothing', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch(`/api/users/${ADMIN.id}/settings`)
       .send({ 'profile.theme': 'dark' });
 
@@ -188,16 +208,16 @@ describe('preferences belong to the person they are about', () => {
   });
 
   it('403s reading somebody else’s', async () => {
-    const response = await request(app).get(`/api/users/${ADMIN.id}/settings`);
+    const response = await signedIn(request(app)).get(`/api/users/${ADMIN.id}/settings`);
 
     expect(response.status).toBe(403);
   });
 
   /** An admin is not an exception. Moderating is not rewriting. */
   it('403s an admin writing another person’s, and writes nothing', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch(`/api/users/${REGULAR_USER.id}/settings`)
       .send({ 'profile.theme': 'dark' });
 
@@ -206,7 +226,7 @@ describe('preferences belong to the person they are about', () => {
   });
 
   it('lets somebody write their own', async () => {
-    await request(app)
+    await signedIn(request(app))
       .patch(`/api/users/${REGULAR_USER.id}/settings`)
       .send({ 'profile.theme': 'dark' })
       .expect(200);
@@ -220,11 +240,13 @@ describe('preferences belong to the person they are about', () => {
 
 describe('what a write refuses', () => {
   beforeEach(() => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
   });
 
   it('refuses a setting at the wrong level by name, rather than dropping it', async () => {
-    const response = await request(app).patch('/api/settings').send({ 'profile.theme': 'dark' });
+    const response = await signedIn(request(app))
+      .patch('/api/settings')
+      .send({ 'profile.theme': 'dark' });
 
     expect(response.status).toBe(422);
     expect(response.body.error.details[0]).toMatchObject({
@@ -235,7 +257,9 @@ describe('what a write refuses', () => {
   });
 
   it('refuses a key that is not a setting', async () => {
-    const response = await request(app).patch('/api/settings').send({ 'board.colour': 'blue' });
+    const response = await signedIn(request(app))
+      .patch('/api/settings')
+      .send({ 'board.colour': 'blue' });
 
     expect(response.status).toBe(422);
     expect(response.body.error.details[0]).toMatchObject({ code: 'UNKNOWN_SETTING' });
@@ -243,7 +267,7 @@ describe('what a write refuses', () => {
   });
 
   it('refuses a value the setting does not accept', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch('/api/settings')
       .send({ 'submissions.perUserPerDay': 0 });
 
@@ -257,7 +281,7 @@ describe('what a write refuses', () => {
    * board wearing the clothes of a restricted one.
    */
   it('refuses restricting registration to an empty list of domains', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch('/api/settings')
       .send({ 'registration.policy': 'domains' });
 
@@ -269,7 +293,7 @@ describe('what a write refuses', () => {
   });
 
   it('accepts the policy and the domains together, in one write', async () => {
-    await request(app)
+    await signedIn(request(app))
       .patch('/api/settings')
       .send({
         'registration.policy': 'domains',
@@ -286,7 +310,7 @@ describe('what a write refuses', () => {
    * filter value that names nothing, deliberately. Caught once, here.
    */
   it('refuses a default filter that names nothing', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch(`/api/users/${ADMIN.id}/settings`)
       .send({ 'board.defaultCategories': ['does-not-exist'] });
 
@@ -296,7 +320,7 @@ describe('what a write refuses', () => {
   });
 
   it('accepts a default filter that names a real category', async () => {
-    await request(app)
+    await signedIn(request(app))
       .patch(`/api/users/${ADMIN.id}/settings`)
       .send({ 'board.defaultCategories': ['feature'] })
       .expect(200);
@@ -306,7 +330,7 @@ describe('what a write refuses', () => {
 
   /** null is reset, and reset is not the same as writing the default. */
   it('treats null as a removal rather than a value', async () => {
-    await request(app)
+    await signedIn(request(app))
       .patch(`/api/users/${ADMIN.id}/settings`)
       .send({ 'profile.theme': null })
       .expect(200);
@@ -331,17 +355,15 @@ describe('what a write refuses', () => {
  * ──────────────────────────────────────────────────────────────────────────── */
 describe('the level a screen resolves at', () => {
   beforeEach(() => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
   });
 
   it('never shows a personal value on the application settings', async () => {
     // The admin has chosen an ordering for themselves. Nothing is set globally.
     settingsRepository.readForUser.mockResolvedValue(new Map([['board.defaultSort', 'votes']]));
 
-    const response = await request(app).get('/api/settings').expect(200);
-    const sort = response.body.data.find(
-      (row: { key: string }) => row.key === 'board.defaultSort',
-    );
+    const response = await signedIn(request(app)).get('/api/settings').expect(200);
+    const sort = response.body.data.find((row: { key: string }) => row.key === 'board.defaultSort');
 
     expect(sort).toMatchObject({ value: 'newest', source: 'default' });
     expect(sort.source).not.toBe('user');
@@ -351,10 +373,8 @@ describe('the level a screen resolves at', () => {
     settingsRepository.readGlobal.mockResolvedValue(new Map([['board.defaultSort', 'oldest']]));
     settingsRepository.readForUser.mockResolvedValue(new Map([['board.defaultSort', 'votes']]));
 
-    const response = await request(app).get('/api/settings').expect(200);
-    const sort = response.body.data.find(
-      (row: { key: string }) => row.key === 'board.defaultSort',
-    );
+    const response = await signedIn(request(app)).get('/api/settings').expect(200);
+    const sort = response.body.data.find((row: { key: string }) => row.key === 'board.defaultSort');
 
     expect(sort).toMatchObject({ value: 'oldest', source: 'global' });
   });
@@ -368,10 +388,10 @@ describe('the level a screen resolves at', () => {
     settingsRepository.readGlobal.mockResolvedValue(new Map([['board.defaultSort', 'oldest']]));
     settingsRepository.readForUser.mockResolvedValue(new Map([['board.defaultSort', 'votes']]));
 
-    const response = await request(app).get(`/api/users/${ADMIN.id}/settings`).expect(200);
-    const sort = response.body.data.find(
-      (row: { key: string }) => row.key === 'board.defaultSort',
-    );
+    const response = await signedIn(request(app))
+      .get(`/api/users/${ADMIN.id}/settings`)
+      .expect(200);
+    const sort = response.body.data.find((row: { key: string }) => row.key === 'board.defaultSort');
 
     expect(sort).toMatchObject({ value: 'votes', source: 'user' });
   });
@@ -379,10 +399,10 @@ describe('the level a screen resolves at', () => {
   it('tells the account screen when it is following the board rather than a choice', async () => {
     settingsRepository.readGlobal.mockResolvedValue(new Map([['board.defaultSort', 'oldest']]));
 
-    const response = await request(app).get(`/api/users/${ADMIN.id}/settings`).expect(200);
-    const sort = response.body.data.find(
-      (row: { key: string }) => row.key === 'board.defaultSort',
-    );
+    const response = await signedIn(request(app))
+      .get(`/api/users/${ADMIN.id}/settings`)
+      .expect(200);
+    const sort = response.body.data.find((row: { key: string }) => row.key === 'board.defaultSort');
 
     expect(sort).toMatchObject({ value: 'oldest', source: 'global' });
   });
@@ -397,27 +417,21 @@ describe('the level a screen resolves at', () => {
  * ──────────────────────────────────────────────────────────────────────────── */
 describe('the language a settings document comes back in', () => {
   it('answers in English by default', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .get(`/api/users/${REGULAR_USER.id}/settings`)
       .expect(200);
-    const theme = response.body.data.find(
-      (row: { key: string }) => row.key === 'profile.theme',
-    );
+    const theme = response.body.data.find((row: { key: string }) => row.key === 'profile.theme');
 
     expect(theme.label).toBe('Colour scheme');
   });
 
   it('answers in French for somebody who chose French', async () => {
-    settingsRepository.readForUser.mockResolvedValue(
-      new Map([['profile.language', 'fr']]),
-    );
+    settingsRepository.readForUser.mockResolvedValue(new Map([['profile.language', 'fr']]));
 
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .get(`/api/users/${REGULAR_USER.id}/settings`)
       .expect(200);
-    const theme = response.body.data.find(
-      (row: { key: string }) => row.key === 'profile.theme',
-    );
+    const theme = response.body.data.find((row: { key: string }) => row.key === 'profile.theme');
 
     expect(theme.label).toBe('Thème de couleurs');
     expect(theme.description).toContain('Système');
@@ -429,12 +443,10 @@ describe('the language a settings document comes back in', () => {
    * even though its values ignore their personal rows.
    */
   it('follows the admin’s own language on the application settings', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
-    settingsRepository.readForUser.mockResolvedValue(
-      new Map([['profile.language', 'fr']]),
-    );
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
+    settingsRepository.readForUser.mockResolvedValue(new Map([['profile.language', 'fr']]));
 
-    const response = await request(app).get('/api/settings').expect(200);
+    const response = await signedIn(request(app)).get('/api/settings').expect(200);
     const limit = response.body.data.find(
       (row: { key: string }) => row.key === 'submissions.perUserPerDay',
     );
@@ -444,7 +456,7 @@ describe('the language a settings document comes back in', () => {
 
   /** Only languages that are actually translated are offered. */
   it('refuses a language this application does not speak', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch(`/api/users/${REGULAR_USER.id}/settings`)
       .send({ 'profile.language': 'de' });
 

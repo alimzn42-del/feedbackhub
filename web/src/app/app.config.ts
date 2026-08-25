@@ -1,9 +1,10 @@
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
-import { provideHttpClient, withFetch } from '@angular/common/http';
+import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { registerLocaleData } from '@angular/common';
 import localeFr from '@angular/common/locales/fr';
 import { routes } from './app.routes';
+import { bearerToken } from './core/auth/bearer-token.interceptor';
 
 /**
  * The formatting data for the languages the settings screen offers.
@@ -25,6 +26,8 @@ export const appConfig: ApplicationConfig = {
     // component inputs, which is what keeps list state in the URL rather than
     // in a component field.
     provideRouter(routes, withComponentInputBinding()),
-    provideHttpClient(withFetch()),
+    // One interceptor, and the only code in the application that reads the
+    // access token. Every service calls the API without knowing there is one.
+    provideHttpClient(withFetch(), withInterceptors([bearerToken])),
   ],
 };

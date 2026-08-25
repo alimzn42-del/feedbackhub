@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor } from './auth/actor.js';
+import { mintToken, signedIn, TEST_SUBJECT } from './auth/tokens.test-support.js';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Route-level authorization.
@@ -44,6 +45,8 @@ import type { Actor } from './auth/actor.js';
    not about SQL, and they must not need a running database. */
 const usersRepository = vi.hoisted(() => ({
   findByEmail: vi.fn(),
+  findByExternalId: vi.fn(),
+  updateEmail: vi.fn(),
   findById: vi.fn(),
   insert: vi.fn(),
   updateDisplayName: vi.fn(),
@@ -106,6 +109,22 @@ vi.mock('./modules/statuses/statuses.repository.js', () => statusesRepository);
 vi.mock('./modules/votes/votes.repository.js', () => votesRepository);
 vi.mock('./modules/settings/settings.repository.js', () => settingsRepository);
 
+/**
+ * The whole of what the test suite fakes about authentication: where the
+ * public keys come from.
+ *
+ * Everything downstream of this runs for real against these tokens — the
+ * signature, the issuer, the audience, the expiry, and which key in the set
+ * the header's `kid` selects. What is not exercised is the fetch, which is
+ * the one part a container would have proved and nothing else would.
+ *
+ * It is a vi.fn rather than a fixed value so that one test can make the
+ * provider unreachable — which is a different outcome from a bad token and has
+ * to stay one.
+ */
+const jwks = vi.hoisted(() => ({ verificationKeys: vi.fn() }));
+vi.mock('./auth/jwks.js', () => jwks);
+
 const { createApp } = await import('./app.js');
 const { requestPolicy } = await import('./policy/requests.policy.js');
 const { categoryPolicy } = await import('./policy/categories.policy.js');
@@ -136,11 +155,15 @@ const VALID_BODY = {
 
 const app = createApp();
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The published key set, exactly as createRemoteJWKSet would have returned it.
+  const { testVerificationKeys } = await import('./auth/tokens.test-support.js');
+  jwks.verificationKeys.mockReturnValue(testVerificationKeys);
+
   settingsRepository.readGlobal.mockResolvedValue(new Map());
   settingsRepository.readForUser.mockResolvedValue(new Map());
   requestsRepository.countRecentByAuthor.mockResolvedValue({ filed: 0, oldestInWindow: null });
-  usersRepository.findByEmail.mockResolvedValue(REGULAR_USER);
+  usersRepository.findByExternalId.mockResolvedValue(REGULAR_USER);
   categoriesRepository.findActiveId.mockResolvedValue(2);
   categoriesRepository.listActive.mockResolvedValue([{ id: 2, name: 'Feature', slug: 'feature' }]);
   statusesRepository.findDefaultId.mockResolvedValue(1);
@@ -199,7 +222,7 @@ describe('POST /api/requests', () => {
   it('consults the policy, with the acting user, before doing any work', async () => {
     const spy = vi.spyOn(requestPolicy, 'create');
 
-    await request(app).post('/api/requests').send(VALID_BODY).expect(201);
+    await signedIn(request(app)).post('/api/requests').send(VALID_BODY).expect(201);
 
     // Asked twice, deliberately: once at the edge before the body is inspected,
     // once in the service, which is the boundary any future caller crosses.
@@ -210,7 +233,10 @@ describe('POST /api/requests', () => {
   it('returns 403 when the policy denies, and writes nothing', async () => {
     vi.spyOn(requestPolicy, 'create').mockReturnValue(deny('Only an admin can do that.'));
 
-    const response = await request(app).post('/api/requests').send(VALID_BODY).expect(403);
+    const response = await signedIn(request(app))
+      .post('/api/requests')
+      .send(VALID_BODY)
+      .expect(403);
 
     expect(response.body.error.code).toBe('FORBIDDEN');
     expect(response.body.error.message).toBe('Only an admin can do that.');
@@ -221,7 +247,7 @@ describe('POST /api/requests', () => {
   it('refuses with 403 and never a disguised 404', async () => {
     vi.spyOn(requestPolicy, 'create').mockReturnValue(deny('Nope.'));
 
-    const response = await request(app).post('/api/requests').send(VALID_BODY);
+    const response = await signedIn(request(app)).post('/api/requests').send(VALID_BODY);
 
     // Decision 5: the board is internal and fully visible, so there is nothing
     // to conceal by pretending the resource is not there.
@@ -238,7 +264,7 @@ describe('POST /api/requests', () => {
     // first would answer 422 and enumerate them. It must answer 403 instead.
     vi.spyOn(requestPolicy, 'create').mockReturnValue(deny('Nope.'));
 
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .post('/api/requests')
       .send({ title: 'x', description: 'short', nonsense: true });
 
@@ -248,14 +274,14 @@ describe('POST /api/requests', () => {
   });
 
   it('takes the author from the identity seam and ignores any author in the payload', async () => {
-    await request(app)
+    await signedIn(request(app))
       .post('/api/requests')
       .send({ ...VALID_BODY, authorId: 999 })
       .expect(422);
 
     expect(requestsRepository.insert).not.toHaveBeenCalled();
 
-    await request(app).post('/api/requests').send(VALID_BODY).expect(201);
+    await signedIn(request(app)).post('/api/requests').send(VALID_BODY).expect(201);
 
     expect(requestsRepository.insert).toHaveBeenCalledWith(
       expect.objectContaining({ authorId: REGULAR_USER.id }),
@@ -265,7 +291,10 @@ describe('POST /api/requests', () => {
   it('carries a denial through the real error middleware, in the one envelope', async () => {
     vi.spyOn(requestPolicy, 'create').mockReturnValue(deny('Only the author can do that.'));
 
-    const response = await request(app).post('/api/requests').send(VALID_BODY).expect(403);
+    const response = await signedIn(request(app))
+      .post('/api/requests')
+      .send(VALID_BODY)
+      .expect(403);
 
     expect(response.body).toEqual({
       error: {
@@ -282,7 +311,7 @@ describe('GET /api/requests', () => {
   it('consults the policy before reading', async () => {
     const spy = vi.spyOn(requestPolicy, 'list');
 
-    await request(app).get('/api/requests').expect(200);
+    await signedIn(request(app)).get('/api/requests').expect(200);
 
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ id: REGULAR_USER.id }));
   });
@@ -290,7 +319,7 @@ describe('GET /api/requests', () => {
   it('returns 403 when the policy denies, and reads nothing', async () => {
     vi.spyOn(requestPolicy, 'list').mockReturnValue(deny('Not for you.'));
 
-    const response = await request(app).get('/api/requests').expect(403);
+    const response = await signedIn(request(app)).get('/api/requests').expect(403);
 
     expect(response.body.error.code).toBe('FORBIDDEN');
     expect(requestsRepository.list).not.toHaveBeenCalled();
@@ -301,7 +330,7 @@ describe('GET /api/categories', () => {
   it('consults the policy before reading', async () => {
     const spy = vi.spyOn(categoryPolicy, 'list');
 
-    await request(app).get('/api/categories').expect(200);
+    await signedIn(request(app)).get('/api/categories').expect(200);
 
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ id: REGULAR_USER.id }));
   });
@@ -309,7 +338,7 @@ describe('GET /api/categories', () => {
   it('returns 403 when the policy denies', async () => {
     vi.spyOn(categoryPolicy, 'list').mockReturnValue(deny('Not for you.'));
 
-    await request(app).get('/api/categories').expect(403);
+    await signedIn(request(app)).get('/api/categories').expect(403);
 
     expect(categoriesRepository.listActive).not.toHaveBeenCalled();
   });
@@ -319,24 +348,82 @@ describe('every /api route establishes an identity first', () => {
   /**
    * Somebody the application has never seen is provisioned, not refused.
    *
-   * This used to be a 500: the seam named a user who did not exist and that was
-   * treated as a misconfiguration. It is now the moment the registration policy
-   * is for — the development stand-in for a person arriving with a valid token
-   * and no local row — and it goes through the same call the real identity
-   * provider will make.
+   * The moment the registration policy is for: a genuine token, and no local
+   * row yet. What the provider vouched for is copied in — the subject becomes
+   * external_id, and the address and name come from the token rather than being
+   * invented.
    */
   it('provisions somebody it has never seen, when registration is open', async () => {
-    usersRepository.findByEmail.mockResolvedValue(null);
-    usersRepository.insert.mockResolvedValue({ ...REGULAR_USER, id: 99, email: 'new@elsewhere.com' });
+    usersRepository.findByExternalId.mockResolvedValue(null);
+    usersRepository.insert.mockResolvedValue({ ...REGULAR_USER, id: 99 });
 
-    await request(app).get('/api/requests').expect(200);
+    await signedIn(request(app)).get('/api/requests').expect(200);
 
-    // The address the seam is pointed at, whatever it is in this environment,
-    // and a name derived from it rather than invented.
-    expect(usersRepository.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ email: expect.any(String), externalId: null }),
-    );
+    expect(usersRepository.insert).toHaveBeenCalledWith({
+      email: 'dana@feedbackhub.local',
+      displayName: 'Dana Okafor',
+      externalId: TEST_SUBJECT,
+    });
     expect(requestsRepository.list).toHaveBeenCalled();
+  });
+
+  /**
+   * The role is not in the token and cannot be put there.
+   *
+   * Everybody arrives as an ordinary user; the seeded admin is an admin because
+   * a row says so. There is no claim a provider could add — and no realm
+   * misconfiguration — that promotes anybody, because nothing in this path ever
+   * reads one.
+   */
+  it('never takes a role from the provider', async () => {
+    usersRepository.findByExternalId.mockResolvedValue(null);
+    usersRepository.insert.mockResolvedValue({ ...REGULAR_USER, id: 99 });
+
+    await signedIn(request(app)).get('/api/requests').expect(200);
+
+    expect(usersRepository.insert).toHaveBeenCalledWith(
+      expect.not.objectContaining({ role: expect.anything() }),
+    );
+  });
+
+  /**
+   * An address that moved upstream updates the account it belongs to — and the
+   * account is still found by subject, never by address.
+   */
+  it('copies an email the provider has changed, onto the row the subject names', async () => {
+    usersRepository.findByExternalId.mockResolvedValue({
+      ...REGULAR_USER,
+      email: 'dana.okafor@feedbackhub.local',
+    });
+
+    const response = await signedIn(request(app)).get('/api/bootstrap').expect(200);
+
+    expect(usersRepository.updateEmail).toHaveBeenCalledWith(
+      REGULAR_USER.id,
+      'dana@feedbackhub.local',
+    );
+    // And the request it arrived on already sees the new one.
+    expect(response.body.data.user.email).toBe('dana@feedbackhub.local');
+    expect(usersRepository.insert).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The display name is the person's, not the provider's.
+   *
+   * It is copied once, when the account is created, and the account screen owns
+   * it afterwards. Overwriting it on every request would make that screen a
+   * control that appears to work and silently does nothing.
+   */
+  it('does not overwrite a display name the person has since chosen', async () => {
+    usersRepository.findByExternalId.mockResolvedValue({
+      ...REGULAR_USER,
+      displayName: 'Dana O.',
+    });
+
+    const response = await signedIn(request(app)).get('/api/bootstrap').expect(200);
+
+    expect(usersRepository.updateDisplayName).not.toHaveBeenCalled();
+    expect(response.body.data.user.displayName).toBe('Dana O.');
   });
 
   /**
@@ -348,7 +435,7 @@ describe('every /api route establishes an identity first', () => {
    * happened.
    */
   it('refuses somebody the registration policy does not admit', async () => {
-    usersRepository.findByEmail.mockResolvedValue(null);
+    usersRepository.findByExternalId.mockResolvedValue(null);
     settingsRepository.readGlobal.mockResolvedValue(
       new Map<string, unknown>([
         ['registration.policy', 'domains'],
@@ -356,7 +443,7 @@ describe('every /api route establishes an identity first', () => {
       ]),
     );
 
-    const response = await request(app).get('/api/requests');
+    const response = await signedIn(request(app)).get('/api/requests');
 
     expect(response.status).toBe(403);
     expect(usersRepository.insert).not.toHaveBeenCalled();
@@ -368,11 +455,11 @@ describe('every /api route establishes an identity first', () => {
    * the caller — the identity mode compiled in is not one this build can serve.
    */
   it('refuses to serve at all when no identity provider is wired up', async () => {
-    usersRepository.findByEmail.mockRejectedValue(
+    usersRepository.findByExternalId.mockRejectedValue(
       new (await import('./http/errors.js')).MisconfigurationError('No identity provider.'),
     );
 
-    const response = await request(app).get('/api/requests');
+    const response = await signedIn(request(app)).get('/api/requests');
 
     expect(response.status).toBe(500);
     expect(response.body.error.code).toBe('SERVER_MISCONFIGURED');
@@ -380,10 +467,239 @@ describe('every /api route establishes an identity first', () => {
   });
 
   it('leaves the health probe outside the identity chain', async () => {
-    usersRepository.findByEmail.mockResolvedValue(null);
+    usersRepository.findByExternalId.mockResolvedValue(null);
     usersRepository.insert.mockResolvedValue(REGULAR_USER);
 
-    await request(app).get('/health').expect(200);
+    await signedIn(request(app)).get('/health').expect(200);
+  });
+
+  /**
+   * The browser has to be able to ask where to sign in before it is able to
+   * sign in, so this one route sits in front of the identity middleware. It is
+   * the only one that does, and it is asserted here so that it stays that way.
+   */
+  it('answers where to sign in without a token, and nothing else', async () => {
+    const config = await request(app).get('/api/auth/config').expect(200);
+
+    expect(config.body.data).toEqual({
+      mode: 'keycloak',
+      issuer: 'http://localhost:8080/realms/feedbackhub',
+      clientId: 'feedbackhub-web',
+    });
+
+    await request(app).get('/api/bootstrap').expect(401);
+    await request(app).get('/api/requests').expect(401);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ *                       WHAT A TOKEN HAS TO SURVIVE
+ *
+ * These are the tests the whole approach to the suite was chosen for. No
+ * Keycloak is running. The tokens below are minted by the test process against
+ * a key it generated, and everything the application does with them after that
+ * is the real implementation: the signature is genuinely checked against the
+ * published set, the `kid` genuinely has to match, and `iss`, `aud` and `exp`
+ * are genuinely compared.
+ *
+ * A suite that stubbed verification would pass all of these while proving none
+ * of them.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe('token verification', () => {
+  const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+  it('refuses a request with no token', async () => {
+    const response = await request(app).get('/api/requests');
+
+    expect(response.status).toBe(401);
+    expect(response.body.error.code).toBe('UNAUTHENTICATED');
+    expect(requestsRepository.list).not.toHaveBeenCalled();
+  });
+
+  it('refuses an Authorization header that is not a bearer credential', async () => {
+    const response = await request(app)
+      .get('/api/requests')
+      .set('Authorization', 'Basic ZGFuYTpodW50ZXIy');
+
+    expect(response.status).toBe(401);
+    expect(requestsRepository.list).not.toHaveBeenCalled();
+  });
+
+  it('refuses an expired token', async () => {
+    const expired = await mintToken({ expiresInSeconds: -60 });
+
+    const response = await request(app).get('/api/requests').set(bearer(expired));
+
+    expect(response.status).toBe(401);
+    expect(requestsRepository.list).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed token', async () => {
+    const response = await request(app).get('/api/requests').set(bearer('not.a.token'));
+
+    expect(response.status).toBe(401);
+    expect(requestsRepository.list).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The check that is easiest to leave out and most worth having. This token is
+   * perfectly signed by the realm this API trusts — it was simply minted for a
+   * different client. Without the audience check, every other client of the
+   * same realm would be a way in here.
+   */
+  it('refuses a well-formed token issued for a different client', async () => {
+    const elsewhere = await mintToken({ audience: 'some-other-client' });
+
+    const response = await request(app).get('/api/requests').set(bearer(elsewhere));
+
+    expect(response.status).toBe(401);
+    expect(requestsRepository.list).not.toHaveBeenCalled();
+  });
+
+  it('refuses a token from a realm this API does not accept', async () => {
+    const foreignRealm = await mintToken({ issuer: 'http://localhost:8080/realms/somewhere-else' });
+
+    const response = await request(app).get('/api/requests').set(bearer(foreignRealm));
+
+    expect(response.status).toBe(401);
+  });
+
+  it('refuses a token signed with a key the provider never published', async () => {
+    const forged = await mintToken({ signedByAStranger: true });
+
+    const response = await request(app).get('/api/requests').set(bearer(forged));
+
+    expect(response.status).toBe(401);
+  });
+
+  it('refuses a token naming a key the published set does not contain', async () => {
+    const wrongKey = await mintToken({ unknownKeyId: true });
+
+    const response = await request(app).get('/api/requests').set(bearer(wrongKey));
+
+    expect(response.status).toBe(401);
+  });
+
+  /**
+   * Verifying and being admitted are different, and this is the seam between
+   * them: the token is genuine and the account is still refused, by name.
+   */
+  it('refuses a valid token for somebody the registration policy excludes', async () => {
+    usersRepository.findByExternalId.mockResolvedValue(null);
+    settingsRepository.readGlobal.mockResolvedValue(
+      new Map<string, unknown>([
+        ['registration.policy', 'domains'],
+        ['registration.allowedDomains', ['elsewhere.example']],
+      ]),
+    );
+
+    const response = await signedIn(request(app)).get('/api/requests');
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.message).toMatch(/not open for registration/i);
+    // Refused by naming the rule, never the admitted domains: that would answer
+    // a question about the installation for somebody who was not let in.
+    expect(response.body.error.message).not.toMatch(/elsewhere\.example/);
+    expect(usersRepository.insert).not.toHaveBeenCalled();
+  });
+
+  /**
+   * An unverified address is never given an account.
+   *
+   * Without this, an installation restricted to a domain could be entered by
+   * registering somebody else's address at a provider that does not check it.
+   * The realm is configured to link only on a verified email; this is the same
+   * rule asserted a second time, where it does not depend on the provider being
+   * configured correctly.
+   */
+  it('refuses to provision an address the provider has not verified', async () => {
+    usersRepository.findByExternalId.mockResolvedValue(null);
+    const unverified = await mintToken({ emailVerified: false });
+
+    const response = await request(app).get('/api/requests').set(bearer(unverified));
+
+    expect(response.status).toBe(401);
+    expect(usersRepository.insert).not.toHaveBeenCalled();
+  });
+
+  it('does not let an unverified address overwrite a verified one', async () => {
+    usersRepository.findByExternalId.mockResolvedValue({
+      ...REGULAR_USER,
+      email: 'dana@feedbackhub.local',
+    });
+    const claimingAnotherAddress = await mintToken({
+      email: 'admin@feedbackhub.local',
+      emailVerified: false,
+    });
+
+    await request(app).get('/api/bootstrap').set(bearer(claimingAnotherAddress)).expect(200);
+
+    expect(usersRepository.updateEmail).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The provider being down is not the caller's session ending.
+   *
+   * A 401 here would tell every client in the building that it had been signed
+   * out — and this application's own interceptor would act on it — turning a
+   * Keycloak restart into a mass sign-out that outlasts the restart. The token
+   * may well be perfectly good; we simply cannot check it.
+   */
+  it('answers 503, not 401, when the key set cannot be reached', async () => {
+    jwks.verificationKeys.mockImplementation(() => {
+      throw new TypeError('fetch failed');
+    });
+
+    const response = await signedIn(request(app)).get('/api/requests');
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe('PROVIDER_UNAVAILABLE');
+    expect(requestsRepository.list).not.toHaveBeenCalled();
+  });
+
+  it('refuses a token that verifies but identifies nobody', async () => {
+    const anonymous = await mintToken({ email: '' });
+
+    const response = await request(app).get('/api/requests').set(bearer(anonymous));
+
+    expect(response.status).toBe(401);
+  });
+
+  /**
+   * Four refusals that are one status code and four different problems.
+   *
+   * A missing token is a client that never signed in; an expired one is an
+   * ordinary session ending; a malformed one is somebody probing; a wrong
+   * audience is a client pointed at the wrong realm. An operator who cannot
+   * tell them apart is reading a log that says 401 and nothing else — so the
+   * reason goes to the log, and never into the response body, where it would
+   * describe the installation to somebody who has not been let into it.
+   */
+  it('distinguishes why it refused, in the log and not on the wire', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await request(app).get('/api/requests');
+    await request(app).get('/api/requests').set(bearer('not.a.token'));
+    await request(app)
+      .get('/api/requests')
+      .set(bearer(await mintToken({ expiresInSeconds: -60 })));
+    const audience = await request(app)
+      .get('/api/requests')
+      .set(bearer(await mintToken({ audience: 'some-other-client' })));
+
+    const logged = warn.mock.calls.map(([line]) => String(line));
+
+    expect(logged.some((line) => line.includes('token.missing'))).toBe(true);
+    expect(logged.some((line) => line.includes('token.malformed'))).toBe(true);
+    expect(logged.some((line) => line.includes('token.expired'))).toBe(true);
+    expect(logged.some((line) => line.includes('token.audience'))).toBe(true);
+
+    // Every line carries the request id, which is what joins it to the caller's
+    // copy of the same refusal.
+    expect(logged.every((line) => /^\[[^\]]+\] 401 /.test(line))).toBe(true);
+
+    // And none of it reached the caller.
+    expect(JSON.stringify(audience.body)).not.toMatch(/token\./);
   });
 });
 
@@ -393,7 +709,7 @@ describe('POST /api/requests/:id/vote', () => {
     // the request really is authored by the caller, and the real policy refuses.
     requestsRepository.findAuthorId.mockResolvedValue(REGULAR_USER.id);
 
-    const response = await request(app).post('/api/requests/7/vote');
+    const response = await signedIn(request(app)).post('/api/requests/7/vote');
 
     expect(response.status).toBe(403);
     expect(response.body.error.code).toBe('FORBIDDEN');
@@ -405,14 +721,14 @@ describe('POST /api/requests/:id/vote', () => {
   it('allows voting on a request filed by someone else', async () => {
     requestsRepository.findAuthorId.mockResolvedValue(99);
 
-    const response = await request(app).post('/api/requests/7/vote').expect(201);
+    const response = await signedIn(request(app)).post('/api/requests/7/vote').expect(201);
 
     expect(response.body.data).toEqual({ requestId: 7, voteCount: 1, hasVoted: true });
     expect(votesRepository.cast).toHaveBeenCalledWith(7, REGULAR_USER.id);
   });
 
   it('takes the voter from the identity seam, never from the request', async () => {
-    await request(app).post('/api/requests/7/vote').send({ userId: 999 }).expect(201);
+    await signedIn(request(app)).post('/api/requests/7/vote').send({ userId: 999 }).expect(201);
 
     // There is nowhere in the URL or the payload to name a different voter, so
     // "vote for yourself only" cannot be violated rather than merely being
@@ -423,7 +739,7 @@ describe('POST /api/requests/:id/vote', () => {
   it('reports a second vote as a conflict rather than a silent success', async () => {
     votesRepository.cast.mockResolvedValue(false);
 
-    const response = await request(app).post('/api/requests/7/vote');
+    const response = await signedIn(request(app)).post('/api/requests/7/vote');
 
     expect(response.status).toBe(409);
     expect(response.body.error.code).toBe('CONFLICT');
@@ -432,14 +748,14 @@ describe('POST /api/requests/:id/vote', () => {
   it('404s for a request that does not exist, before deciding anything', async () => {
     requestsRepository.findAuthorId.mockResolvedValue(null);
 
-    const response = await request(app).post('/api/requests/7/vote');
+    const response = await signedIn(request(app)).post('/api/requests/7/vote');
 
     expect(response.status).toBe(404);
     expect(votesRepository.cast).not.toHaveBeenCalled();
   });
 
   it('rejects a non-numeric request id', async () => {
-    const response = await request(app).post('/api/requests/abc/vote');
+    const response = await signedIn(request(app)).post('/api/requests/abc/vote');
 
     expect(response.status).toBe(422);
     expect(response.body.error.details[0].field).toBe('id');
@@ -450,7 +766,7 @@ describe('DELETE /api/requests/:id/vote', () => {
   it('withdraws the vote belonging to the caller, returning the new state', async () => {
     votesRepository.readState.mockResolvedValue({ requestId: 7, voteCount: 0, hasVoted: false });
 
-    const response = await request(app).delete('/api/requests/7/vote').expect(200);
+    const response = await signedIn(request(app)).delete('/api/requests/7/vote').expect(200);
 
     expect(response.body.data).toEqual({ requestId: 7, voteCount: 0, hasVoted: false });
     expect(votesRepository.withdraw).toHaveBeenCalledWith(7, REGULAR_USER.id);
@@ -462,13 +778,13 @@ describe('DELETE /api/requests/:id/vote', () => {
     votesRepository.withdraw.mockResolvedValue(false);
     votesRepository.readState.mockResolvedValue({ requestId: 7, voteCount: 0, hasVoted: false });
 
-    await request(app).delete('/api/requests/7/vote').expect(200);
+    await signedIn(request(app)).delete('/api/requests/7/vote').expect(200);
   });
 
   it('404s for a request that does not exist', async () => {
     requestsRepository.findAuthorId.mockResolvedValue(null);
 
-    await request(app).delete('/api/requests/7/vote').expect(404);
+    await signedIn(request(app)).delete('/api/requests/7/vote').expect(404);
   });
 });
 
@@ -477,7 +793,7 @@ describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
     // REGULAR_USER has role 'user'. The real policy, the real route, a real 403.
     // This is the test that could not be written until an admin-only endpoint
     // existed: every earlier refusal applied to everybody equally.
-    const response = await request(app).put('/api/requests/7/pin');
+    const response = await signedIn(request(app)).put('/api/requests/7/pin');
 
     expect(response.status).toBe(403);
     expect(response.body.error.code).toBe('FORBIDDEN');
@@ -486,7 +802,7 @@ describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
   });
 
   it('refuses a regular user unpinning, too', async () => {
-    const response = await request(app).delete('/api/requests/7/pin');
+    const response = await signedIn(request(app)).delete('/api/requests/7/pin');
 
     expect(response.status).toBe(403);
     expect(requestsRepository.unpin).not.toHaveBeenCalled();
@@ -496,7 +812,7 @@ describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
     // A refused caller should not be able to probe which ids are real.
     requestsRepository.exists.mockResolvedValue(false);
 
-    const response = await request(app).put('/api/requests/999999/pin');
+    const response = await signedIn(request(app)).put('/api/requests/999999/pin');
 
     expect(response.status).toBe(403);
     expect(response.status).not.toBe(404);
@@ -504,9 +820,9 @@ describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
   });
 
   it('allows an admin, and records who pinned it', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    const response = await request(app).put('/api/requests/7/pin').expect(200);
+    const response = await signedIn(request(app)).put('/api/requests/7/pin').expect(200);
 
     expect(requestsRepository.pin).toHaveBeenCalledWith(7, ADMIN.id);
     expect(response.body.data.isPinned).toBe(true);
@@ -514,18 +830,18 @@ describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
   });
 
   it('lets an admin unpin', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    await request(app).delete('/api/requests/7/pin').expect(200);
+    await signedIn(request(app)).delete('/api/requests/7/pin').expect(200);
 
     expect(requestsRepository.unpin).toHaveBeenCalledWith(7);
   });
 
   it('404s for an admin pinning something that is not there', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     requestsRepository.exists.mockResolvedValue(false);
 
-    await request(app).put('/api/requests/7/pin').expect(404);
+    await signedIn(request(app)).put('/api/requests/7/pin').expect(404);
 
     expect(requestsRepository.pin).not.toHaveBeenCalled();
   });
@@ -533,10 +849,10 @@ describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
   it('does not treat re-pinning as a conflict', async () => {
     // Re-pinning refreshes who and when, which is what makes the panel's
     // most-recent-first order mean anything. There is no state to conflict with.
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    await request(app).put('/api/requests/7/pin').expect(200);
-    await request(app).put('/api/requests/7/pin').expect(200);
+    await signedIn(request(app)).put('/api/requests/7/pin').expect(200);
+    await signedIn(request(app)).put('/api/requests/7/pin').expect(200);
 
     expect(requestsRepository.pin).toHaveBeenCalledTimes(2);
   });
@@ -564,12 +880,12 @@ describe('PUT /api/requests/:id/pin — the admin boundary, end to end', () => {
       total: 1,
     });
 
-    const asUser = await request(app).get('/api/requests').expect(200);
+    const asUser = await signedIn(request(app)).get('/api/requests').expect(200);
     expect(asUser.body.data[0].canPin).toBe(false);
     expect(asUser.body.data[0].canVote).toBe(true);
 
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
-    const asAdmin = await request(app).get('/api/requests').expect(200);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
+    const asAdmin = await signedIn(request(app)).get('/api/requests').expect(200);
     expect(asAdmin.body.data[0].canPin).toBe(true);
   });
 });
@@ -578,7 +894,7 @@ describe('GET /api/requests/pinned', () => {
   it('is not paginated, and reports the true total separately', async () => {
     requestsRepository.listPinned.mockResolvedValue({ items: [], total: 0 });
 
-    const response = await request(app).get('/api/requests/pinned').expect(200);
+    const response = await signedIn(request(app)).get('/api/requests/pinned').expect(200);
 
     expect(response.body).toEqual({ data: [], total: 0 });
     expect(response.body.page).toBeUndefined();
@@ -587,7 +903,7 @@ describe('GET /api/requests/pinned', () => {
   it('is not read as a request id', async () => {
     // '/pinned' is mounted before ':id' routes. If that ever regresses this
     // fails rather than 404ing mysteriously.
-    await request(app).get('/api/requests/pinned').expect(200);
+    await signedIn(request(app)).get('/api/requests/pinned').expect(200);
 
     expect(requestsRepository.listPinned).toHaveBeenCalled();
   });
@@ -607,7 +923,7 @@ describe('PATCH /api/requests/:id', () => {
   it('refuses a non-owner with 403, and writes nothing', async () => {
     // findAuthorId answers 99; the acting user is 2. Nothing is stubbed to make
     // this refusal happen — it is the real rule, through the real route.
-    const response = await request(app).patch('/api/requests/7').send(EDIT);
+    const response = await signedIn(request(app)).patch('/api/requests/7').send(EDIT);
 
     expect(response.status).toBe(403);
     expect(response.body.error.code).toBe('FORBIDDEN');
@@ -615,10 +931,10 @@ describe('PATCH /api/requests/:id', () => {
     expect(requestsRepository.updateContent).not.toHaveBeenCalled();
   });
 
-  it('refuses an ADMIN editing somebody else\'s words', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+  it("refuses an ADMIN editing somebody else's words", async () => {
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    const response = await request(app).patch('/api/requests/7').send(EDIT);
+    const response = await signedIn(request(app)).patch('/api/requests/7').send(EDIT);
 
     // Moderation is deleting a request or changing its status. It is not
     // rewriting what somebody wrote under their own name, and the admin
@@ -630,7 +946,7 @@ describe('PATCH /api/requests/:id', () => {
   it('lets the author edit their own', async () => {
     requestsRepository.findAuthorId.mockResolvedValue(REGULAR_USER.id);
 
-    await request(app).patch('/api/requests/7').send(EDIT).expect(200);
+    await signedIn(request(app)).patch('/api/requests/7').send(EDIT).expect(200);
 
     expect(requestsRepository.updateContent).toHaveBeenCalledWith(7, {
       title: EDIT.title,
@@ -642,7 +958,7 @@ describe('PATCH /api/requests/:id', () => {
   it('checks permission before validating the body', async () => {
     // Three things wrong with this payload. A handler that validated first
     // would answer 422 and enumerate the schema for somebody who may not edit.
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch('/api/requests/7')
       .send({ title: 'x', description: 'short', nonsense: true });
 
@@ -653,7 +969,7 @@ describe('PATCH /api/requests/:id', () => {
   it('answers 404 for a request that does not exist, before anything else', async () => {
     requestsRepository.findAuthorId.mockResolvedValue(null);
 
-    const response = await request(app).patch('/api/requests/404').send(EDIT);
+    const response = await signedIn(request(app)).patch('/api/requests/404').send(EDIT);
 
     expect(response.status).toBe(404);
     expect(requestsRepository.updateContent).not.toHaveBeenCalled();
@@ -662,7 +978,7 @@ describe('PATCH /api/requests/:id', () => {
   it('refuses a status smuggled into the edit payload', async () => {
     requestsRepository.findAuthorId.mockResolvedValue(REGULAR_USER.id);
 
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch('/api/requests/7')
       .send({ ...EDIT, statusId: 5 });
 
@@ -679,7 +995,7 @@ describe('PATCH /api/requests/:id', () => {
 
 describe('DELETE /api/requests/:id', () => {
   it('refuses a non-owner with 403, and deletes nothing', async () => {
-    const response = await request(app).delete('/api/requests/7');
+    const response = await signedIn(request(app)).delete('/api/requests/7');
 
     expect(response.status).toBe(403);
     expect(response.body.error.message).toBe(
@@ -691,15 +1007,15 @@ describe('DELETE /api/requests/:id', () => {
   it('lets the author delete their own', async () => {
     requestsRepository.findAuthorId.mockResolvedValue(REGULAR_USER.id);
 
-    await request(app).delete('/api/requests/7').expect(204);
+    await signedIn(request(app)).delete('/api/requests/7').expect(204);
 
     expect(requestsRepository.remove).toHaveBeenCalledWith(7);
   });
 
-  it('lets an admin delete somebody else\'s, unlike editing it', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+  it("lets an admin delete somebody else's, unlike editing it", async () => {
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    await request(app).delete('/api/requests/7').expect(204);
+    await signedIn(request(app)).delete('/api/requests/7').expect(204);
 
     // The two rules differ on purpose: an admin moderates by removing, never by
     // rewriting.
@@ -709,7 +1025,7 @@ describe('DELETE /api/requests/:id', () => {
   it('answers 404 for a request that does not exist', async () => {
     requestsRepository.findAuthorId.mockResolvedValue(null);
 
-    await request(app).delete('/api/requests/404').expect(404);
+    await signedIn(request(app)).delete('/api/requests/404').expect(404);
 
     expect(requestsRepository.remove).not.toHaveBeenCalled();
   });
@@ -721,7 +1037,9 @@ describe('DELETE /api/requests/:id', () => {
 
 describe('PUT /api/requests/:id/status', () => {
   it('refuses a regular user with 403, and changes nothing', async () => {
-    const response = await request(app).put('/api/requests/7/status').send({ statusId: 4 });
+    const response = await signedIn(request(app))
+      .put('/api/requests/7/status')
+      .send({ statusId: 4 });
 
     expect(response.status).toBe(403);
     expect(response.body.error.message).toBe('Only an admin can change a request status.');
@@ -729,7 +1047,7 @@ describe('PUT /api/requests/:id/status', () => {
   });
 
   it('refuses before looking anything up', async () => {
-    await request(app).put('/api/requests/7/status').send({ statusId: 4 }).expect(403);
+    await signedIn(request(app)).put('/api/requests/7/status').send({ statusId: 4 }).expect(403);
 
     // The rule depends on the caller alone, so a refused caller learns nothing
     // about the request — not even whether it exists.
@@ -738,25 +1056,29 @@ describe('PUT /api/requests/:id/status', () => {
   });
 
   it('refuses before validating the body, for the same reason', async () => {
-    const response = await request(app).put('/api/requests/7/status').send({ nonsense: true });
+    const response = await signedIn(request(app))
+      .put('/api/requests/7/status')
+      .send({ nonsense: true });
 
     expect(response.status).toBe(403);
     expect(response.body.error.details).toBeUndefined();
   });
 
   it('lets an admin change it', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    await request(app).put('/api/requests/7/status').send({ statusId: 4 }).expect(200);
+    await signedIn(request(app)).put('/api/requests/7/status').send({ statusId: 4 }).expect(200);
 
     expect(requestsRepository.updateStatus).toHaveBeenCalledWith(7, 4);
   });
 
   it('refuses a status that is archived or does not exist, next to the field', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     statusesRepository.findActiveId.mockResolvedValue(null);
 
-    const response = await request(app).put('/api/requests/7/status').send({ statusId: 999 });
+    const response = await signedIn(request(app))
+      .put('/api/requests/7/status')
+      .send({ statusId: 999 });
 
     expect(response.status).toBe(422);
     expect(response.body.error.details[0]).toMatchObject({
@@ -767,10 +1089,10 @@ describe('PUT /api/requests/:id/status', () => {
   });
 
   it('answers 404 for a request that does not exist', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     requestsRepository.exists.mockResolvedValue(false);
 
-    await request(app).put('/api/requests/404/status').send({ statusId: 4 }).expect(404);
+    await signedIn(request(app)).put('/api/requests/404/status').send({ statusId: 4 }).expect(404);
 
     expect(requestsRepository.updateStatus).not.toHaveBeenCalled();
   });
@@ -782,7 +1104,7 @@ describe('PUT /api/requests/:id/status', () => {
 
 describe('the per-row permission answers', () => {
   it('tells the author what they may do to their own request', async () => {
-    const response = await request(app).get('/api/requests/11').expect(200);
+    const response = await signedIn(request(app)).get('/api/requests/11').expect(200);
 
     // findById is stubbed with REGULAR_USER as the author.
     expect(response.body.data).toMatchObject({
@@ -794,9 +1116,9 @@ describe('the per-row permission answers', () => {
   });
 
   it('tells an admin they may moderate but not rewrite', async () => {
-    usersRepository.findByEmail.mockResolvedValue(ADMIN);
+    usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
-    const response = await request(app).get('/api/requests/11').expect(200);
+    const response = await signedIn(request(app)).get('/api/requests/11').expect(200);
 
     expect(response.body.data).toMatchObject({
       canEdit: false,
@@ -812,7 +1134,7 @@ describe('the per-row permission answers', () => {
     // reimplementing it next door.
     vi.spyOn(requestPolicy, 'delete').mockReturnValue(deny('No.'));
 
-    const response = await request(app).get('/api/requests/11').expect(200);
+    const response = await signedIn(request(app)).get('/api/requests/11').expect(200);
 
     expect(response.body.data.canDelete).toBe(false);
   });

@@ -1,6 +1,6 @@
 # Handoff
 
-Where FeedbackHub stands as of 2026-08-23, what is deliberately missing, and
+Where FeedbackHub stands as of 2026-08-25, what is deliberately missing, and
 what the next person should know before touching it.
 
 Read [README.md](../README.md) for how to run it and [DECISIONS.md](../DECISIONS.md)
@@ -11,7 +11,7 @@ state of play.
 
 ## What is built
 
-Eight slices, schema version 12.
+Nine slices, schema version 12.
 
 | | |
 |---|---|
@@ -25,25 +25,140 @@ Eight slices, schema version 12.
 | **Settings** | two levels, resolved on the server; one startup request; a rate limit, a registration policy, a feature flag, and account deletion |
 | **Moderation** | comments held for approval, found from a count in the header, judged in the thread they were written in |
 | **Language** | English and French, switched from the account screen and applied without a reload |
+| **Authentication** | Keycloak, imported from a realm file in this repository; authorization code with PKCE; tokens verified locally; provisioning and the registration policy on first arrival |
 
-**Tests: 416** — 220 API (vitest + supertest), 196 web (Angular + vitest, jsdom).
+**Tests: 463** — 243 API (vitest + supertest), 220 web (Angular + vitest, jsdom).
+**No test needs a running Keycloak, and none needs a database.**
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
 `comments`, `app_settings`, `user_settings`.
 
-Six screens: the board (`/requests`), the create form (`/requests/new`), a
+Seven screens: the board (`/requests`), the create form (`/requests/new`), a
 request page with its discussion (`/requests/:id`), the taxonomy admin
-(`/admin/taxonomy`), the application settings (`/admin/settings`), and a
-personal account screen (`/account`).
+(`/admin/taxonomy`), the application settings (`/admin/settings`), a personal
+account screen (`/account`), and the sign-in callback (`/auth/callback`) — which
+renders almost nothing and exists for the moment between arriving with a code
+and having a session.
 
-There is deliberately **no seventh screen for moderation** — see below.
+There is deliberately **no seventh screen for moderation**, and deliberately
+**no sign-in form** — see below.
 
 ## The parts worth knowing before you touch anything
 
-Slice 8 is settings, and three things landed on top of it after the first
-commit: the level a settings screen resolves at, the interface translation, and
-a discovery path for comment approval. They are one body of work and they are
-described together here.
+### The seam did what it was built for
+
+Authentication landed by changing `IDENTITY_MODE` and the body of
+`resolveCurrentUser`. **Nothing in `src/policy/` moved. No service learned what
+a token is. No handler gained a null check.** `req.actor` is still non-nullable
+behind the middleware.
+
+The 220 route tests changed in exactly two mechanical ways: the repository they
+resolve identity through (`findByEmail` → `findByExternalId`), and a header on
+each call (`request(app)` → `signedIn(request(app))`). Not one of them changed
+what it asserts, because the token has never carried a role and still does not.
+
+If a future slice finds itself editing `src/policy/` or a service to accommodate
+something about identity, that is the signal something has gone wrong with the
+seam — not a thing to patch locally.
+
+### The development seam is still there, and that is deliberate
+
+`IDENTITY_MODE` in `api/src/auth/identity-mode.ts` is `'keycloak'`, and
+`'development-seam'` is still a mode this build can be compiled in. Three
+reasons it was kept rather than deleted:
+
+- `assertIdentityIsSafeFor` keeps a subject it can be tested against. A guard
+  over a branch nobody can select is dead code.
+- The API can be run without a container.
+- The web application asks the API which mode it is in — `GET /api/auth/config`
+  — and skips the entire sign-in flow when the answer is the seam, rather than
+  redirecting a browser to a realm that is not running.
+
+It is a total authentication bypass and the boot guard treats it as one: the API
+refuses to start with it compiled in under `NODE_ENV=production`, and refuses to
+start with both identity mechanisms configured at once.
+
+### The test suite mints its own tokens, and fakes exactly one thing
+
+`api/src/auth/tokens.test-support.ts`. The tests own an RSA key and sign their
+own tokens; the ONLY thing replaced is the network fetch in
+`api/src/auth/jwks.ts`. The signature, the issuer, the audience, the expiry and
+the `kid` selection are all the real implementation running against real tokens.
+
+**Do not "simplify" that by stubbing the verifier.** The verification path is
+the part most worth covering, and a suite that stubs it passes every one of the
+refusal tests in `app.authorization.test.ts` while proving none of them.
+
+**The minting code is not compiled.** `tsconfig.build.json` excludes
+`*.test-support.ts` alongside the test files, so it is absent from `dist/`
+rather than present and guarded. If you add another test-support file, it
+inherits that; if you rename the suffix, you have moved token-signing code into
+the build.
+
+### The realm file and the seed both write the same three ids down
+
+`keycloak/realm-feedbackhub-development.json` pins the `id` of each of the three
+users, and `api/src/db/seeds/001_baseline.sql` puts the same three in
+`external_id`. **They are one fact stored in two places and there is no way to
+avoid that**, because one of them is Keycloak's and the other is MySQL's.
+
+Change one and change the other in the same commit. Get it wrong and the seeded
+admin authenticates perfectly, matches nothing — matching is on subject, never
+on address — is sent to provisioning, and collides with `uq_users_email`. The
+symptom is the only account that can reach the admin screens being unable to get
+in, on a board where nothing can promote a replacement.
+
+The demo script's seven people have **no** realm identities. They are authors of
+content, not people who sign in.
+
+### The email is the provider's; the display name is the person's
+
+Reconciliation is one-directional and applies only to the email. The display
+name is copied once, at provisioning, and the account screen owns it afterwards
+— overwriting it on every request would make that screen a control that appears
+to work and silently does nothing. Four tests hold both halves.
+
+An unverified address is never provisioned and never overwrites a verified one.
+That is the same rule the realm applies when linking a social identity, asserted
+a second time where it does not depend on the realm being configured correctly.
+
+### A 401 says one sentence on the wire and a named reason in the log
+
+`UnauthenticatedReason` in `api/src/http/errors.ts`: `token.missing`,
+`token.expired`, `token.malformed`, `token.signature`, `token.audience`,
+`token.issuer`, and three more. **The reason is logged and never serialised.**
+Telling an unauthenticated stranger that their signature was fine and their
+audience was wrong describes the installation to somebody who was not let in.
+
+**An unreachable provider is a 503 and never a 401.** The token may be perfectly
+good; the API simply cannot check it. A 401 would tell every client in the
+building that its session had ended, and the browser interceptor would act on it
+— turning a Keycloak restart into a mass sign-out that outlasts the restart.
+Both sides are tested, and the key cache means a restart usually costs nothing
+at all.
+
+### There is no route guard, and adding one would be a regression
+
+Nothing below the shell renders until the session resolves, because the
+`<router-outlet>` does not exist until then. That covers a route added next year
+— it cannot be mounted — which a per-route guard does not. A guard *and* the
+gate would be one rule written twice, and the day they disagreed the wrong one
+would be the one nobody was reading.
+
+The sign-in callback is the single exception. Whether it may render is decided
+from `location.pathname` and **not from the router**, because the shell has to
+answer on the first paint: answer wrongly and the outlet is never mounted, the
+component never constructs, and the authorization code is never redeemed. That
+is a deadlock, not a flash. It is sound because arriving there is always a fresh
+page load — Keycloak redirects the browser, and nothing in the application links
+to it.
+
+### There is no sign-in form, and there must never be one
+
+The person is redirected to Keycloak. A field in this application that collected
+a password would mean this application had handled one, which is the entire
+thing that delegating authentication exists to avoid. There is a test asserting
+the sign-in panel contains no `input[type="password"]` and no `<form>`.
 
 ### A setting is defined in exactly one file
 
@@ -90,6 +205,12 @@ could read its label.
 a third to the enum without adding its catalogue — a language that falls back to
 English is the setting that did nothing, which is what this replaced.
 
+**The sign-in screen is always in English.** The language preference arrives in
+the startup payload, which needs a token, so there is nothing to read it from
+before somebody signs in. Reading `navigator.language` there would be a second
+source of truth about language, disagreeing with the first as soon as somebody
+set a preference that differed from their browser.
+
 ### A settings screen resolves at the level it writes
 
 The administrative document is resolved **without** the caller's own preference
@@ -111,10 +232,20 @@ than from them is the useful half of the answer.
 an error with a retry if it fails. **Nothing renders on hardcoded fallbacks** —
 that is the point, and it is tested.
 
+It no longer fires at all until there is a token: the request function returns
+`undefined` while the session is unresolved, which makes the token a dependency
+rather than something `AppConfig` has to be told about.
+
 What belongs in that payload is decided by one question: would the first paint be
 drawn *wrong* without it, and then visibly change. If you are tempted to add
 something to it, that is the test. It replaced `GET /api/capabilities`, which is
 gone rather than left as a second way to ask a third of the same question.
+
+**`GET /api/auth/config` is not a second bootstrap.** Bootstrap answers "who am
+I and how is this board configured for me", every word of which presupposes an
+identity. That one answers "where do I go to become somebody", which by
+definition cannot be authenticated. It is the only route under `/api` in front
+of the identity middleware, and it should stay the only one.
 
 ### The moderation gate has two directions and they are not symmetric
 
@@ -150,19 +281,15 @@ with no trail the other two do not already keep.
 `APPROVED_FOR_VIEWER` in `comments.repository.ts`, imported by
 `requests.repository.ts` for the comment count. **They must stay one fragment.**
 Two copies disagree the first time either is edited, and the visible symptom is a
-badge promising three comments above a thread that shows one. The pending
-decision that parked moderation predicted exactly this.
+badge promising three comments above a thread that shows one.
 
 ## What is deliberately not built
 
-- **Authentication.** The identity seam is still one function,
-  `api/src/auth/current-user.ts`, and the API refuses to boot in production while
-  it is compiled in. It now has a second half, `api/src/auth/provision.ts`, which
-  is the same call the real provider will make on somebody's first arrival.
 - **User administration.** Nothing creates, promotes, demotes or deactivates
-  anybody else. This is why the last admin cannot delete their own account: there
-  would be no way back. The parked decision in `notes/decisions-pending.md` says
-  what that slice must do.
+  anybody else. This is why the last admin cannot delete their own account:
+  there would be no way back. The parked decision in
+  `notes/decisions-pending.md` says what that slice must do. **It is now the
+  most valuable slice left** — see below.
 - **Invitations**, which is why `invite-only` is not a registration policy this
   application offers. A setting that named a rule the code cannot apply would be
   worse than its absence.
@@ -173,27 +300,44 @@ decision that parked moderation predicted exactly this.
   categories and statuses are left as their authors typed them.
 - **Server-side translation.** Validation and refusal messages are English
   whatever the reader's language, so a French screen can show an English 422.
-  A second catalogue on the API is what closes that, and this slice did not
-  build one.
 - **Avatar uploads.** No file storage; initials come from the display name.
-- **Deployment beyond the database container.**
+- **A production realm.** What ships here is a development one: HTTP without a
+  certificate, an in-container database, three published passwords, and
+  `start-dev`. A deployment imports a realm with no `credentials` block and no
+  fixed user ids, sharing the client, the mappers and the audience with this one
+  and nothing else.
+- **A back-end-for-frontend.** The refresh token is in `sessionStorage` and
+  anything that can run script on this origin can read it. Closing that means
+  httpOnly cookies and a server in front of the browser, which is infrastructure
+  this application does not have. The trade is in DECISIONS.md rather than left
+  as an assumption.
+- **Deployment beyond the two containers.** The API and web application are
+  still run from a terminal.
 
 ## Conventions that are load-bearing
 
 Breaking any of these will look like a regression to a reviewer:
 
 - **SQL lives only in `*.repository.ts`.** Nowhere else.
+- **Identity is established in `src/auth/current-user.ts` and nowhere else.**
+  Nothing outside that file may read a header, cookie or token, and nothing
+  outside it may decide what an identity is allowed to do.
 - **Permission rules live only in `src/policy/`.** Handlers ask; they do not
   decide. If you write `if (actor.role === 'admin')` outside that directory, it
   belongs inside it.
 - **Permission is checked before the body is validated,** so a caller who may
   not act does not learn the payload schema from a 422.
+- **The role comes from the local table and never from a claim.** There is no
+  realm role mapped into the token and nothing reads one. Do not add a mapper
+  "for convenience".
 - **The browser is told what it may DO, and who it is — never what it is.** Rows
   carry `canVote`, `canPin`, `canEdit`, `canDelete`, `canChangeStatus`;
   `/api/bootstrap` carries the same kind of answer where there is no row, plus
   the caller's own id, name and email because the account screen edits them.
   **There is still no role in any payload,** and no permission a client can
   derive for itself. Do not add one.
+- **One place attaches a token to a request** — `bearer-token.interceptor.ts` —
+  and it attaches it to this API only. A token is a credential for one audience.
 - **There is no `/me`, and there must not be.** Every route that acts on an
   account names it in the path, which is what makes "you cannot write somebody
   else's preferences" a real 403 with a test rather than a silent write to the
@@ -218,51 +362,56 @@ Breaking any of these will look like a regression to a reviewer:
 - **Deleting an account anonymises it.** Never turn that into a DELETE: every
   foreign key to `users` is `ON DELETE RESTRICT` on purpose, and the one
   exception (`user_settings`) is the only thing in the schema that is purely
-  personal.
+  personal. It clears `external_id`, which is what makes a departed account
+  unmatchable even by a token minted before they left.
 - **A loading state that replaces the page must be guarded by "have I anything
   to show".** `AppConfig.isStarting()` is that guard for the shell — a bare
   `isLoading()` would unmount every screen on a settings save.
 - **Never read a resource's `value()` unguarded.** It throws in the error state.
 - **One error envelope,** produced by one middleware. `400` unparseable, `422`
-  parsed and wrong, `429` too soon and carrying how long.
+  parsed and wrong, `429` too soon and carrying how long, `401` refusing to say
+  why on the wire.
 - **Two implementations of "is this filtered" have to agree** — `isFiltered` in
-  `api/.../requests.schema.ts` and in `web/.../board-filters.ts`. `pending` is
-  one of them now.
+  `api/.../requests.schema.ts` and in `web/.../board-filters.ts`.
 
 ## Things that bit, and will bite again
 
 In full in `notes/ai-log.md`. The ones from this slice:
 
-**`whenStable()` deadlocks on an unanswered `httpResource` request.** An
-outstanding resource request is a pending task, so awaiting stability before
-flushing waits for a response the test never sent, and it dies at the timeout
-rather than at an assertion. Flush first, then await. `HttpClient.subscribe` in a
-click handler does not behave this way, which is why the same pattern works in
-older specs and makes this look like a mystery.
+**`postLogoutRedirectUris` is not a Keycloak client field, and the import dies
+rather than ignoring it.** The whole realm is refused, the container restarts in
+a loop, and the healthcheck reports "connection refused" — which says nothing
+about the cause. Post-logout URIs go in `attributes` as
+`post.logout.redirect.uris`. Every test passed the entire time this was broken;
+only running it found it.
 
-**A root service that makes an HTTP call puts a request in every component
-test.** `provideStubbedConfig()` in `core/config/app-config.testing.ts` exists so
-that is one line per spec rather than a flush in every test.
+**The callback route races its own discovery.** On a page load that lands on the
+redirect URI, the session's startup and the callback component begin at once,
+and the code exchange needs endpoints discovery has not fetched yet.
+Intermittent, which is the worst way for it to fail. The startup promise is held
+and awaited in `completeSignIn`.
 
-**`LOCALE_ID` is fixed when the injector is created,** so a preference arriving
-with the startup response cannot use it. The date pipe takes a locale as its
-fourth argument.
+**Whether the callback may render cannot come from the router**, because the
+shell answers on the first paint, before navigation completes — and answering
+wrongly means the outlet is never mounted and the code is never redeemed.
 
-**MySQL `UNIQUE` permits many NULLs,** so a nullable scope column cannot express
-"one row per key per scope". That is why settings are two tables.
+**A mocked module must export everything the code under test imports**, not just
+what the test calls. `current-user.ts` imports `findByEmail` for a branch that
+never runs under `keycloak`, and removing it from the mock breaks module linking
+rather than failing an assertion.
 
-**A component and a payload type sharing a name** resolves to whatever the
-auto-import finds first, and reports as "Individual declarations in merged
-declaration must be all exported or all local", which says nothing useful.
-
-The older ones still stand: Angular scopes component styles; `ngSubmit` is not a
-DOM event; clearing a control is `reset()` and not `setValue('')`; tests that
-start at the method cannot catch a broken button; a required `input()` has no
-value in a constructor; `@if (x; as y)` shadows a component member; `affectedRows`
-counts rows *changed*; MySQL refuses a CHECK on a column with a referential
-action (3818) and a cascade on a foreign key involving generated columns (1215);
-a filter that names nothing must be refused rather than ignored; a `WHERE` with
-no conditions is a syntax error and so is `IN ()`.
+The older ones still stand: `whenStable()` deadlocks on an unanswered
+`httpResource` request — flush first, then await; a root service that makes an
+HTTP call puts a request in every component test, which is what
+`provideStubbedConfig()` and now `provideStubbedSession()` exist for; `LOCALE_ID`
+is fixed when the injector is created; MySQL `UNIQUE` permits many NULLs; a
+component and a payload type sharing a name resolves to whatever the auto-import
+finds first; Angular scopes component styles; `ngSubmit` is not a DOM event;
+clearing a control is `reset()` and not `setValue('')`; a required `input()` has
+no value in a constructor; `@if (x; as y)` shadows a component member;
+`affectedRows` counts rows *changed*; MySQL refuses a CHECK on a column with a
+referential action (3818); a filter that names nothing must be refused rather
+than ignored.
 
 ## Environment
 
@@ -270,17 +419,17 @@ no conditions is a syntax error and so is `IN ()`.
 - **The Angular CLI needs that version and PowerShell does not pick fnm up.**
   Apply `fnm env` to the session first, or run from a bash shell where
   `~/.bashrc` has already done it. The API workspace does not care.
-- **Docker Desktop must be running.** `npm run db:up` brings MySQL back.
-- **`.env` is gitignored.** Copy `.env.example`. It points
-  `DEV_CURRENT_USER_EMAIL` at **`dana@feedbackhub.local`** — a regular user.
-  Switch to `admin@feedbackhub.local` to see the admin screens, or point it at an
-  address nobody has used to watch the registration policy decide.
+- **Docker Desktop must be running.** `npm run up` brings MySQL and Keycloak
+  back. Keycloak takes about thirty seconds on a cold start.
+- **`.env` is gitignored.** Copy `.env.example`. Its identity section points at
+  the local realm; the development seam is commented out below it, with what to
+  change if you want to run without a container.
 
 ## Getting to a working board
 
 ```bash
 npm install
-npm run db:up            # Docker Desktop must be running
+npm run up               # MySQL + Keycloak; Docker Desktop must be running
 npm run migrate          # takes the schema to 12
 npm run seed             # the baseline the brief specifies
 npm run demo             # optional: 14 requests, 7 people, votes, threads
@@ -288,10 +437,13 @@ npm run dev:api          # terminal 1
 npm run dev:web          # terminal 2, needs Node 24.19
 ```
 
+Then <http://localhost:4200>, and sign in as `admin@feedbackhub.local` /
+`feedbackhub-dev`.
+
 `npm run demo` is destructive to content and leaves users, categories and
-statuses alone. It adds a second admin, which matters now: the last admin cannot
-delete their own account, and with only the seeded one you cannot exercise the
-path that succeeds.
+statuses alone. It adds a second admin, which matters for the account-deletion
+path — though those people cannot sign in, so exercising it as them means
+promoting somebody, which is the slice that does not exist yet.
 
 ## Repository
 
@@ -308,59 +460,88 @@ Pushing needs `gh auth switch --user alimzn42-del` first; the machine's active
 Every commit carries `Assisted-by: Claude Code`, which is honest: every line was
 generated and none has been rewritten by hand.
 
-## Verified against MySQL on 2026-08-23
+## Verified against MySQL and a live Keycloak on 2026-08-25
 
-Schema at 12. All three of this slice's migrations were applied, reversed and
-re-applied. The API was run as four different identities at once — a regular
-user, an admin, a stranger from an unadmitted domain, and a newcomer from an
-admitted one — because most of these rules are about the difference between them.
+Schema at 12. The realm was imported by the container from the file in this
+repository, with no manual setup. The flow below was driven the way a browser
+drives it — a real authorization request, a real login form POST, a real code
+exchange with the PKCE verifier — not by asking Keycloak for a token directly.
 
 | | |
 |---|---|
-| Resolution, all three layers | no rows → `default`; an admin's global → `global`; the person's own → `user`, beating the global |
-| Reset falls to the layer below, not to the registry | dana reset her sort and landed on the admin's `oldest`, not on `newest` |
-| Application settings are withheld | absent from a regular user's `/api/bootstrap`; `403` on read and on write |
-| Preferences are the owner's | `403` writing another account's, admin included, with nothing written |
-| The registration invariant | `domains` with an empty list refused by name; both keys together accepted in one write |
-| The registration policy refuses | a stranger from an unadmitted domain got `403` on every route, before any handler |
-| The registration policy admits | a newcomer from an admitted domain was provisioned as an ordinary user, named from the local part |
-| The rate limit | limit of 1: first `201`, second `429` with `Retry-After: 86400` and the same number in the body |
-| Approval holds a comment | author sees her own marked pending; another account sees neither the comment nor it in the count |
-| Counts agree with the thread | same request, same moment: `commentCount` 1 to the author, 0 to everybody else |
-| Approving is admin-only | `403` on approving as a regular user; `409` on approving twice |
-| Turning approval off releases | the held comment appeared for everybody, without being approved |
-| Turning it back on keeps history | the approved one stayed visible; only the never-approved one was held again |
-| Anonymisation | `204`; the account's comment still reads, bylined "Deleted user"; its preference row is gone |
-| The last admin is refused | `409` naming the reason, with nothing anonymised |
-| The waiting count | `3` for an admin, absent from a regular user's payload, absent for everybody with the gate down |
-| The count is a real filter | `/requests?pending=true` returned the two requests carrying a held comment; `403` for a regular user |
-| The control travels with the comment | admin: `canApprove` true on the held one; its author: `isPending` true, `canApprove` false |
-| Approving in the thread | comment stops being pending, the count falls to `2`, and that request leaves the filter |
-| Settings labels follow the reader | the same document came back as "Colour scheme" and as "Thème de couleurs" |
+| The flow completes | authorization code + PKCE against the public client, no secret anywhere |
+| The issuer is the realm | `iss` is `http://localhost:8080/realms/feedbackhub` |
+| The audience mapper fires | `aud` contains `feedbackhub-api`, which is what the API insists on |
+| The subject is the pinned id | `sub` is the id written in the realm file, not one Keycloak invented |
+| The seeded admin is MATCHED | signed in and landed on account id 1, "Robin Alvarez" — not provisioned, not collided |
+| The admin screens are theirs | `canManageSettings` true, from the local row and not from a claim |
+| No role in the payload | still absent, as it has been since slice 2 |
+| A seeded regular user is regular | account id 2, `canManageSettings` false, administrative settings withheld |
+| No token | `401` |
+| A malformed token | `401` |
+| A tampered signature | `401` |
+| The refusal says nothing | "This token could not be verified." — no mention of which check failed |
+| The log says which | `401 token.missing`, `401 token.malformed`, `401 token.signature`, each with the request id |
+| A refreshed token works | renewed through the refresh grant and accepted by the API |
+| A newcomer is admitted | somebody in the realm and not in the database was provisioned, named from the token |
+| And arrives as a user | `canManageSettings` false; nothing in a token decides a role |
+| A returning newcomer matches | second sign-in resolved to the same account, on the subject |
+| A restricted board refuses | a stranger authenticated successfully and got `403` on every route |
+| Refused by naming the rule | "not open for registration", with the admitted domains not disclosed |
+| A policy change does not evict | an already-provisioned account kept working after the policy tightened |
+| An address that moved upstream | changed at Keycloak, copied onto the same local row on the next sign-in |
+| And never re-matched | same account id before and after; matching stayed on the subject |
+| The display name survived it | a name the person had set locally was NOT overwritten by the provider's |
+| Keycloak stopped, API warm | still `200` — the cached key set means a provider restart costs nothing |
+| Keycloak stopped, API cold | `503 PROVIDER_UNAVAILABLE`, logged as `503 provider.unreachable`, **not** a 401 |
+| Keycloak back | `200` again on the same API process, with no restart |
+
+35 checks, all passing. The API's own suite ran throughout with no Keycloak at
+all.
+
+The scripts that drove this are not in the repository — they belong to the
+verification, not to the application. They performed a real authorization
+request, parsed the login form, POSTed credentials, followed the redirect, and
+exchanged the code with the PKCE verifier, which is why the audience mapper and
+the pinned subjects are proven rather than assumed.
 
 ## Still unverified
 
 **Nobody has audited the screens in a browser** for layout, keyboard focus
 order, narrow viewports or the dark scheme. `notes/` still has no visual QA
-record, and this body of work added two screens, a generic setting control, a
-second confirmation dialog, a header indicator and inline moderation controls.
+record, and this slice added a sign-in panel, a callback screen and a sign-out
+control to a list that was already long.
 
-Four things in particular have never been looked at by a human:
+Specifically unseen by a human:
 
+- **The sign-in screen and the redirect round trip.** Every part of it is
+  asserted in a test and none of it has been watched happen. The API side of the
+  same flow is verified above, but "the browser ends up back on the request they
+  followed a link to" has only been proven at the unit level.
+- **Silent refresh and an expiring session.** The timer is tested by asserting
+  what it schedules, not by waiting five minutes.
 - **`data-theme="dark"` as an explicit choice.** The dark scheme has only ever
-  been exercised through an operating system setting. The tokens are shared, so
-  it should be identical — should.
-- **The French interface.** Every string is translated and three tests say the
-  catalogue is complete, but nothing has checked whether the longer French
-  wording fits the buttons and table headers it now sits in. That is the usual
-  way a translation breaks a layout.
-- **The header indicator**, which is the only discovery path moderation has: it
-  is asserted in a test and has never been seen in place.
-- **The inline approve and reject controls**, in a thread with a real reply
-  underneath.
+  been exercised through an operating system setting.
+- **The French interface**, and whether the longer French wording fits the
+  buttons and table headers it now sits in — including the two new ones.
+- **The header indicator** for moderation, and **the inline approve and reject
+  controls** in a thread with a real reply underneath.
 
-That was the first thing the last four handoffs would have done, and it is still
+That was the first thing the last five handoffs would have done, and it is still
 the first thing this one would do.
+
+## What the next slice should be
+
+**User administration.** It was already the parked decision, and authentication
+sharpened it: there are now three people who can sign in, exactly one of whom is
+an admin, and nothing in the application can make a second one. Every rule that
+depends on there being more than one admin — the successful demotion, the
+last-admin refusal — is currently reachable only by editing the database or
+running the demo script.
+
+`notes/decisions-pending.md` says what that slice must do. It should also decide
+what happens to somebody's Keycloak identity when their account here is
+deactivated, which is a question this slice created and did not answer.
 
 ## Where the history is
 
@@ -368,6 +549,8 @@ Everything is committed and **nothing is pushed**. Pushing needs
 `gh auth switch --user alimzn42-del` first; see [Repository](#repository).
 
 ```
+(this slice)  authentication against Keycloak
+bd42484  bring the handoff up to date with where this actually stands
 4a937d1  comment approval: a discovery path, and judging in the thread
 7c6608f  a saved default filter never applied after the first visit
 140aa28  translate the interface, and offer only translated languages
@@ -376,7 +559,3 @@ Everything is committed and **nothing is pushed**. Pushing needs
 817b3fc  two levels of configuration, resolved on the server
 f5002e7  filters and search, acting on a request, the taxonomy admin
 ```
-
-The three `fix`/`test` commits are worth reading as a pair with the feature they
-follow: each one is a rule that was wrong in a way that looked like the feature
-simply not working, which is the failure mode this slice kept producing.

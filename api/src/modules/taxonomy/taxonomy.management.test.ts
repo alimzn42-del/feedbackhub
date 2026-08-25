@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../auth/actor.js';
+import { signedIn } from '../../auth/tokens.test-support.js';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Managing the taxonomy, as an admin who is allowed to.
@@ -10,7 +11,11 @@ import type { Actor } from '../../auth/actor.js';
  * statuses table never ends up without a default.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-const usersRepository = vi.hoisted(() => ({ findByEmail: vi.fn() }));
+const usersRepository = vi.hoisted(() => ({
+  findByEmail: vi.fn(),
+  findByExternalId: vi.fn(),
+  updateEmail: vi.fn(),
+}));
 
 const categoriesRepository = vi.hoisted(() => ({
   listActive: vi.fn(),
@@ -45,6 +50,20 @@ vi.mock('../users/users.repository.js', () => usersRepository);
 vi.mock('../categories/categories.repository.js', () => categoriesRepository);
 vi.mock('../statuses/statuses.repository.js', () => statusesRepository);
 
+/**
+ * The whole of what the test suite fakes about authentication: where the
+ * public keys come from.
+ *
+ * Everything downstream of this runs for real against these tokens — the
+ * signature, the issuer, the audience, the expiry, and which key in the set
+ * the header's `kid` selects. What is not exercised is the fetch, which is
+ * the one part a container would have proved and nothing else would.
+ */
+vi.mock('../../auth/jwks.js', async () => {
+  const { testVerificationKeys } = await import('../../auth/tokens.test-support.js');
+  return { verificationKeys: () => testVerificationKeys };
+});
+
 const { createApp } = await import('../../app.js');
 
 const ADMIN: Actor = {
@@ -77,7 +96,7 @@ function duplicate(key: string): Error & { code: string; sqlMessage: string } {
 const app = createApp();
 
 beforeEach(() => {
-  usersRepository.findByEmail.mockResolvedValue(ADMIN);
+  usersRepository.findByExternalId.mockResolvedValue(ADMIN);
 
   categoriesRepository.listAll.mockResolvedValue(CATEGORY_ROWS);
   categoriesRepository.findById.mockResolvedValue({ id: 2, name: 'Feature', slug: 'feature' });
@@ -105,7 +124,7 @@ afterEach(() => {
 
 describe('the managed listing', () => {
   it('carries what a decision needs: order, retirement and usage', async () => {
-    const response = await request(app).get('/api/categories?scope=all').expect(200);
+    const response = await signedIn(request(app)).get('/api/categories?scope=all').expect(200);
 
     expect(response.body.data[0]).toMatchObject({
       sortOrder: 0,
@@ -115,7 +134,7 @@ describe('the managed listing', () => {
   });
 
   it('reports which status is the default, and how many sit in each', async () => {
-    const response = await request(app).get('/api/statuses?scope=all').expect(200);
+    const response = await signedIn(request(app)).get('/api/statuses?scope=all').expect(200);
 
     expect(response.body.data.filter((row: { isDefault: boolean }) => row.isDefault)).toHaveLength(
       1,
@@ -124,7 +143,7 @@ describe('the managed listing', () => {
   });
 
   it('refuses a scope it does not have, rather than quietly serving the plain one', async () => {
-    const response = await request(app).get('/api/categories?scope=archived');
+    const response = await signedIn(request(app)).get('/api/categories?scope=archived');
 
     expect(response.status).toBe(422);
     expect(response.body.error.details[0].field).toBe('scope');
@@ -133,7 +152,7 @@ describe('the managed listing', () => {
 
 describe('creating', () => {
   it('takes a name and a slug', async () => {
-    await request(app)
+    await signedIn(request(app))
       .post('/api/categories')
       .send({ name: 'Documentation', slug: 'documentation' })
       .expect(201);
@@ -142,7 +161,7 @@ describe('creating', () => {
   });
 
   it('refuses a slug that is not one, before the database sees it', async () => {
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .post('/api/categories')
       .send({ name: 'Documentation', slug: 'Not A Slug' });
 
@@ -154,7 +173,7 @@ describe('creating', () => {
   it('names the conflict when the name is taken', async () => {
     categoriesRepository.insert.mockRejectedValue(duplicate('categories.uq_categories_name'));
 
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .post('/api/categories')
       .send({ name: 'Bug', slug: 'bug-reports' });
 
@@ -168,7 +187,7 @@ describe('creating', () => {
   it('names the conflict when the slug is taken', async () => {
     categoriesRepository.insert.mockRejectedValue(duplicate('categories.uq_categories_slug'));
 
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .post('/api/categories')
       .send({ name: 'Bug reports', slug: 'bug' });
 
@@ -180,7 +199,7 @@ describe('creating', () => {
   it('lets an unrelated database failure through rather than calling it a duplicate', async () => {
     categoriesRepository.insert.mockRejectedValue(new Error('connection lost'));
 
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .post('/api/categories')
       .send({ name: 'Documentation', slug: 'documentation' });
 
@@ -191,7 +210,7 @@ describe('creating', () => {
 
 describe('renaming', () => {
   it('changes the name', async () => {
-    await request(app).patch('/api/categories/2').send({ name: 'Features' }).expect(200);
+    await signedIn(request(app)).patch('/api/categories/2').send({ name: 'Features' }).expect(200);
 
     expect(categoriesRepository.rename).toHaveBeenCalledWith(2, 'Features');
   });
@@ -199,7 +218,7 @@ describe('renaming', () => {
   it('refuses a slug sent alongside it, rather than ignoring it', async () => {
     // The slug is in URLs people have shared. There is no endpoint that changes
     // one, and an attempt to is answered rather than silently dropped.
-    const response = await request(app)
+    const response = await signedIn(request(app))
       .patch('/api/categories/2')
       .send({ name: 'Features', slug: 'features' });
 
@@ -211,7 +230,7 @@ describe('renaming', () => {
   it('404s for a row that does not exist', async () => {
     categoriesRepository.findById.mockResolvedValue(null);
 
-    await request(app).patch('/api/categories/99').send({ name: 'Features' }).expect(404);
+    await signedIn(request(app)).patch('/api/categories/99').send({ name: 'Features' }).expect(404);
 
     expect(categoriesRepository.rename).not.toHaveBeenCalled();
   });
@@ -219,13 +238,18 @@ describe('renaming', () => {
 
 describe('reordering', () => {
   it('writes the whole order in one call', async () => {
-    await request(app).put('/api/categories/order').send({ ids: [4, 2] }).expect(200);
+    await signedIn(request(app))
+      .put('/api/categories/order')
+      .send({ ids: [4, 2] })
+      .expect(200);
 
     expect(categoriesRepository.setOrder).toHaveBeenCalledWith([4, 2]);
   });
 
   it('refuses an order that leaves a row out', async () => {
-    const response = await request(app).put('/api/categories/order').send({ ids: [4] });
+    const response = await signedIn(request(app))
+      .put('/api/categories/order')
+      .send({ ids: [4] });
 
     // Accepting it would mean inventing a position for the one not named.
     expect(response.status).toBe(422);
@@ -234,7 +258,9 @@ describe('reordering', () => {
   });
 
   it('refuses an order that names a row twice', async () => {
-    const response = await request(app).put('/api/categories/order').send({ ids: [2, 2] });
+    const response = await signedIn(request(app))
+      .put('/api/categories/order')
+      .send({ ids: [2, 2] });
 
     expect(response.status).toBe(422);
     expect(response.body.error.details[0].code).toBe('DUPLICATE');
@@ -242,7 +268,9 @@ describe('reordering', () => {
   });
 
   it('refuses an order naming something that is not there', async () => {
-    const response = await request(app).put('/api/categories/order').send({ ids: [2, 4, 99] });
+    const response = await signedIn(request(app))
+      .put('/api/categories/order')
+      .send({ ids: [2, 4, 99] });
 
     expect(response.status).toBe(422);
     expect(response.body.error.details[0].code).toBe('NOT_FOUND');
@@ -252,7 +280,7 @@ describe('reordering', () => {
 
 describe('retiring a category', () => {
   it('retires it without deleting it', async () => {
-    await request(app).put('/api/categories/2/archive').expect(200);
+    await signedIn(request(app)).put('/api/categories/2/archive').expect(200);
 
     // archive, not delete: the requests carrying it keep rendering it.
     expect(categoriesRepository.archive).toHaveBeenCalledWith(2);
@@ -261,13 +289,13 @@ describe('retiring a category', () => {
   it('retires one that is still in use, because that is what retirement is for', async () => {
     // Four requests carry this category. The count informs the decision; it
     // does not block it.
-    await request(app).put('/api/categories/2/archive').expect(200);
+    await signedIn(request(app)).put('/api/categories/2/archive').expect(200);
 
     expect(categoriesRepository.archive).toHaveBeenCalledWith(2);
   });
 
   it('restores it again', async () => {
-    await request(app).delete('/api/categories/2/archive').expect(200);
+    await signedIn(request(app)).delete('/api/categories/2/archive').expect(200);
 
     expect(categoriesRepository.restore).toHaveBeenCalledWith(2);
   });
@@ -275,14 +303,14 @@ describe('retiring a category', () => {
   it('has no equivalent for statuses', async () => {
     // A status is a position requests are sitting in, not a label they carry.
     // Retiring one would strand them, so the route does not exist.
-    await request(app).put('/api/statuses/5/archive').expect(404);
-    await request(app).delete('/api/statuses/5/archive').expect(404);
+    await signedIn(request(app)).put('/api/statuses/5/archive').expect(404);
+    await signedIn(request(app)).delete('/api/statuses/5/archive').expect(404);
   });
 });
 
 describe('the default status', () => {
   it('moves the default, and answers with the whole list', async () => {
-    const response = await request(app).put('/api/statuses/5/default').expect(200);
+    const response = await signedIn(request(app)).put('/api/statuses/5/default').expect(200);
 
     expect(statusesRepository.setDefault).toHaveBeenCalledWith(5);
     // Two rows changed: the one that gained it and the one that lost it.
@@ -292,13 +320,16 @@ describe('the default status', () => {
   it('has no endpoint that clears the default without naming a replacement', async () => {
     // This is what keeps the lower bound the schema cannot express. A table
     // with no default exists happily and refuses every new request.
-    await request(app).delete('/api/statuses/1/default').expect(404);
+    await signedIn(request(app)).delete('/api/statuses/1/default').expect(404);
   });
 
   it('makes the first status in an empty table the default', async () => {
     statusesRepository.countAll.mockResolvedValue(0);
 
-    await request(app).post('/api/statuses').send({ name: 'New', slug: 'new' }).expect(201);
+    await signedIn(request(app))
+      .post('/api/statuses')
+      .send({ name: 'New', slug: 'new' })
+      .expect(201);
 
     expect(statusesRepository.insert).toHaveBeenCalledWith('New', 'new', true);
   });
@@ -306,7 +337,10 @@ describe('the default status', () => {
   it('does not make a later status the default', async () => {
     statusesRepository.countAll.mockResolvedValue(3);
 
-    await request(app).post('/api/statuses').send({ name: 'Blocked', slug: 'blocked' }).expect(201);
+    await signedIn(request(app))
+      .post('/api/statuses')
+      .send({ name: 'Blocked', slug: 'blocked' })
+      .expect(201);
 
     // Adding a stage must not silently move where new requests arrive.
     expect(statusesRepository.insert).toHaveBeenCalledWith('Blocked', 'blocked', false);

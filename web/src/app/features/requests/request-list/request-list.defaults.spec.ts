@@ -7,6 +7,7 @@ import { RequestList } from './request-list';
 import { App } from '../../../app';
 import { routes } from '../../../app.routes';
 import { provideStubbedConfig } from '../../../core/config/app-config.testing';
+import { provideStubbedSession } from '../../../core/auth/session.testing';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * A saved default decides where you LAND; the URL still says where you are.
@@ -173,6 +174,9 @@ describe('opening defaults, through the whole chain', () => {
         // The real provider set: withComponentInputBinding is what binds query
         // parameters to the board's inputs, and is how list state reaches it.
         provideRouter(routes, withComponentInputBinding()),
+        // Signed in already: this spec is about the board's opening filters, and
+        // the sign-in flow in front of them is somebody else's test.
+        provideStubbedSession(),
         provideHttpClient(),
         provideHttpClientTesting(),
       ],

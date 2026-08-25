@@ -1530,3 +1530,93 @@ The error names the export, not the reason.
 the reload is scheduled rather than immediate, so flushing before awaiting is not
 enough either — the request does not exist yet. The pattern that works is a short
 loop: detectChanges, match, flush if present, turn the microtask queue over.
+
+---
+
+## 2026-08-25 — Slice 9: authentication, against Keycloak
+
+**Asked:** the slice the seam was built for. The measure named up front: change
+`auth/current-user.ts` and nothing that calls it. Two questions to answer and
+wait on before writing anything — how the existing suite keeps running without a
+live Keycloak, and how the realm import lines up with the seeded users.
+
+### The two questions, answered before implementing
+
+**The suite.** Two approaches were offered: tests minting their own tokens
+against a generated key, or retaining the seam as a test-only identity mode. The
+first was proposed, and with a sharper line than the question drew: mock ONLY
+the JWKS fetch, so the signature, the issuer, the audience, the expiry and the
+`kid` selection are all the real implementation. `createLocalJWKSet` is jose's
+own resolver, so even "no key matches this kid" is genuinely exercised. The
+second approach would have left verification — the part most worth covering —
+untested.
+
+Standing a JWKS endpoint up on loopback was considered and rejected: it would
+test `fetch`, which is not the part anybody doubts, and needs a port per worker.
+
+**The guard.** The prompt asked for the test mechanism to be structurally unable
+to activate outside a test environment, "asserted on the identity mode". Under
+this approach there is no third identity mode, so there is nothing new for such
+an assertion to be about — said plainly rather than inventing a mode so the
+sentence had a subject. What replaced it: the token-minting code is excluded
+from `tsconfig.build.json` and is therefore absent from `dist/` entirely. The
+reply back: *absent beats guarded*. A new assertion was added in the other
+direction instead — a build that verifies tokens refuses to start without an
+issuer, an audience and a client id, naming all the missing ones at once.
+
+**The realm.** The failure being designed against was specific: Keycloak
+generates user ids, the seeded admin has `external_id NULL`, matching is on
+subject and never on address, so the seeded admin would authenticate perfectly,
+match nothing, be sent to provisioning, and collide with `uq_users_email`. The
+symptom is the only account that can reach the admin screens unable to get in,
+on a board with nothing that can promote a replacement. Fixed by pinning the
+three ids in the realm file and writing the same three into the seed.
+
+Two additions came back with the approval, both accepted as stated: link on a
+**verified** email only, set explicitly in the realm rather than relying on
+Google's behaviour; and make the realm file unmistakably a development artefact,
+so nobody reads three published passwords as leaked credentials.
+
+### The mechanical half
+
+173 supertest call sites needed a token. Rather than editing each, `request(app)`
+became `signedIn(request(app))` — one substitution, one wrapper — and the
+identity mock moved from `findByEmail` to `findByExternalId`. Which person each
+test acts as is decided by the repository mock exactly as before, because the
+token has never carried a role. Not one test changed what it asserts.
+
+### Things that cost time
+
+**`postLogoutRedirectUris` is not a client field, and Keycloak dies rather than
+ignoring it.** The realm import refused the whole file, so the container
+restarted in a loop with a healthcheck reporting "connection refused" — which
+says nothing about the actual cause. Post-logout URIs are an `attributes` entry,
+`post.logout.redirect.uris`. Only running it found this; every test passed
+throughout.
+
+**The callback route races its own discovery.** On a page load that lands on the
+redirect URI, the session's startup and the callback component both begin at
+once, and the code exchange needs endpoints the discovery has not fetched yet.
+Intermittent, which is the worst way for it to fail. Fixed by holding the
+startup promise and awaiting it in `completeSignIn`.
+
+**Whether the callback route may render cannot come from the router.** The shell
+has to answer it on the first paint, before any navigation has completed — and
+if it answers wrongly, the outlet is never mounted, the component never
+constructs, and the code is never redeemed. A deadlock, not a flash. It is
+decided from `location.pathname` instead, which is sound because arriving there
+is always a fresh page load: Keycloak redirects the browser, and nothing inside
+the application ever links to it.
+
+**The default test token describes one person, and some tests act as another.**
+Harmless everywhere except the one test asserting the caller's own address,
+where reconciliation quietly rewrote it before the payload was built. That test
+now mints a token for the person it is about; a `bearerFor(actor)` helper exists
+for the handful of cases like it, and the comment says why almost nothing else
+needs it.
+
+**A boot guard tested against the compiled-in constant breaks when the constant
+moves.** `parseEnv` asserts with the real `IDENTITY_MODE`, so the whole env spec
+had been written around the seam being the default. Rewritten so every seam case
+passes `'development-seam'` explicitly — which is what the mode being a
+parameter was for in the first place.

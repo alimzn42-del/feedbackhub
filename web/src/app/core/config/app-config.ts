@@ -2,6 +2,7 @@ import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import { httpResource } from '@angular/common/http';
 import { DOCUMENT } from '@angular/common';
 import { API_BASE_URL } from '../api/api-base-url';
+import { Session } from '../auth/session';
 import { toApiError, type ApiError } from '../api/api-error';
 import type {
   Bootstrap,
@@ -38,6 +39,7 @@ import type {
 export class AppConfig {
   private readonly baseUrl = inject(API_BASE_URL);
   private readonly document = inject(DOCUMENT);
+  private readonly session = inject(Session);
 
   /**
    * Bumped to ask again. `httpResource` refetches when a signal its request
@@ -46,8 +48,21 @@ export class AppConfig {
    */
   private readonly attempt = signal(0);
 
+  /**
+   * The startup request, which does not exist until there is somebody to make
+   * it for.
+   *
+   * Returning undefined leaves the resource idle rather than issuing a request
+   * that would come back 401 — and it makes the token a DEPENDENCY rather than
+   * something this has to be told about. Signing in re-runs it; the session
+   * ending re-runs it too, and the shell is what decides what to draw in the
+   * meantime.
+   */
   private readonly bootstrap = httpResource<Wrapped<Bootstrap>>(() => {
     this.attempt();
+
+    if (!this.session.isSignedIn()) return undefined;
+
     return { url: `${this.baseUrl}/bootstrap` };
   });
 

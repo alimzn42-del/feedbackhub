@@ -27,6 +27,38 @@ const EnvSchema = z.object({
    * production — see assertIdentityIsSafeFor below.
    */
   DEV_CURRENT_USER_EMAIL: z.email().optional(),
+
+  /**
+   * The realm URL, which is also the `iss` claim of every token this API will
+   * accept. Locally: http://localhost:8080/realms/feedbackhub
+   *
+   * There is no separate JWKS variable. The key set lives at a fixed path below
+   * the realm, so a second variable could only ever disagree with this one —
+   * see src/auth/jwks.ts.
+   */
+  OIDC_ISSUER_URL: z.url().optional(),
+
+  /**
+   * What this API is called in a token's `aud`. A token minted for a different
+   * client is a valid token and is not valid *here*, which is the whole reason
+   * this is checked separately from the signature.
+   */
+  OIDC_AUDIENCE: z.string().min(1).optional(),
+
+  /**
+   * The public client the browser authenticates as. The API never uses it; it
+   * is here so the web application can be told where to sign in without a
+   * build-time configuration file of its own — see modules/auth.
+   */
+  OIDC_CLIENT_ID: z.string().min(1).optional(),
+
+  /**
+   * Optional clock leeway, in seconds, for `exp` and `nbf`. Zero by default:
+   * the API and the provider are the same machine in development and should be
+   * time-synchronised in a deployment, and a generous default here is an
+   * expired token being accepted without anybody choosing that.
+   */
+  OIDC_CLOCK_TOLERANCE_SECONDS: z.coerce.number().int().min(0).max(300).default(0),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -73,6 +105,35 @@ export function assertIdentityIsSafeFor(env: Env, identityMode = IDENTITY_MODE):
       'DEV_CURRENT_USER_EMAIL is set but this build uses a real identity provider. ' +
         'Remove it so nobody mistakes it for something that still has an effect.',
     );
+  }
+
+  /**
+   * The other direction, and the one that matters once the seam is not the
+   * default: a build that verifies tokens and has not been told which issuer to
+   * trust, which audience is its own, or where to send people to sign in.
+   *
+   * Every one of those failures is silent if it is allowed through. An absent
+   * issuer would be a verifier that trusts a key set it fetched from nowhere;
+   * an absent audience would accept a token minted for a different client,
+   * which is precisely the check this application went out of its way to make.
+   * They are named individually because "OIDC is misconfigured" sends an
+   * operator looking through three variables to find the empty one.
+   */
+  if (identityMode === 'keycloak') {
+    const missing = [
+      env.OIDC_ISSUER_URL ? null : 'OIDC_ISSUER_URL',
+      env.OIDC_AUDIENCE ? null : 'OIDC_AUDIENCE',
+      env.OIDC_CLIENT_ID ? null : 'OIDC_CLIENT_ID',
+    ].filter((name): name is string => name !== null);
+
+    if (missing.length > 0) {
+      throw new EnvironmentError(
+        `Refusing to start: this build verifies tokens against an identity provider and ` +
+          `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set. ` +
+          'Copy the identity section of .env.example, or run `npm run auth:up` to bring ' +
+          'Keycloak up with the realm this repository imports.',
+      );
+    }
   }
 }
 

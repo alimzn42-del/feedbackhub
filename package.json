@@ -11,9 +11,13 @@
     "node": "24.19.0"
   },
   "scripts": {
-    "db:up": "docker compose up -d",
-    "db:down": "docker compose down",
+    "up": "docker compose up -d",
+    "down": "docker compose down",
+    "db:up": "docker compose up -d mysql",
+    "db:down": "docker compose stop mysql",
     "db:reset": "docker compose down -v && docker compose up -d",
+    "auth:up": "docker compose up -d keycloak",
+    "auth:google": "node --env-file-if-exists=.env keycloak/add-google-provider.mjs",
     "migrate": "npm run migrate --workspace api",
     "migrate:down": "npm run migrate:down --workspace api",
     "seed": "npm run seed --workspace api",
