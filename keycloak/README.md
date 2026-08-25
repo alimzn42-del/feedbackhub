@@ -58,10 +58,10 @@ registration policy the board is set to.
 The seven extra people that `npm run demo` creates are deliberately **not**
 here. They are authors of content, so the board has something on it to read;
 they are not people who sign in, and giving them realm identities would buy
-nothing. The three above cover every path a reviewer needs: promote a regular
-user and there are two admins, which is what the successful demotion path
-needs; demote again and you get the last-admin refusal; account deletion works
-signed in as a regular user.
+nothing. Nothing in this application promotes anybody, so there is no path that
+needs more sign-in identities than these three: account deletion works signed in
+as `dana`, and the last-admin refusal appears signed in as `admin`. A demo board
+has a second admin only because `npm run demo` seeds one.
 
 ---
 

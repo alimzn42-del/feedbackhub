@@ -1,0 +1,33 @@
+# Both images build from the repository root, so this is what neither of them
+# should ever see.
+
+# Never. It holds the database password and, if somebody has set them, the
+# Google client secret. The images take configuration from the environment they
+# are run in.
+.env
+*.local
+
+node_modules
+**/node_modules
+
+dist
+**/dist
+.angular
+coverage
+
+.git
+.github
+.vscode
+.idea
+
+# Documentation and working notes: nothing in an image reads them, and every
+# byte in the context is a byte the daemon copies.
+*.md
+!api/**/*.md
+notes
+k8s
+
+Dockerfile
+**/Dockerfile
+.dockerignore
+docker-compose.yml

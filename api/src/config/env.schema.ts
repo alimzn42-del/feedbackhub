@@ -29,14 +29,33 @@ const EnvSchema = z.object({
   DEV_CURRENT_USER_EMAIL: z.email().optional(),
 
   /**
-   * The realm URL, which is also the `iss` claim of every token this API will
-   * accept. Locally: http://localhost:8080/realms/feedbackhub
+   * The realm's IDENTITY: the exact string every token carries as `iss`, and
+   * the only value this API compares that claim against.
    *
-   * There is no separate JWKS variable. The key set lives at a fixed path below
-   * the realm, so a second variable could only ever disagree with this one —
-   * see src/auth/jwks.ts.
+   * It is the URL a browser reaches Keycloak at, because that is the host
+   * Keycloak mints tokens under. Locally:
+   * http://localhost:8080/realms/feedbackhub
    */
   OIDC_ISSUER_URL: z.url().optional(),
+
+  /**
+   * The realm's ADDRESS, when it differs from its identity.
+   *
+   * These are two different things and containers are where that stops being
+   * pedantry. In a compose network the browser reaches Keycloak at
+   * `http://localhost:8080` and the API reaches the same server at
+   * `http://keycloak:8080`; the token says `localhost` either way, because the
+   * browser is what asked for it. An API that fetched the key set from the
+   * issuer string would be resolving `localhost` inside its own container and
+   * finding nothing.
+   *
+   * So: `iss` is checked against OIDC_ISSUER_URL, always. The keys are fetched
+   * from here when it is set, and from the issuer when it is not — which keeps
+   * the single-value case a single value, and cannot silently point the
+   * verifier at a different realm, because the realm a token claims to be from
+   * is still the only thing `iss` is compared to.
+   */
+  OIDC_INTERNAL_URL: z.url().optional(),
 
   /**
    * What this API is called in a token's `aud`. A token minted for a different

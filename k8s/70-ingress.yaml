@@ -1,0 +1,53 @@
+# Two hosts, and only two things reachable from outside the cluster.
+#
+# WHY THE API IS NOT HERE. The browser reaches it same-origin through the web
+# tier's nginx — the same arrangement as the CLI dev proxy and docker-compose.
+# One request path in every environment rather than an ingress rule and an
+# nginx location that can drift apart, no CORS, and an API that nothing outside
+# the cluster can address.
+#
+# WHY KEYCLOAK HAS ITS OWN HOST rather than a path on the first. Every token
+# carries the address the browser signed in at, as `iss`, and the API compares
+# that string exactly. A realm reachable two ways issues two different issuers
+# and half of them are rejected. One host, pinned in the ConfigMap and again in
+# KC_HOSTNAME, is what keeps that from being possible.
+#
+# TLS is left out on purpose. Adding a `tls:` block whose secret nobody has
+# created produces an ingress that silently serves nothing, which is worse than
+# an obviously plain-HTTP development ingress. With cert-manager, this is an
+# annotation and a `tls:` block naming the two hosts.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: feedbackhub
+  labels:
+    app.kubernetes.io/part-of: feedbackhub
+  annotations:
+    # The sign-in redirect carries a code and a state in the query string, and
+    # tokens go back the other way. Nothing here should be cached by the
+    # controller or by anything between it and the browser.
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 16k
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: feedbackhub.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: feedbackhub-web
+                port:
+                  name: http
+
+    - host: auth.feedbackhub.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: feedbackhub-keycloak
+                port:
+                  name: http

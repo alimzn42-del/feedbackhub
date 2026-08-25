@@ -1056,6 +1056,57 @@ alone leaves the provider's SSO session open, so the next sign-in returns
 immediately without asking for anything: a sign-out that undoes itself, on the
 shared machine where it mattered most.
 
+**A realm's identity and a realm's address are two different values, and
+containers are where that stops being pedantry.** `OIDC_ISSUER_URL` is the exact
+string every token carries as `iss` and the only thing that claim is compared
+against. `OIDC_INTERNAL_URL` is optional and says where to fetch the key set.
+
+They are the same value when the API runs from a terminal and differ the moment
+anything is containerised: the browser reaches Keycloak at `localhost:8080` and
+mints tokens saying so, while the API reaches the same server at `keycloak:8080`.
+Deriving the key set URL from the issuer would have the API resolving `localhost`
+inside its own container.
+
+The authentication slice deliberately refused a second variable, reasoning that
+two values can disagree. That was right about drift and wrong in principle. The
+property it was protecting survives anyway: `iss` is compared to the issuer and
+only to the issuer, so pointing the internal URL at the wrong realm makes every
+token fail rather than making a wrong one pass.
+
+**The API is not reachable from outside the deployment, in any environment.**
+The browser talks to one origin: the CLI proxy forwards `/api` in development,
+and the web tier's nginx does in compose and in Kubernetes. The API has no
+published port and no Ingress.
+
+One request path everywhere, rather than an ingress rule and an nginx `location`
+that can drift apart — and CORS never enters into this application at all.
+`WEB_ORIGIN` is a fallback for `ng serve` without the proxy and nothing else.
+
+**Migrations are a job, and the API waits for the schema rather than for the
+job.** An API that migrates on boot cannot run two replicas without two
+processes racing to alter the same tables, and it buries a schema failure inside
+a deploy, where it reads as "the application will not start" rather than
+"migration 13 failed".
+
+A Job is not an ordering primitive either — nothing makes a Deployment wait for
+one — so the API's init container blocks until `schema_migrations` exists, which
+is the fact it actually depends on rather than a sleep. Seeding is in neither:
+it is baseline content and a decision, not a consequence of starting the system.
+
+**`runAsNonRoot` in the pod is not a duplicate of `USER node` in the
+Dockerfile.** The Dockerfile is a statement of intent by whoever wrote it; the
+pod's security context is the cluster refusing to start the container if that
+intent was not carried out. Both applications also run with a read-only root
+filesystem and every capability dropped — the API writes nothing at all, and
+nginx's three writable paths are memory-backed `emptyDir`s.
+
+**The kustomization is at the repository root, not in `k8s/`.** kustomize will
+not read files above its own directory, and the realm ConfigMap is generated
+from `keycloak/realm-feedbackhub-development.json` so that the cluster's realm
+and the compose realm cannot drift apart. The alternatives were a second copy of
+the realm — the exact failure this repository refuses everywhere else — or a
+documented flag that turns the restriction off, which people forget.
+
 **The endpoints come from the provider's discovery document, not from string
 concatenation.** The paths beneath a realm are Keycloak's, and assembling them
 in the browser would put knowledge of one provider's URL shape into the client.
@@ -1101,19 +1152,39 @@ costs nothing and existing tokens stay valid.
 
 **The demo people have no realm identities.** They are authors of content, so
 the board has something to read; they are not people who sign in. The three
-seeded users cover every path a reviewer needs: promote one and there are two
-admins, which is what the successful demotion path requires; demote again and
-the last-admin refusal appears; account deletion works signed in as an ordinary
-user.
+seeded users cover what a reviewer needs to exercise: account deletion signed in
+as an ordinary user, and the last-admin refusal signed in as the admin. Nothing
+in this application promotes anybody — a second admin exists only because
+`npm run demo` seeds one — so there is no path that requires more sign-in
+identities than these three.
 
-**Comment moderation before publication was built in this slice, not
+**Comment moderation before publication was built in the settings slice, not
 the moderation slice it was parked for.** It was the strongest available
 demonstration of a feature flag — it changes what the application DOES rather
 than what it shows — and the alternatives all amounted to hiding a control. The
-note in `notes/decisions-pending.md` was written on the assumption it would
-arrive on its own; it arrived attached to the setting that switches it on, which
-is where the shape it predicted (a nullable `approved_at` plus a settings table)
-turned out to belong.
+parked note had been written on the assumption it would arrive on its own; it
+arrived attached to the setting that switches it on, which is where the shape it
+predicted (a nullable `approved_at` plus a settings table) turned out to belong.
+
+**The Node base image matches the pin, exactly.** `.node-version` and
+`engines.node` both name 24.19.0, `docker-compose.yml` pins `mysql:8.4.6` and
+`quay.io/keycloak/keycloak:26.4.2`, and the API image is built `FROM
+node:24.19.0-bookworm-slim` — never `node:24`, never `node:lts`, never `latest`.
+Nothing in this repository resolves a version at build time. A floating tag is
+how a container stops matching the machine the tests were written on, months
+later, in a failure that looks like the code.
+
+This was a commitment made before there was an image to make it about, and the
+deployment slice is where it became true.
+
+**What lives in a parked-decisions file, and why that file no longer exists.**
+Decisions taken before their subject matter exists used to sit in
+`notes/decisions-pending.md`, on the reasoning that a decisions file describing
+code nobody has written reads as though it were assembled afterwards. In
+practice it became somewhere for settled questions to be quietly re-opened, and
+for scope to be proposed as though parked meant planned. Its entries are now
+here and in [SCOPE.md](SCOPE.md), which draws the line the other way: a decision
+about something ruled out belongs with the ruling, not in a queue.
 
 **Email notification preferences are recorded and nothing sends mail.** Normally
 this schema's rule is that a column nothing reads should not exist yet. It

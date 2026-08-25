@@ -1,0 +1,49 @@
+# Everything that is configuration and not a credential.
+#
+# The split is the useful one: this file is safe to read, safe to diff, and
+# safe in a repository. What is in 11-secret.yaml is none of those things and
+# is treated accordingly.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feedbackhub-config
+  labels:
+    app.kubernetes.io/part-of: feedbackhub
+data:
+  # ── The two hostnames ────────────────────────────────────────────────────
+  #
+  # Change these together with 70-ingress.yaml, and change nothing else: the
+  # issuer below is what makes them agree.
+  #
+  # They are two hosts and not two paths on one, because `iss` is baked into
+  # every token Keycloak mints. A realm reachable at two different addresses
+  # issues tokens the API will reject at one of them.
+  WEB_HOST: feedbackhub.local
+  AUTH_HOST: auth.feedbackhub.local
+
+  # ── Database ─────────────────────────────────────────────────────────────
+  DB_HOST: feedbackhub-mysql
+  DB_PORT: "3306"
+  DB_NAME: feedbackhub
+  DB_USER: feedbackhub
+
+  # ── Identity ─────────────────────────────────────────────────────────────
+  #
+  # OIDC_ISSUER_URL is the realm's IDENTITY: the exact string every token
+  # carries as `iss`, which is the address the browser reached Keycloak at.
+  #
+  # OIDC_INTERNAL_URL is the realm's ADDRESS from inside the cluster. The API
+  # fetches the key set from there, because the ingress hostname may not
+  # resolve from a pod and there is no reason to leave the cluster for a
+  # request between two of its own services.
+  #
+  # Nothing about trust moves with the second one: `iss` is compared to the
+  # first and only to the first.
+  OIDC_ISSUER_URL: http://auth.feedbackhub.local/realms/feedbackhub
+  OIDC_INTERNAL_URL: http://feedbackhub-keycloak:8080/realms/feedbackhub
+  OIDC_AUDIENCE: feedbackhub-api
+  OIDC_CLIENT_ID: feedbackhub-web
+
+  # A fallback only. The browser reaches the API same-origin through the web
+  # tier, so a cross-site request does not arise in this topology.
+  WEB_ORIGIN: http://feedbackhub.local

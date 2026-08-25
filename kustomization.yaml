@@ -1,0 +1,59 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# The whole system as Kubernetes objects.
+#
+#     kubectl apply -k .
+#
+# WHY THIS FILE IS AT THE REPOSITORY ROOT AND NOT IN k8s/
+#
+# kustomize refuses to read files above its own directory — a deliberate
+# restriction, so that a kustomization cannot quietly reach into the rest of a
+# filesystem. The realm ConfigMap below is generated from
+# keycloak/realm-feedbackhub-development.json, which is not below k8s/, so a
+# kustomization living there cannot see it.
+#
+# The alternatives were a second copy of the realm inside k8s/ — two files that
+# would disagree the first time either was edited, which is the failure this
+# repository has refused everywhere else — or a documented flag that turns the
+# restriction off, which people forget. Moving the root up is the cheap fix,
+# and it puts the command in the same place as every other one: the repository
+# root, next to `npm run up`.
+#
+# The manifests themselves stay in k8s/.
+# ═══════════════════════════════════════════════════════════════════════════
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: feedbackhub
+
+resources:
+  - k8s/00-namespace.yaml
+  - k8s/10-config.yaml
+  # Development values. A real deployment removes this line and creates the
+  # same Secret from a secret manager — see the file itself.
+  - k8s/11-secret.yaml
+  - k8s/20-mysql.yaml
+  - k8s/30-keycloak.yaml
+  - k8s/40-migrate-job.yaml
+  - k8s/50-api.yaml
+  - k8s/60-web.yaml
+  - k8s/70-ingress.yaml
+
+# The realm, from the one copy of it in this repository. Generating it here
+# rather than pasting it into a manifest is what stops the cluster's realm and
+# the compose realm from drifting apart: they are the same file.
+configMapGenerator:
+  - name: feedbackhub-realm
+    files:
+      - keycloak/realm-feedbackhub-development.json
+
+generatorOptions:
+  # No name suffix hash: k8s/30-keycloak.yaml mounts this ConfigMap by name and
+  # is meant to be readable on its own. The realm is re-imported on every pod
+  # start regardless, so the usual reason for the hash — forcing a rollout when
+  # the content changes — is already covered.
+  disableNameSuffixHash: true
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: feedbackhub

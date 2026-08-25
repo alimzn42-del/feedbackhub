@@ -1,0 +1,91 @@
+# The web tier: a static bundle, and the one hop to the API.
+#
+# This is a template rather than a finished config. The nginx image runs
+# envsubst over /etc/nginx/templates/*.template at startup, which is how
+# API_UPSTREAM differs between compose (`api:3000`) and Kubernetes
+# (`feedbackhub-api:3000`) without a second image.
+
+server {
+    # 8080, not 80: this container runs as a non-root user, and ports below
+    # 1024 need a capability that nothing here should have.
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Keep the version out of error pages and the Server header.
+    server_tokens off;
+
+    # ── The API, same-origin ───────────────────────────────────────────────
+    #
+    # The browser talks to one origin for everything, exactly as it does behind
+    # the CLI dev proxy. That is deliberate and it is the same arrangement in
+    # every environment: the Kubernetes Ingress routes only to this service,
+    # rather than doing its own /api path split, so there is one request path
+    # to reason about instead of two that can disagree.
+    #
+    # It also means CORS never enters into it, and that the API needs no route
+    # to the outside world at all — in the cluster it has no Ingress and is
+    # reachable only from here.
+    location /api/ {
+        proxy_pass http://${API_UPSTREAM};
+
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # The API's own X-Request-Id is what joins a caller's copy of a failure
+        # to the line in the server log; pass one through if the client sent it.
+        proxy_set_header X-Request-Id      $http_x_request_id;
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout    30s;
+    }
+
+    location = /health {
+        access_log off;
+        add_header Content-Type application/json;
+        return 200 '{"status":"ok"}';
+    }
+
+    # ── Static assets ──────────────────────────────────────────────────────
+    #
+    # Angular fingerprints these filenames, so a year is safe: a changed file
+    # is a different URL. index.html is deliberately NOT in here.
+    location ~* \.(?:js|css|woff2?|png|jpe?g|gif|svg|ico|webp)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # ── The application ────────────────────────────────────────────────────
+    #
+    # Every unmatched path returns index.html, because the routes belong to the
+    # router in the browser — including /auth/callback, which Keycloak redirects
+    # to and which does not exist as a file. Without this, signing in ends at a
+    # 404 from nginx.
+    location / {
+        try_files $uri $uri/ /index.html;
+
+        # index.html must never be cached: it names the fingerprinted bundles,
+        # and a stale copy points at files a deploy has removed.
+        add_header Cache-Control "no-store, must-revalidate";
+    }
+
+    # ── Headers ────────────────────────────────────────────────────────────
+    #
+    # No Content-Security-Policy here on purpose. A real one has to name the
+    # identity provider's origin, which is configuration this file does not
+    # have, and a CSP that is wrong breaks sign-in in a way that looks like the
+    # application. It belongs with the ingress that knows the hostnames.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+}

@@ -1,8 +1,26 @@
 name: feedbackhub
 
-# The database and the identity provider. The API and web services join this
-# file in the deployment slice; nothing here is intended to be the final
-# topology.
+# ═══════════════════════════════════════════════════════════════════════════
+# The whole system: database, identity provider, API, web.
+#
+#     docker compose up -d --build      everything, built from this repository
+#     docker compose up -d mysql keycloak    just the backing services, if you
+#                                            are running the apps from a terminal
+#
+# The migration job runs once and exits, and the API waits for it to succeed —
+# so a fresh `up` produces a working board rather than an API talking to an
+# empty schema.
+#
+# WHICH PORT THE BROWSER USES MATTERS, twice over.
+#
+#   - Keycloak mints tokens whose `iss` is the host the BROWSER asked at, so
+#     the published port here and OIDC_ISSUER_URL have to name the same thing.
+#   - The API cannot reach that address: `localhost:8080` inside the API's
+#     container is the API. It fetches the key set from OIDC_INTERNAL_URL —
+#     `keycloak:8080`, the realm's address on this network — while still
+#     checking `iss` against the browser-facing issuer. Identity and address
+#     are two different things and this is where that stops being pedantry.
+# ═══════════════════════════════════════════════════════════════════════════
 services:
   mysql:
     image: mysql:8.4.6
@@ -70,6 +88,100 @@ services:
       timeout: 5s
       retries: 30
       start_period: 30s
+
+  # ── The schema, applied once ─────────────────────────────────────────────
+  #
+  # A one-shot service rather than something the API does on boot. An API that
+  # migrates at startup is an API that cannot be run with two replicas without
+  # two processes racing to alter the same tables — and it hides a schema
+  # change inside a deploy, where a failure reads as "the application will not
+  # start" rather than "migration 13 failed".
+  #
+  # The same image as the API, because the migration scripts and their .sql
+  # files ship in it. `npm run seed` is deliberately NOT here: seeding is
+  # baseline content, it is idempotent, and it is a decision rather than a
+  # consequence of starting the system. Run it once yourself:
+  #
+  #     docker compose run --rm migrate node scripts/seed.mjs
+  migrate:
+    build:
+      # The repository root: this is an npm workspace and the lockfile is here.
+      context: .
+      dockerfile: api/Dockerfile
+    image: feedbackhub-api:local
+    container_name: feedbackhub-migrate
+    restart: "no"
+    command: ["node", "scripts/migrate.mjs", "up"]
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:?set DB_NAME in .env}
+      DB_USER: ${DB_USER:?set DB_USER in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: feedbackhub-api:local
+    container_name: feedbackhub-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+
+      # Inside this network. The published host port is for a human with a
+      # terminal, not for a container talking to another container.
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:?set DB_NAME in .env}
+      DB_USER: ${DB_USER:?set DB_USER in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+
+      # The realm's identity: what the browser sees, and therefore what every
+      # token says. Compared against `iss` and nothing else.
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://localhost:${KEYCLOAK_PORT:-8080}/realms/feedbackhub}
+      # The realm's address on this network: where the key set is fetched from.
+      OIDC_INTERNAL_URL: http://keycloak:8080/realms/feedbackhub
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-feedbackhub-api}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-feedbackhub-web}
+
+      # A fallback only: the browser reaches the API same-origin through the
+      # web tier's nginx, so cross-site requests do not arise in this topology.
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:${WEB_PORT:-4200}}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    # Not published. Nothing outside this network talks to the API directly —
+    # the web tier proxies it, which is the same arrangement as in Kubernetes,
+    # where the API has no Ingress at all.
+    expose:
+      - "3000"
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    image: feedbackhub-web:local
+    container_name: feedbackhub-web
+    restart: unless-stopped
+    environment:
+      # Substituted into the nginx config at container start. The web image
+      # knows nothing else about its surroundings: the realm and the client id
+      # are asked for at runtime from GET /api/auth/config.
+      API_UPSTREAM: api:3000
+    ports:
+      - "${WEB_PORT:-4200}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
 
 # There is deliberately no volume for Keycloak.
 #

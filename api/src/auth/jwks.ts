@@ -29,13 +29,21 @@ import { env } from '../config/env.js';
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Keycloak publishes its keys at a fixed path below the realm, and the realm
- * URL is the issuer. Deriving it means there is no second variable that can
- * disagree with OIDC_ISSUER_URL — the failure where an API verifies against one
- * realm's keys while insisting on another realm's `iss` cannot be configured.
+ * Keycloak publishes its keys at a fixed path below the realm.
+ *
+ * The base is OIDC_INTERNAL_URL when there is one and the issuer otherwise —
+ * the realm's address rather than its identity. In a container network those
+ * differ: the browser reaches Keycloak at `localhost:8080` and mints tokens
+ * saying so, while this process reaches the same server at `keycloak:8080`.
+ * Fetching from the issuer string would resolve `localhost` inside this
+ * container and find nothing.
+ *
+ * Nothing about the trust decision moves with it. `iss` is still compared to
+ * OIDC_ISSUER_URL and only to that, so pointing this at the wrong realm makes
+ * every token fail rather than making the wrong one pass.
  */
-function certificateUrl(issuer: string): URL {
-  return new URL(`${issuer.replace(/\/+$/, '')}/protocol/openid-connect/certs`);
+export function certificateUrl(base: string): URL {
+  return new URL(`${base.replace(/\/+$/, '')}/protocol/openid-connect/certs`);
 }
 
 let cached: JWTVerifyGetKey | null = null;
@@ -48,17 +56,20 @@ let cached: JWTVerifyGetKey | null = null;
  * genuinely needed.
  */
 export function verificationKeys(): JWTVerifyGetKey {
-  cached ??= createRemoteJWKSet(certificateUrl(env.OIDC_ISSUER_URL as string), {
-    // A provider that is slow is a provider that is down, as far as a request
-    // holding a connection open is concerned.
-    timeoutDuration: 5_000,
-    // How long an unrecognised `kid` may trigger a refetch. Below this, an
-    // unknown key is simply rejected from what is already in memory.
-    cooldownDuration: 30_000,
-    // Refresh at least this often even when every `kid` is familiar, so a
-    // retired key stops being accepted without waiting for a restart.
-    cacheMaxAge: 600_000,
-  });
+  cached ??= createRemoteJWKSet(
+    certificateUrl(env.OIDC_INTERNAL_URL ?? (env.OIDC_ISSUER_URL as string)),
+    {
+      // A provider that is slow is a provider that is down, as far as a request
+      // holding a connection open is concerned.
+      timeoutDuration: 5_000,
+      // How long an unrecognised `kid` may trigger a refetch. Below this, an
+      // unknown key is simply rejected from what is already in memory.
+      cooldownDuration: 30_000,
+      // Refresh at least this often even when every `kid` is familiar, so a
+      // retired key stops being accepted without waiting for a restart.
+      cacheMaxAge: 600_000,
+    },
+  );
 
   return cached;
 }

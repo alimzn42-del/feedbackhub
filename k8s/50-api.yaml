@@ -1,0 +1,186 @@
+# The API.
+#
+# IT HAS NO INGRESS, and that is the topology rather than an omission. The
+# browser reaches it same-origin through the web tier's nginx, exactly as it
+# does behind the CLI dev proxy and in docker-compose. One request path in
+# every environment, no CORS anywhere, and nothing outside the cluster can
+# address the API at all.
+apiVersion: v1
+kind: Service
+metadata:
+  name: feedbackhub-api
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: feedbackhub
+spec:
+  selector:
+    app.kubernetes.io/name: api
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feedbackhub-api
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: feedbackhub
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/part-of: feedbackhub
+    spec:
+      securityContext:
+        # The `node` user in the image. Kubernetes refuses to start the pod if
+        # the image would run as root, rather than trusting the Dockerfile's
+        # USER line to have been written.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # The schema has to exist before the first query, and a Job is not an
+      # ordering primitive. This blocks the pod until the migration Job's own
+      # bookkeeping table is present, which is the fact the API actually
+      # depends on — rather than sleeping and hoping.
+      initContainers:
+        - name: wait-for-schema
+          image: feedbackhub-api:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - -e
+            - |
+              const mysql = require('mysql2/promise');
+              const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+              (async () => {
+                for (;;) {
+                  try {
+                    const c = await mysql.createConnection({
+                      host: process.env.DB_HOST,
+                      port: Number(process.env.DB_PORT),
+                      user: process.env.DB_USER,
+                      password: process.env.DB_PASSWORD,
+                      database: process.env.DB_NAME,
+                    });
+                    const [rows] = await c.query(
+                      "SELECT COUNT(*) AS n FROM information_schema.tables " +
+                      "WHERE table_schema = ? AND table_name = 'schema_migrations'",
+                      [process.env.DB_NAME],
+                    );
+                    await c.end();
+                    if (rows[0].n > 0) { console.log('schema is present'); process.exit(0); }
+                    console.log('waiting for the migration job');
+                  } catch (error) {
+                    console.log('waiting for mysql:', error.code ?? error.message);
+                  }
+                  await wait(3000);
+                }
+              })();
+          envFrom:
+            - configMapRef:
+                name: feedbackhub-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feedbackhub-secrets
+                  key: DB_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: api
+          image: feedbackhub-api:local
+          # IfNotPresent so a locally built image is used as-is. A registry
+          # deployment sets a digest here and lets the default policy pull it.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          # NODE_ENV=production is what makes the boot guard bite: a build with
+          # the development identity seam compiled in refuses to start here.
+          # That guard is the reason this line is worth reading twice.
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: API_PORT
+              value: "3000"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feedbackhub-secrets
+                  key: DB_PASSWORD
+          envFrom:
+            - configMapRef:
+                name: feedbackhub-config
+          # /health touches nothing but the process. It is deliberately not a
+          # database check: a readiness probe that fails when MySQL blinks
+          # takes every replica out of service at once and turns a brief
+          # database problem into a total outage.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              # Must stay above the image's --max-old-space-size, or the heap
+              # is allowed to grow past what the cgroup will hand out and the
+              # process is killed rather than throwing.
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Nothing in this application writes to disk. Uploads do not exist,
+            # logs go to stdout, and the SQL it reads is in the image.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      # Long enough for an in-flight request to finish. src/main.ts closes the
+      # server and the connection pool on SIGTERM rather than exiting on it.
+      terminationGracePeriodSeconds: 30
+---
+# With maxUnavailable: 0 on the rollout and two replicas, this is what stops a
+# node drain from taking both at once.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: feedbackhub-api
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: feedbackhub
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api

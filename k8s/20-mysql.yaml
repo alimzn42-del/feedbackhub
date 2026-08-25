@@ -1,0 +1,121 @@
+# A StatefulSet and not a Deployment.
+#
+# Not for ordinals or for scaling — there is one replica and there will be one
+# replica. For the volume: a StatefulSet's volumeClaimTemplate binds a PVC to
+# an identity, so a rescheduled pod comes back to its own data. A Deployment
+# with a PVC will happily start a second pod against the same volume during a
+# rolling update, which is two MySQL processes on one data directory.
+apiVersion: v1
+kind: Service
+metadata:
+  name: feedbackhub-mysql
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: feedbackhub
+spec:
+  # Headless: there is nothing to load-balance across, and the pod's own DNS
+  # name is what the StatefulSet is for.
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: feedbackhub-mysql
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: feedbackhub
+spec:
+  serviceName: feedbackhub-mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mysql
+        app.kubernetes.io/part-of: feedbackhub
+    spec:
+      securityContext:
+        # The uid the mysql image's own user runs as. fsGroup is what makes the
+        # mounted volume writable by it without running the container as root.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        runAsNonRoot: true
+      containers:
+        - name: mysql
+          # Pinned to the patch, like every other image here.
+          image: mysql:8.4.6
+          args:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_0900_ai_ci
+            # Timestamps are stored and compared in UTC. The driver reads at Z
+            # and the migrations assume it.
+            - --default-time-zone=+00:00
+          ports:
+            - name: mysql
+              containerPort: 3306
+          env:
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: feedbackhub-config
+                  key: DB_NAME
+            - name: MYSQL_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: feedbackhub-config
+                  key: DB_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feedbackhub-secrets
+                  key: DB_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feedbackhub-secrets
+                  key: DB_ROOT_PASSWORD
+          # `mysqladmin ping` answers as soon as the socket is up, which is
+          # earlier than the database is usable on a first start — hence the
+          # generous startup budget rather than a short readiness delay.
+          startupProbe:
+            exec:
+              command: ["mysqladmin", "ping", "--host=127.0.0.1"]
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "--host=127.0.0.1"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "--host=127.0.0.1"]
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

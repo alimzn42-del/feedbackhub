@@ -1585,14 +1585,113 @@ identity mock moved from `findByEmail` to `findByExternalId`. Which person each
 test acts as is decided by the repository mock exactly as before, because the
 token has never carried a role. Not one test changed what it asserts.
 
-### Things that cost time
+### The realm that would not import — the best failure in this project
 
-**`postLogoutRedirectUris` is not a client field, and Keycloak dies rather than
-ignoring it.** The realm import refused the whole file, so the container
-restarted in a loop with a healthcheck reporting "connection refused" — which
-says nothing about the actual cause. Post-logout URIs are an `attributes` entry,
-`post.logout.redirect.uris`. Only running it found this; every test passed
-throughout.
+Worth writing out in full, because every other mistake in this log was caught by
+something. This one was caught by nothing, and the reason is the lesson.
+
+**What was written.** The client in the realm file was given a field called
+`postLogoutRedirectUris`, holding the URL Keycloak may return to after a
+sign-out:
+
+```json
+"redirectUris": ["http://localhost:4200/auth/callback"],
+"postLogoutRedirectUris": ["http://localhost:4200/"],
+"webOrigins": ["http://localhost:4200"],
+```
+
+It is plausible. It sits between two fields that are real and spelled exactly
+like that. It matches the OpenID Connect vocabulary — `post_logout_redirect_uri`
+is a genuine parameter, and the code sending it was correct. It is the name the
+field *would* have if Keycloak had one.
+
+Keycloak does not. Post-logout URIs are an entry in the client's `attributes`
+map, `post.logout.redirect.uris`, which the same file already had. So the field
+was invented — not mistyped, not deprecated, not from an older version.
+Invented, by pattern-matching on the two lines above it.
+
+**What Keycloak did about it.** Refused the entire realm:
+
+```
+ERROR: Failed to start server in (development) mode
+ERROR: Failed to run import
+ERROR: Unrecognized field "postLogoutRedirectUris"
+       (class org.keycloak.representations.idm.ClientRepresentation),
+       not marked as ignorable (44 known properties: ...)
+```
+
+Not "ignored the field". Not "imported the realm without that setting". One
+unknown key and **nothing** was imported: no realm, no client, no users, no
+audience mapper. The strictness is correct — a realm that silently drops half of
+what it was given is worse — but it converts a one-line typo into total failure.
+
+**What it looked like from outside.** Not that. The container entered a restart
+loop, and the only signal `docker compose` surfaced was the healthcheck:
+
+```
+keycloak: starting
+keycloak: unhealthy
+keycloak: starting
+keycloak: unhealthy
+```
+
+and inside it:
+
+```
+/bin/sh: connect: Connection refused
+/bin/sh: line 1: /dev/tcp/127.0.0.1/9000: Connection refused
+```
+
+Which is true and useless. The management port was refusing connections because
+the server had exited; the healthcheck can only report that it cannot reach
+something. Nothing in that output contains the word "realm", "import", or
+"client". Read on its own it points at the healthcheck being wrong — the wrong
+port, the wrong path, the `/dev/tcp` trick not working in that image — and half
+an hour could go into fixing a healthcheck that was already correct. The actual
+cause was thirty lines up in `docker logs`, and only there.
+
+**And the whole time, everything was green.** 243 API tests, 220 web tests,
+typecheck clean, production build clean. Not one of them was wrong to pass. They
+cover the code, and the code was right: the sign-out request was well formed and
+the URL it sent was the URL the realm was supposed to allow. The defect was in a
+JSON document that no test loads, consumed by a program no test runs, validated
+by a schema written in Java.
+
+### The lesson, which is the part worth keeping
+
+**A passing test suite says nothing about configuration a container consumes.**
+
+Not "says little" — nothing. The suite's reach stops at the edge of the process
+it runs in. Everything past that edge is unverified by construction:
+
+- the realm file, validated by Keycloak's own representation classes
+- `docker-compose.yml`, validated by Compose
+- the Dockerfiles and the Kubernetes manifests added since, validated by the
+  builder and by the API server
+- the nginx configuration, validated by nginx
+
+Every one of those is a schema, enforced by something that is not in the test
+run and does not care what the tests think. And each fails in the same shape:
+**strict validator, all-or-nothing outcome, error message somewhere the obvious
+diagnostic does not look.**
+
+Two things follow, and both are now habits rather than intentions:
+
+1. **Run it.** Not as a final flourish once the suite is green — as the step
+   that finds this class of defect, because nothing else will. The whole
+   authentication slice was verified against a live Keycloak for exactly this
+   reason, and this is what that found.
+2. **Read the process's own log first, not the orchestrator's summary.** The
+   healthcheck reports a symptom. `docker logs` had the sentence naming the
+   field. Any time a container will not come up, that is the first place to
+   look, and the healthcheck output is the last.
+
+There is a third, smaller one: when writing a configuration file for somebody
+else's schema, the fields that look most obviously right are the ones to check
+against their documentation, because plausibility is exactly what makes an
+invented field survive review.
+
+### Other things that cost time
 
 **The callback route races its own discovery.** On a page load that lands on the
 redirect URI, the session's startup and the callback component both begin at
@@ -1620,3 +1719,60 @@ moves.** `parseEnv` asserts with the real `IDENTITY_MODE`, so the whole env spec
 had been written around the seam being the default. Rewritten so every seam case
 passes `'development-seam'` explicitly — which is what the mode being a
 parameter was for in the first place.
+
+---
+
+## 2026-08-25 — Corrections, and the scope file that should have existed
+
+**Asked:** two corrections and a consolidation.
+
+**Correction 1: admin deactivation is not the next slice — it is not in the
+brief at all.** Moderation there is defined precisely as deleting comments,
+changing statuses and curating categories. Deactivation is a variant of a
+tiered-ban feature already ruled out twice.
+
+The handoff written at the end of the authentication slice had proposed user
+administration as "the most valuable slice left", and had gone further: it
+invented a question about what a deactivated account should mean to Keycloak,
+wrote three candidate answers for it, and parked them. All of that was work
+spent widening a boundary that had already been drawn.
+
+The mechanism of the mistake is worth naming, because it is not carelessness. The
+authentication slice genuinely does make somebody ask "and what about somebody
+who should no longer be here?" — it is the adjacent thought. Adjacency is not
+scope. A feature that follows naturally from what was just built is exactly the
+kind that gets proposed without checking whether it was already refused.
+
+**Correction 2: the account-deletion question was already answered.**
+`DECISIONS.md` records that clearing `external_id` is deliberate — a returning
+person gets a new account rather than recovering the old one, which is the
+intended meaning of a deletion request. It had been re-opened as though it were
+open.
+
+**And the consolidation, which is the actual fix.** Both corrections are the same
+failure: settled things were not written where the next reader would trip over
+them. `notes/decisions-pending.md` had become the place where that happened —
+nominally a holding pen for commitments argued out before their subject existed,
+in practice a queue that made refused features look scheduled. "Parked" and
+"planned" are one word apart and it read as the second.
+
+So it is gone. `SCOPE.md` now says what is in, what is ruled out and why, with
+the ban/suspend/deactivate family named as one feature so the next variant does
+not arrive looking new. Its entries moved: the role-change rule to `SCOPE.md`
+under what is ruled out — recorded as an argued-out rule, explicitly not a
+commitment to build it — and the Node base image pin to `DECISIONS.md`, where it
+has now come true.
+
+**Also corrected: a capability described in three files that does not exist.**
+`keycloak/README.md`, `DECISIONS.md` and the handoff all said a reviewer could
+"promote a regular user and there are two admins". Nothing in this application
+promotes anybody. A demo board has a second admin because `npm run demo` seeds
+one. That sentence had been carried from a conversational aside into three
+documents without being checked against the code — which is its own small
+version of the same lesson as the realm file.
+
+**Then:** the deployment artefacts, which had zero work in them and are a graded
+deliverable. Dockerfiles for both applications, the compose file completed, and
+Kubernetes manifests. Written knowing what the realm bug taught: every one of
+those files is a schema enforced by something the test suite does not run, so
+each was built and applied rather than written and believed.

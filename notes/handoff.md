@@ -11,7 +11,7 @@ state of play.
 
 ## What is built
 
-Nine slices, schema version 12.
+Ten slices, schema version 12.
 
 | | |
 |---|---|
@@ -26,8 +26,9 @@ Nine slices, schema version 12.
 | **Moderation** | comments held for approval, found from a count in the header, judged in the thread they were written in |
 | **Language** | English and French, switched from the account screen and applied without a reload |
 | **Authentication** | Keycloak, imported from a realm file in this repository; authorization code with PKCE; tokens verified locally; provisioning and the registration policy on first arrival |
+| **Deployment** | container images for both applications, a compose file that brings the whole system up, and Kubernetes manifests behind one kustomization |
 
-**Tests: 463** — 243 API (vitest + supertest), 220 web (Angular + vitest, jsdom).
+**Tests: 466** — 246 API (vitest + supertest), 220 web (Angular + vitest, jsdom).
 **No test needs a running Keycloak, and none needs a database.**
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
@@ -136,6 +137,49 @@ building that its session had ended, and the browser interceptor would act on it
 — turning a Keycloak restart into a mass sign-out that outlasts the restart.
 Both sides are tested, and the key cache means a restart usually costs nothing
 at all.
+
+### The issuer and the address of the realm are two different values
+
+`OIDC_ISSUER_URL` is what every token says as `iss`, and the only string that
+claim is ever compared to. `OIDC_INTERNAL_URL` is optional and says where to
+*fetch* the key set.
+
+They are the same value when the API is run from a terminal and different the
+moment anything is containerised: the browser reaches Keycloak at
+`localhost:8080` and mints tokens saying so, while the API reaches the same
+server at `keycloak:8080`. An API deriving the key set URL from the issuer would
+resolve `localhost` inside its own container and find nothing.
+
+The earlier design deliberately refused a second variable, on the reasoning that
+two could disagree. That was right about drift and wrong in principle — identity
+and address are not the same thing — and the deployment slice is what made the
+difference load-bearing. Nothing about trust moved: pointing the internal URL at
+the wrong realm makes every token fail rather than making a wrong one pass.
+
+### The API is not reachable from outside, in any environment
+
+The browser talks to one origin. In development the Angular CLI proxy forwards
+`/api`; in compose and in Kubernetes the web tier's nginx does. The API has no
+published port in compose and no Ingress in Kubernetes.
+
+That is one request path everywhere rather than an ingress rule and an nginx
+`location` that can drift apart, and it is why CORS never enters into this
+application — `WEB_ORIGIN` is a fallback for running `ng serve` without the
+proxy and nothing else.
+
+### Migrations are a Job, and the API waits for the fact, not the Job
+
+An API that migrates on boot cannot run two replicas without two processes
+racing to alter the same tables, and it buries a schema failure inside a deploy.
+So: a one-shot compose service, and a Kubernetes Job — both using the API image,
+because the migration scripts and their `.sql` files ship in it.
+
+A Job is not an ordering primitive; nothing makes a Deployment wait for one. The
+API's init container blocks until `schema_migrations` exists, which is the fact
+it actually depends on rather than a sleep.
+
+**Seeding is deliberately not part of either.** It is baseline content and a
+decision, not a consequence of starting the system.
 
 ### There is no route guard, and adding one would be a regression
 
@@ -285,11 +329,14 @@ badge promising three comments above a thread that shows one.
 
 ## What is deliberately not built
 
-- **User administration.** Nothing creates, promotes, demotes or deactivates
-  anybody else. This is why the last admin cannot delete their own account:
-  there would be no way back. The parked decision in
-  `notes/decisions-pending.md` says what that slice must do. **It is now the
-  most valuable slice left** — see below.
+- **User administration, and anything that sanctions a person rather than a
+  thing they wrote.** Nothing creates, promotes, demotes, deactivates, suspends
+  or bans anybody. This is why the last admin cannot delete their own account:
+  there would be no way back. **This is ruled out, not parked** — see
+  [SCOPE.md](../SCOPE.md#ruled-out), which records why, and records the
+  promote/demote rule that was argued out in case it is ever wanted without
+  that being a commitment to build it. A second admin on a demo board exists
+  because `npm run demo` seeds one, not because anything promoted them.
 - **Invitations**, which is why `invite-only` is not a registration policy this
   application offers. A setting that named a rule the code cannot apply would be
   worse than its absence.
@@ -311,8 +358,16 @@ badge promising three comments above a thread that shows one.
   httpOnly cookies and a server in front of the browser, which is infrastructure
   this application does not have. The trade is in DECISIONS.md rather than left
   as an assumption.
-- **Deployment beyond the two containers.** The API and web application are
-  still run from a terminal.
+- **A production deployment.** The artefacts exist — images, compose, manifests
+  — and every one of them is honest about being a development configuration:
+  Keycloak runs `start-dev` with its database inside the container, the realm is
+  the one with three published passwords, the Secret holds development values in
+  plain text, and there is no TLS. Each of those is named where it appears,
+  along with what a real deployment does instead.
+- **Anything a cluster has to provide.** No HorizontalPodAutoscaler, no
+  NetworkPolicy, no ServiceMonitor. Each needs machinery — a metrics server, a
+  policy-enforcing CNI, an operator — and a manifest referring to something that
+  is not installed fails in the least useful way available: silently.
 
 ## Conventions that are load-bearing
 
@@ -440,10 +495,23 @@ npm run dev:web          # terminal 2, needs Node 24.19
 Then <http://localhost:4200>, and sign in as `admin@feedbackhub.local` /
 `feedbackhub-dev`.
 
+Or the whole thing in containers, with nothing on the host but Docker:
+
+```bash
+docker compose up -d --build
+docker compose run --rm migrate node scripts/seed.mjs
+```
+
+Same address, same credentials. The migration is its own one-shot service and
+the API waits for it to succeed.
+
+For Kubernetes: build both images, then `kubectl apply -k .` from the repository
+root. See [k8s/README.md](../k8s/README.md), including what those manifests
+deliberately are not.
+
 `npm run demo` is destructive to content and leaves users, categories and
-statuses alone. It adds a second admin, which matters for the account-deletion
-path — though those people cannot sign in, so exercising it as them means
-promoting somebody, which is the slice that does not exist yet.
+statuses alone. It seeds a second admin, which matters for the account-deletion
+path — though the demo people have no realm identities and cannot sign in.
 
 ## Repository
 
@@ -499,6 +567,27 @@ exchange with the PKCE verifier — not by asking Keycloak for a token directly.
 35 checks, all passing. The API's own suite ran throughout with no Keycloak at
 all.
 
+### And again, through the containers
+
+Everything above was then re-run against `docker compose up -d --build` — the
+same checks, entering at the web tier on port 4200 rather than at the API on
+3000, so every request went browser → nginx → API → MySQL/Keycloak.
+
+| | |
+|---|---|
+| Both images build | from the repository root, which is where the workspace lockfile is |
+| The stack comes up in order | mysql healthy → migrate exits 0 → keycloak healthy → api healthy → web |
+| The migration ran from the image | `scripts/migrate.mjs` and its `.sql` files ship in it |
+| Seeding from the image | `docker compose run --rm migrate node scripts/seed.mjs` |
+| The SPA fallback holds | `/auth/callback` and `/requests/42` both return `index.html`, not a 404 from nginx |
+| The API is proxied and unpublished | reachable at `/api/...` through nginx; no host port of its own |
+| Issuer and address genuinely differ | `iss` says `localhost:8080`, the key set came from `keycloak:8080`, and every token verified |
+| The full sign-in flow | 18 checks, through nginx |
+| Provisioning and the registration policy | 9 checks, through nginx |
+| The boot guard under `NODE_ENV=production` | the API starts, because the identity mode is `keycloak` and not the seam |
+
+27 checks through the containerised stack.
+
 The scripts that drove this are not in the repository — they belong to the
 verification, not to the application. They performed a real authorization
 request, parsed the login form, POSTed credentials, followed the redirect, and
@@ -511,6 +600,18 @@ the pinned subjects are proven rather than assumed.
 order, narrow viewports or the dark scheme. `notes/` still has no visual QA
 record, and this slice added a sign-in panel, a callback screen and a sign-out
 control to a list that was already long.
+
+**And the Kubernetes manifests have never been applied to a cluster.** They
+render — `kubectl kustomize .` produces sixteen objects, the realm ConfigMap
+included — and they have been read carefully. That is not the same as an API
+server accepting the fields, and this repository's own notes are emphatic about
+the difference: the one real failure in this project was an invented field in a
+Keycloak realm that every test passed straight over.
+
+There is no cluster on this machine. Docker Desktop's Kubernetes has never been
+installed here, and installing a control plane was not a change to make unasked.
+`kubectl apply -k . --dry-run=server` against any cluster is what closes it, and
+it should be run before those manifests are trusted.
 
 Specifically unseen by a human:
 
@@ -532,16 +633,13 @@ the first thing this one would do.
 
 ## What the next slice should be
 
-**User administration.** It was already the parked decision, and authentication
-sharpened it: there are now three people who can sign in, exactly one of whom is
-an admin, and nothing in the application can make a second one. Every rule that
-depends on there being more than one admin — the successful demotion, the
-last-admin refusal — is currently reachable only by editing the database or
-running the demo script.
+**The browser audit above.** Not a feature.
 
-`notes/decisions-pending.md` says what that slice must do. It should also decide
-what happens to somebody's Keycloak identity when their account here is
-deactivated, which is a question this slice created and did not answer.
+Every feature in the brief is built. If you find yourself reaching for one that
+is not, read [SCOPE.md](../SCOPE.md) first — it exists because the last few
+handoffs kept proposing things that had already been ruled out, most recently
+account deactivation, which is the tiered-ban feature under a different name and
+has been refused twice.
 
 ## Where the history is
 

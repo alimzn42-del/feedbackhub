@@ -1,0 +1,93 @@
+# The schema, applied once, by something that is not the API.
+#
+# An API that migrates on boot cannot be run with two replicas without two
+# processes racing to alter the same tables, and it hides a schema change
+# inside a deploy — where a failure reads as "the application will not start"
+# rather than "migration 13 failed".
+#
+# So: a Job. It uses the API image, because the migration scripts and their
+# .sql files ship in it. Seeding is deliberately not here — it is baseline
+# content and a decision, not a consequence of applying manifests. Run it
+# yourself, once:
+#
+#   kubectl -n feedbackhub run seed --rm -it --restart=Never \
+#     --image=feedbackhub-api:local --command -- node scripts/seed.mjs
+#
+# (with the same env; the README shows the full form)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: feedbackhub-migrate
+  labels:
+    app.kubernetes.io/name: migrate
+    app.kubernetes.io/part-of: feedbackhub
+spec:
+  backoffLimit: 5
+  # Kept after it finishes so `kubectl logs` still has the output; without a
+  # TTL the Job would sit there forever, and without the Job the record of what
+  # ran is gone.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrate
+        app.kubernetes.io/part-of: feedbackhub
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # MySQL's own readiness is not enough: a Job scheduled the instant the
+      # manifests are applied will find nothing listening. This blocks until it
+      # can open a socket, then the migration decides for itself whether the
+      # database is usable.
+      initContainers:
+        - name: wait-for-mysql
+          image: feedbackhub-api:local
+          command:
+            - node
+            - -e
+            - |
+              const net = require('node:net');
+              const host = process.env.DB_HOST, port = Number(process.env.DB_PORT);
+              const tick = () => {
+                const socket = net.connect({ host, port });
+                socket.on('connect', () => { socket.end(); process.exit(0); });
+                socket.on('error', () => { socket.destroy(); setTimeout(tick, 2000); });
+              };
+              tick();
+          envFrom:
+            - configMapRef:
+                name: feedbackhub-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: migrate
+          image: feedbackhub-api:local
+          imagePullPolicy: IfNotPresent
+          command: ["node", "scripts/migrate.mjs", "up"]
+          envFrom:
+            - configMapRef:
+                name: feedbackhub-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: feedbackhub-secrets
+                  key: DB_PASSWORD
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

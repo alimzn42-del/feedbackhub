@@ -54,6 +54,24 @@ and the three people are all imported from
 [`keycloak/realm-feedbackhub-development.json`](keycloak/realm-feedbackhub-development.json)
 when the container starts.
 
+### Or run the whole thing in containers
+
+Nothing on the host but Docker — no Node, no terminals left open:
+
+```bash
+cp .env.example .env
+docker compose up -d --build          # database, Keycloak, API, web
+
+docker compose run --rm migrate node scripts/seed.mjs   # once
+```
+
+Then <http://localhost:4200>, same credentials. The migration runs as its own
+one-shot service and the API waits for it to succeed, so a fresh `up` gives a
+working board rather than an API talking to an empty schema.
+
+For Kubernetes, see [k8s/README.md](k8s/README.md) — `kubectl apply -k .` from
+this directory.
+
 ### Tests
 
 ```bash
@@ -211,17 +229,21 @@ api/                     Node + TypeScript + Express
                          (SQL appears only in *.repository.ts)
   src/modules/settings/  the setting registry: one entry per setting, holding
                          its validator, default, scope, visibility and control
+  Dockerfile             multi-stage; context is the repository root
 web/                     Angular, standalone components, typed reactive forms
   src/app/core/api/      API types and error mapping
   src/app/core/auth/     the sign-in lifecycle, and the one place a token is
                          attached to a request
   src/app/core/config/   the startup payload, and everything drawn from it
   src/app/features/      one directory per screen
+  Dockerfile             multi-stage; context is the repository root
 keycloak/                the imported realm, and the optional Google script
+k8s/                     Kubernetes manifests; the kustomization is at the root
 notes/ai-log.md          raw working log of the AI collaboration
+SCOPE.md                 what is in, what is ruled out, and why
 DECISIONS.md             what was decided and why
-docker-compose.yml       MySQL and Keycloak; the API and web join in the
-                         deployment slice
+docker-compose.yml       the whole system: database, identity, API, web
+kustomization.yaml       `kubectl apply -k .`
 ```
 
 ## API
@@ -493,12 +515,14 @@ routes above, and the two route-level authorization tests outstanding since
 slice 1 are written: a non-owner refused an edit, and a regular user refused a
 status change.
 
-**Not built, by design:** user administration — nothing creates, promotes,
-demotes or deactivates anybody else, which is why the last admin cannot leave;
-invitations, which is why `invite-only` is not a registration policy this
-application offers; avatar uploads, there being no file storage; sending email,
-so the notification preferences are recorded and consumed by nothing;
-translation of what people wrote, and of the API's own validation and refusal
-messages, so a French screen can still show an English 422; and deployment
-beyond the two containers — the API and the web application are still run from
-a terminal, and the realm that ships here is a development one.
+**Ruled out, and why, is [SCOPE.md](SCOPE.md).** In short: user administration
+and anything that sanctions a person rather than a thing they wrote — banning,
+suspending, deactivating — which is why the last admin cannot leave; invitations,
+which is why `invite-only` is not a registration policy this application offers;
+avatar uploads, there being no file storage; sending email, so the notification
+preferences are recorded and consumed by nothing; and translation of what people
+wrote, or of the API's own validation and refusal messages, so a French screen
+can still show an English 422.
+
+An admin moderates **content**: delete comments, change statuses, curate
+categories. That is the whole of it and it does not extend by analogy.
