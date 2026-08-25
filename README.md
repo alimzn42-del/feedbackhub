@@ -222,8 +222,8 @@ file.
 ### The feature flag
 
 `comments.requireApproval`. When it is on, a new comment is visible to its author
-and to admins and to nobody else until an admin approves it, from the queue on
-`/admin/settings`. It changes what the application *does* rather than what it
+and to admins and to nobody else until an admin approves it, from the thread it
+was written in. It changes what the application *does* rather than what it
 shows, and the change is visible without a reload.
 
 Turning it **on** affects comments written from then on and nothing already on
@@ -342,7 +342,7 @@ counted in the total. Sorting alone is not filtering and keeps the shelf.
 ## What is and is not built
 
 **Built:** eight tables and their seed data; two admin screens — the taxonomies,
-and the application settings with the moderation queue; a personal account screen
+and the application settings; a personal account screen
 with preferences and account deletion; one startup request that configures the
 whole application; request creation, editing, deletion and status changes;
 listing with server-side pagination, filtering, search and sort switching;

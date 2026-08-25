@@ -23,6 +23,8 @@ Eight slices, schema version 12.
 | **Request actions** | edit and delete by the author, delete and restatus by an admin |
 | **Admin taxonomy** | one screen managing categories and statuses: add, rename, reorder, retire, set default |
 | **Settings** | two levels, resolved on the server; one startup request; a rate limit, a registration policy, a feature flag, and account deletion |
+| **Moderation** | comments held for approval, found from a count in the header, judged in the thread they were written in |
+| **Language** | English and French, switched from the account screen and applied without a reload |
 
 **Tests: 416** — 220 API (vitest + supertest), 196 web (Angular + vitest, jsdom).
 
@@ -31,10 +33,17 @@ Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
 
 Six screens: the board (`/requests`), the create form (`/requests/new`), a
 request page with its discussion (`/requests/:id`), the taxonomy admin
-(`/admin/taxonomy`), the application settings with the moderation queue
-(`/admin/settings`), and a personal account screen (`/account`).
+(`/admin/taxonomy`), the application settings (`/admin/settings`), and a
+personal account screen (`/account`).
 
-## The parts of slice 8 worth knowing before you touch anything
+There is deliberately **no seventh screen for moderation** — see below.
+
+## The parts worth knowing before you touch anything
+
+Slice 8 is settings, and three things landed on top of it after the first
+commit: the level a settings screen resolves at, the interface translation, and
+a discovery path for comment approval. They are one body of work and they are
+described together here.
 
 ### A setting is defined in exactly one file
 
@@ -318,21 +327,56 @@ admitted one — because most of these rules are about the difference between th
 | The rate limit | limit of 1: first `201`, second `429` with `Retry-After: 86400` and the same number in the body |
 | Approval holds a comment | author sees her own marked pending; another account sees neither the comment nor it in the count |
 | Counts agree with the thread | same request, same moment: `commentCount` 1 to the author, 0 to everybody else |
-| The queue is admin-only | `403` on `/api/comments/pending` and on approving; `409` on approving twice |
+| Approving is admin-only | `403` on approving as a regular user; `409` on approving twice |
 | Turning approval off releases | the held comment appeared for everybody, without being approved |
 | Turning it back on keeps history | the approved one stayed visible; only the never-approved one was held again |
 | Anonymisation | `204`; the account's comment still reads, bylined "Deleted user"; its preference row is gone |
 | The last admin is refused | `409` naming the reason, with nothing anonymised |
+| The waiting count | `3` for an admin, absent from a regular user's payload, absent for everybody with the gate down |
+| The count is a real filter | `/requests?pending=true` returned the two requests carrying a held comment; `403` for a regular user |
+| The control travels with the comment | admin: `canApprove` true on the held one; its author: `isPending` true, `canApprove` false |
+| Approving in the thread | comment stops being pending, the count falls to `2`, and that request leaves the filter |
+| Settings labels follow the reader | the same document came back as "Colour scheme" and as "Thème de couleurs" |
 
 ## Still unverified
 
 **Nobody has audited the screens in a browser** for layout, keyboard focus
 order, narrow viewports or the dark scheme. `notes/` still has no visual QA
-record, and this slice added two screens, a generic setting control, a second
-confirmation dialog and — for the first time — a colour scheme that can be
-chosen rather than inherited. **The dark scheme in particular has only ever been
-exercised by an operating system setting; `data-theme="dark"` as an explicit
-choice has never been looked at.**
+record, and this body of work added two screens, a generic setting control, a
+second confirmation dialog, a header indicator and inline moderation controls.
 
-That was the first thing the last three handoffs would have done, and it is
-still the first thing this one would do.
+Four things in particular have never been looked at by a human:
+
+- **`data-theme="dark"` as an explicit choice.** The dark scheme has only ever
+  been exercised through an operating system setting. The tokens are shared, so
+  it should be identical — should.
+- **The French interface.** Every string is translated and three tests say the
+  catalogue is complete, but nothing has checked whether the longer French
+  wording fits the buttons and table headers it now sits in. That is the usual
+  way a translation breaks a layout.
+- **The header indicator**, which is the only discovery path moderation has: it
+  is asserted in a test and has never been seen in place.
+- **The inline approve and reject controls**, in a thread with a real reply
+  underneath.
+
+That was the first thing the last four handoffs would have done, and it is still
+the first thing this one would do.
+
+## Where the history is
+
+Everything is committed and **nothing is pushed**. Pushing needs
+`gh auth switch --user alimzn42-del` first; see [Repository](#repository).
+
+```
+4a937d1  comment approval: a discovery path, and judging in the thread
+7c6608f  a saved default filter never applied after the first visit
+140aa28  translate the interface, and offer only translated languages
+17882a8  resolve a settings screen at the level it writes
+6fcf647  prove the saved board defaults reach the request, end to end
+817b3fc  two levels of configuration, resolved on the server
+f5002e7  filters and search, acting on a request, the taxonomy admin
+```
+
+The three `fix`/`test` commits are worth reading as a pair with the feature they
+follow: each one is a rule that was wrong in a way that looked like the feature
+simply not working, which is the failure mode this slice kept producing.
