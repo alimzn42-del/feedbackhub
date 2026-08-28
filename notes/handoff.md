@@ -28,7 +28,7 @@ Ten slices, schema version 12.
 | **Authentication** | Keycloak, imported from a realm file in this repository; authorization code with PKCE; tokens verified locally; provisioning and the registration policy on first arrival |
 | **Deployment** | container images for both applications, a compose file that brings the whole system up, and Kubernetes manifests behind one kustomization |
 
-**Tests: 481** — 247 API (vitest + supertest), 234 web (Angular + vitest, jsdom).
+**Tests: 482** — 247 API (vitest + supertest), 235 web (Angular + vitest, jsdom).
 **No test needs a running Keycloak, and none needs a database.**
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
@@ -536,7 +536,9 @@ Pushing needs `gh auth switch --user alimzn42-del` first; the machine's active
 `gh` account is another one. Pinning the credential username per repository does
 *not* work around this — it breaks the helper into prompting for a password.
 
-Every commit carries `Assisted-by: Claude Code`, which is honest: every line was
+Every commit carries a trailer naming the assistant — `Assisted-by: Claude
+Code`, or the harness's own `Co-Authored-By` naming the model (Opus 5, then
+Fable 5); the README lists the spellings — which is honest: every line was
 generated and none has been rewritten by hand.
 
 ## Verified against MySQL and a live Keycloak on 2026-08-25

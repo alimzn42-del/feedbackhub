@@ -90,6 +90,34 @@ describe('the bearer token interceptor', () => {
   });
 
   /**
+   * Not every 401 is an expiry, and the difference is the sentence. A token
+   * whose account was just deleted, or an address the provider never verified,
+   * is refused with words that tell the person what to do next — and they are
+   * only useful if they survive the trip from the envelope to the sign-in
+   * panel. This is the trip.
+   */
+  it('carries the API’s reason for the refusal to the sign-in panel', () => {
+    configure();
+    const session = TestBed.inject(Session);
+
+    client.get('/api/bootstrap').subscribe({ error: () => undefined });
+    http.expectOne('/api/bootstrap').flush(
+      {
+        error: {
+          code: 'UNAUTHENTICATED',
+          message:
+            'This account has been deleted. You have been signed out; create a new account to use the board again.',
+          requestId: 'req-deleted',
+        },
+      },
+      { status: 401, statusText: 'Unauthorized' },
+    );
+
+    expect(session.isSignedOut()).toBe(true);
+    expect(session.failure()).toContain('This account has been deleted');
+  });
+
+  /**
    * 403 is "you may not do that", and 503 is the identity provider being
    * unreachable — the API cannot check a token it may have no quarrel with.
    * Treating either as the end of a session would sign the whole building out

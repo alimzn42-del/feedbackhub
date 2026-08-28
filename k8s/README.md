@@ -168,14 +168,12 @@ v1.34.0, ingress-nginx.
 | A real sign-in | authorization code + PKCE end to end: 9 checks, the seeded admin **matched** onto row 1, no role in the payload |
 | Mailpit (2026-08-28) | `kubectl apply -k . --dry-run=server` accepted the Service, the Deployment and the re-generated realm ConfigMap; then applied for real — see the note below |
 
-**The cluster's Keycloak has not been restarted since the realm gained
-registration.** `kubectl apply -k .` updated the ConfigMap and created Mailpit,
-but Keycloak imports the realm at pod start, so the running pod still serves
-the realm without registration until it is rolled
-(`kubectl -n feedbackhub rollout restart deploy/feedbackhub-keycloak`) or the
-deploy script is run again. The registration path itself was verified end to
-end through the compose stack, not the cluster — the record is in
-`notes/handoff.md`.
+**The cluster's Keycloak was then rolled** (`rollout restart`, 2026-08-28) so
+the running pod imported the realm with registration on. Verified afterwards:
+`https://auth.feedbackhub.local/realms/feedbackhub/protocol/openid-connect/registrations`
+renders the registration form through the ingress. The registration path
+itself — mail, link, code, policy — was verified end to end through the compose
+stack; the record is in `notes/handoff.md`.
 
 One warning, from the API server rather than from the manifests:
 `spec.SessionAffinity is ignored for headless services` on the MySQL Service.

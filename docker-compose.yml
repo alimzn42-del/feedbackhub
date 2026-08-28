@@ -92,7 +92,13 @@ services:
       mailpit:
         condition: service_started
 
-  # ── Where the realm's email goes ─────────────────────────────────────────
+  # ── Where the realm's email goes — DEVELOPMENT ONLY ──────────────────────
+  #
+  # Mailpit is not part of this system's architecture. It is here because a
+  # laptop has no mail server, and nowhere else. A REAL DEPLOYMENT SUPPLIES
+  # REAL SMTP — the organisation's relay, named in the realm's `smtpServer` —
+  # and runs no Mailpit at all. Treat this service the way the published
+  # development passwords are treated: scaffolding for a reviewer's machine.
   #
   # The realm verifies email addresses, because the API refuses to provision an
   # address nobody has checked — that is how a stranger would get into a
@@ -102,9 +108,7 @@ services:
   # arrived at http://localhost:8025. Registering an account ends with opening
   # that page and clicking the link.
   #
-  # Local review only, like the realm that points at it. A real deployment
-  # names the organisation's relay in the realm's `smtpServer` instead. The SMTP
-  # port is deliberately not published: only Keycloak sends to it.
+  # The SMTP port is deliberately not published: only Keycloak sends to it.
   mailpit:
     image: axllent/mailpit:v1.28.0
     container_name: feedbackhub-mailpit
