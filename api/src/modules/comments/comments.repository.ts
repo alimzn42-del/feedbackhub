@@ -1,5 +1,5 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { pool } from '../../db/pool.js';
+import { pool, withTransaction } from '../../db/pool.js';
 
 /**
  * The only file containing comment SQL.
@@ -147,6 +147,27 @@ export async function approve(id: number): Promise<boolean> {
   return result.affectedRows === 1;
 }
 
+/**
+ * Stamps everything still waiting as published.
+ *
+ * Called once, when an admin turns the moderation gate off. Before this the
+ * release lived entirely in the visibility rule, so a comment written under the
+ * gate stayed `approved_at IS NULL` forever and every question derived from
+ * that column kept answering "waiting" about something everybody could already
+ * read.
+ *
+ * Removed comments are left alone: a tombstone has nothing to publish, and
+ * stamping it would put it back in the pending count the moment the gate went
+ * up again.
+ */
+export async function releaseAllPending(): Promise<number> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    `UPDATE comments SET approved_at = CURRENT_TIMESTAMP(3)
+     WHERE approved_at IS NULL AND deleted_at IS NULL`,
+  );
+  return result.affectedRows;
+}
+
 export async function countPending(): Promise<number> {
   const [rows] = await pool.query<(RowDataPacket & { total: number })[]>(
     'SELECT COUNT(*) AS total FROM comments WHERE approved_at IS NULL AND deleted_at IS NULL',
@@ -181,14 +202,62 @@ export type InsertCommentInput = {
   approved: number;
 };
 
-export async function insert(input: InsertCommentInput): Promise<number> {
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO comments (request_id, parent_id, author_id, body, approved_at)
-     VALUES (:requestId, :parentId, :authorId, :body,
-             CASE WHEN :approved = 1 THEN CURRENT_TIMESTAMP(3) ELSE NULL END)`,
-    input,
-  );
-  return result.insertId;
+/**
+ * Writes the comment, re-checking the parent under a lock when there is one.
+ *
+ * Returns null when the parent is no longer a thing that can be replied to —
+ * gone, removed, or itself a reply. The caller turns that into the same 422 it
+ * raises when the check before this one fails.
+ *
+ * WHY THE PARENT IS CHECKED TWICE
+ *
+ * The service checks it, then this inserts, and between the two an admin can
+ * remove the parent. `softDeleteReplies` has already run by the time the insert
+ * lands, so nothing revisits the new row: the thread ends up showing a live
+ * reply hanging from a tombstone, and no later moderation touches it.
+ *
+ * SELECT … FOR UPDATE on the parent closes that. A delete of the parent takes
+ * the same lock, so the two serialise: either this insert reads a live parent
+ * and commits before the delete, in which case softDeleteReplies sees the reply
+ * and hides it with the rest; or it reads the row after the delete committed,
+ * sees deleted_at, and refuses.
+ *
+ * The same lock is what makes a hard delete safe on the other side — see
+ * removeWithReplies.
+ */
+export async function insert(input: InsertCommentInput): Promise<number | null> {
+  if (input.parentId === null) {
+    const [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO comments (request_id, parent_id, author_id, body, approved_at)
+       VALUES (:requestId, :parentId, :authorId, :body,
+               CASE WHEN :approved = 1 THEN CURRENT_TIMESTAMP(3) ELSE NULL END)`,
+      input,
+    );
+    return result.insertId;
+  }
+
+  return withTransaction(async (connection) => {
+    const [parents] = await connection.execute<
+      (RowDataPacket & { id: number; parent_id: number | null; deleted_at: Date | null })[]
+    >('SELECT id, parent_id, deleted_at FROM comments WHERE id = :parentId FOR UPDATE', {
+      parentId: input.parentId,
+    });
+
+    const parent = parents[0];
+
+    if (!parent || parent.parent_id !== null || parent.deleted_at !== null) {
+      return null;
+    }
+
+    const [result] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO comments (request_id, parent_id, author_id, body, approved_at)
+       VALUES (:requestId, :parentId, :authorId, :body,
+               CASE WHEN :approved = 1 THEN CURRENT_TIMESTAMP(3) ELSE NULL END)`,
+      input,
+    );
+
+    return result.insertId;
+  });
 }
 
 /** Sets edited_at, which updated_at cannot stand in for — it also moves on deletion. */
@@ -217,6 +286,66 @@ export async function countReplies(id: number): Promise<number> {
 /** The row goes. Only ever used where nothing is attached to it. */
 export async function hardDelete(id: number): Promise<void> {
   await pool.execute('DELETE FROM comments WHERE id = :id', { id });
+}
+
+/**
+ * Removes a comment, deciding hard-or-soft with the row locked.
+ *
+ * @param preferHard whether the caller is entitled to the hard delete at all —
+ * that is, whether they are the author. The rule stays in the service; only
+ * "and nothing is attached to it" is decided here, because that is the half
+ * that has to be decided under the lock.
+ *
+ * WHY THIS EXISTS RATHER THAN countReplies FOLLOWED BY hardDelete
+ *
+ * Those were two statements. Between them a reply could arrive, be accepted,
+ * and then be destroyed by fk_comments_parent's ON DELETE CASCADE — somebody
+ * else's words deleted because the person above them changed their mind about
+ * their own. The author is told their comment was removed; the person who
+ * replied is told nothing, and there is nothing left to tell them about.
+ *
+ * The lock is the same one insert() takes on a parent, so a reply arriving in
+ * that window either commits first (and is counted here, making this a soft
+ * delete) or waits and then finds the parent removed (and is refused). Neither
+ * ending loses a reply that was accepted.
+ */
+export async function removeWithReplies(
+  id: number,
+  actorId: number,
+  preferHard: boolean,
+): Promise<{ kind: 'hard' | 'soft'; repliesHidden: number }> {
+  return withTransaction(async (connection) => {
+    await connection.execute('SELECT id FROM comments WHERE id = :id FOR UPDATE', { id });
+
+    const [counts] = await connection.execute<(RowDataPacket & { total: number })[]>(
+      'SELECT COUNT(*) AS total FROM comments WHERE parent_id = :id',
+      { id },
+    );
+    const replyCount = Number(counts[0]?.total ?? 0);
+
+    if (preferHard && replyCount === 0) {
+      await connection.execute('DELETE FROM comments WHERE id = :id', { id });
+      return { kind: 'hard' as const, repliesHidden: 0 };
+    }
+
+    await connection.execute(
+      `UPDATE comments
+       SET deleted_at = CURRENT_TIMESTAMP(3), deleted_by = :actorId
+       WHERE id = :id AND deleted_at IS NULL`,
+      { id, actorId },
+    );
+
+    if (replyCount > 0) {
+      await connection.execute(
+        `UPDATE comments
+         SET deleted_at = CURRENT_TIMESTAMP(3), deleted_by = :actorId, hidden_with_parent = 1
+         WHERE parent_id = :id AND deleted_at IS NULL`,
+        { id, actorId },
+      );
+    }
+
+    return { kind: 'soft' as const, repliesHidden: replyCount };
+  });
 }
 
 /** The row stays, hidden, recording who hid it. */

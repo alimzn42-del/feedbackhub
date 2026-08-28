@@ -3,9 +3,16 @@ import type { Request } from 'express';
 import type { Actor } from './actor.js';
 import { IDENTITY_MODE } from './identity-mode.js';
 import { env } from '../config/env.js';
-import { UnauthenticatedError, MisconfigurationError } from '../http/errors.js';
-import { findByEmail, findByExternalId, updateEmail } from '../modules/users/users.repository.js';
+import { isDuplicateEntry } from '../db/errors.js';
+import { ConflictError, UnauthenticatedError, MisconfigurationError } from '../http/errors.js';
+import {
+  departedRecently,
+  findByEmail,
+  findByExternalId,
+  updateEmail,
+} from '../modules/users/users.repository.js';
 import { provision } from './provision.js';
+import { DEPARTURE_GRACE_SECONDS, hashSubject } from './subject.js';
 import { bearerTokenFrom, verifyAccessToken, type VerifiedIdentity } from './verify-token.js';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -62,7 +69,34 @@ async function reconcile(actor: Actor, identity: VerifiedIdentity): Promise<Acto
    */
   if (!identity.emailVerified) return actor;
 
-  await updateEmail(actor.id, identity.email);
+  try {
+    await updateEmail(actor.id, identity.email);
+  } catch (error) {
+    /**
+     * The address the provider moved them to is one another local row already
+     * holds.
+     *
+     * The same collision provision() already handles for a first arrival, on
+     * the other path — and it has to be handled here too, because reconciliation
+     * runs on EVERY request. Without this the driver's ER_DUP_ENTRY reaches the
+     * error handler as an unrecognised error and the person is told that
+     * something went wrong, on every request they make, with nothing they can
+     * do about it and nothing in the log distinguishing it from a fault.
+     *
+     * The stale address is kept rather than the request being let through with
+     * the new one: whichever of the two rows is wrong, guessing here would merge
+     * two people.
+     */
+    if (isDuplicateEntry(error, 'uq_users_email')) {
+      throw new ConflictError(
+        'Your identity provider has moved this account to an email address that another ' +
+          'account on this board already uses. Ask an admin to sort out which is which.',
+      );
+    }
+
+    throw error;
+  }
+
   return { ...actor, email: identity.email };
 }
 
@@ -82,6 +116,38 @@ async function resolveFromToken(req: Request): Promise<Actor> {
 
   if (existing) {
     return reconcile(existing, identity);
+  }
+
+  /**
+   * The third branch, and the one whose absence let a deleted account come
+   * straight back.
+   *
+   * findByExternalId answers null for two different situations and cannot tell
+   * them apart, because anonymisation clears external_id: a subject nobody has
+   * ever seen, and a subject whose account was deleted a moment ago. Treating
+   * both as "first arrival" means the person who just deleted their account —
+   * still holding a token valid for minutes — is handed a brand new one on
+   * their very next request, signed in again as a stranger with their own name.
+   *
+   * So the deleted case is asked about directly. A hash of the subject is kept
+   * on the anonymised row for exactly the token's remaining lifetime (see
+   * subject.ts and migration 013), and that is what distinguishes the two. It
+   * is a 401 rather than a 409 on purpose: nothing is left here to be in
+   * conflict with, and a 401 is what the browser's interceptor turns into a
+   * clean sign-out. The client ends the Keycloak session itself when it deletes
+   * the account (account.ts); this refuses the replayed token in the window
+   * before that lands, and refuses any other client holding the same one.
+   *
+   * Not permanent: once the window passes, this subject is a stranger again and
+   * a genuine return provisions a new account, which is what SCOPE says a
+   * returning person gets.
+   */
+  if (await departedRecently(hashSubject(identity.subject), DEPARTURE_GRACE_SECONDS)) {
+    throw new UnauthenticatedError(
+      'This account has been deleted. You have been signed out; create a new account to use ' +
+        'the board again.',
+      'token.account-deleted',
+    );
   }
 
   /**

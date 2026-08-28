@@ -8,6 +8,19 @@ import type { Actor } from '../../auth/actor.js';
  * whether anybody has replied. Getting that wrong destroys other people's words
  * or leaves a moderator's decision untraceable, and neither shows up as a
  * crash — so it is tested directly rather than inferred from the endpoints.
+ *
+ * THE MATRIX IS NOW SPLIT ACROSS TWO LAYERS, AND THAT IS DELIBERATE
+ *
+ * "Who is asking" is still decided here, and is still tested here. "And whether
+ * anybody has replied" moved into removeWithReplies, because counting replies
+ * and then deleting were two statements with a window between them: a reply
+ * arriving in that window was accepted and then destroyed by the parent's
+ * ON DELETE CASCADE. It is one locked transaction now.
+ *
+ * So this file asserts what the service decides — whether the caller is
+ * entitled to a hard delete at all — and the reply-count half is proven at L1
+ * against the real cascade, where it is a claim about the database rather than
+ * about a mock that agrees with the code.
  */
 const commentsRepository = vi.hoisted(() => ({
   listForRequest: vi.fn(),
@@ -18,6 +31,8 @@ const commentsRepository = vi.hoisted(() => ({
   approve: vi.fn(),
   listPending: vi.fn(),
   countPending: vi.fn(),
+  releaseAllPending: vi.fn(),
+  removeWithReplies: vi.fn(),
   hardDelete: vi.fn(),
   softDelete: vi.fn(),
   softDeleteReplies: vi.fn(),
@@ -78,65 +93,49 @@ beforeEach(() => {
   requestsRepository.exists.mockResolvedValue(true);
   commentsRepository.findById.mockResolvedValue(record());
   commentsRepository.countReplies.mockResolvedValue(0);
+  commentsRepository.removeWithReplies.mockResolvedValue({ kind: 'hard', repliesHidden: 0 });
 });
 
 describe('deleting a comment', () => {
-  it('removes the row when the author deletes their own with no replies', async () => {
-    commentsRepository.countReplies.mockResolvedValue(0);
-
+  it('offers the author the hard delete when they remove their own', async () => {
     const outcome = await service.remove(DANA, 10);
 
+    // The third argument is the whole of what this service decides: "this
+    // caller is the author, so removing the row outright is on the table".
+    // Whether it is actually taken depends on the reply count, read under a
+    // lock in the repository and proven at L1.
+    expect(commentsRepository.removeWithReplies).toHaveBeenCalledWith(10, DANA.id, true);
     expect(outcome).toEqual({ kind: 'hard', repliesHidden: 0 });
-    expect(commentsRepository.hardDelete).toHaveBeenCalledWith(10);
-    expect(commentsRepository.softDelete).not.toHaveBeenCalled();
   });
 
-  it('hides rather than removes when the author deletes their own WITH replies', async () => {
-    // Hard deleting would cascade and destroy replies written by other people
-    // because the person above them changed their mind.
-    commentsRepository.countReplies.mockResolvedValue(2);
-
-    const outcome = await service.remove(DANA, 10);
-
-    expect(outcome).toEqual({ kind: 'soft', repliesHidden: 2 });
-    expect(commentsRepository.hardDelete).not.toHaveBeenCalled();
-    expect(commentsRepository.softDelete).toHaveBeenCalledWith(10, DANA.id);
-    expect(commentsRepository.softDeleteReplies).toHaveBeenCalledWith(10, DANA.id);
-  });
-
-  it('always hides when an admin moderates somebody else, even with no replies', async () => {
-    commentsRepository.countReplies.mockResolvedValue(0);
-
-    const outcome = await service.remove(ADMIN, 10);
-
-    expect(outcome.kind).toBe('soft');
-    expect(commentsRepository.hardDelete).not.toHaveBeenCalled();
-    expect(commentsRepository.softDelete).toHaveBeenCalledWith(10, ADMIN.id);
-    // Nothing to hide underneath it.
-    expect(commentsRepository.softDeleteReplies).not.toHaveBeenCalled();
-  });
-
-  it('hides the replies too when an admin moderates a comment that has them', async () => {
-    commentsRepository.countReplies.mockResolvedValue(3);
-
+  it('never offers it when an admin moderates somebody else', async () => {
+    // A moderator removing another person's words is the case the audit trail
+    // exists for, so the row is always kept, replies or not.
     await service.remove(ADMIN, 10);
 
-    expect(commentsRepository.softDeleteReplies).toHaveBeenCalledWith(10, ADMIN.id);
+    expect(commentsRepository.removeWithReplies).toHaveBeenCalledWith(10, ADMIN.id, false);
   });
 
   it('treats an admin deleting their OWN comment as an author, not a moderator', async () => {
     commentsRepository.findById.mockResolvedValue(record({ authorId: ADMIN.id }));
-    commentsRepository.countReplies.mockResolvedValue(0);
 
-    const outcome = await service.remove(ADMIN, 10);
+    await service.remove(ADMIN, 10);
 
-    expect(outcome.kind).toBe('hard');
+    expect(commentsRepository.removeWithReplies).toHaveBeenCalledWith(10, ADMIN.id, true);
+  });
+
+  it('reports back whatever the write actually did', async () => {
+    // The service does not second-guess it: a hard delete the repository turned
+    // into a soft one, because a reply landed while it held the lock, is
+    // reported as the soft delete it was.
+    commentsRepository.removeWithReplies.mockResolvedValue({ kind: 'soft', repliesHidden: 2 });
+
+    expect(await service.remove(DANA, 10)).toEqual({ kind: 'soft', repliesHidden: 2 });
   });
 
   it('refuses a bystander', async () => {
     await expect(service.remove(SAM, 10)).rejects.toBeInstanceOf(ForbiddenError);
-    expect(commentsRepository.hardDelete).not.toHaveBeenCalled();
-    expect(commentsRepository.softDelete).not.toHaveBeenCalled();
+    expect(commentsRepository.removeWithReplies).not.toHaveBeenCalled();
   });
 
   it('refuses to delete something already removed', async () => {

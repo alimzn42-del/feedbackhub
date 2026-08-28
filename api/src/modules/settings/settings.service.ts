@@ -3,6 +3,7 @@ import { ValidationError } from '../../http/errors.js';
 import { authorize } from '../../policy/index.js';
 import { settingPolicy } from '../../policy/settings.policy.js';
 import * as categoriesRepository from '../categories/categories.repository.js';
+import * as commentsRepository from '../comments/comments.repository.js';
 import * as statusesRepository from '../statuses/statuses.repository.js';
 import {
   SETTINGS,
@@ -408,6 +409,34 @@ export async function updateGlobal(actor: Actor, patch: SettingPatch): Promise<E
   await assertDefaultFiltersExist(after);
 
   await settingsRepository.applyGlobal(changes, actor.id);
+
+  /**
+   * Turning the moderation gate off RELEASES what was waiting, by writing.
+   *
+   * DECISIONS says switching approval on "affects comments written from then on
+   * and nothing already on screen", and switching it off lets the waiting ones
+   * through. Both halves were implemented in the read: visibility asked the
+   * gate, and nothing ever stamped a row. Three things followed, and they are
+   * C-25, C-26 and C-27 in the test plan — a released comment still reported as
+   * waiting, with an Approve button on it; the second switch-on hiding it again,
+   * which is exactly what the decision says does not happen; and the "waiting"
+   * filter listing requests where nothing is waiting.
+   *
+   * One statement fixes all three, because all three read `approved_at IS NULL`
+   * and the row is simply not telling the truth. Stamping it makes the release
+   * a fact about the comment rather than a fact about the current setting.
+   *
+   * IT MAKES RELEASE IRREVERSIBLE, AND THAT IS THE POINT. A comment that has
+   * been published cannot be un-published by moving a switch back; if it should
+   * not be there, it is removed, which is a moderator's decision with a name on
+   * it. See DECISIONS.md.
+   */
+  if (
+    resolveOne('comments.requireApproval', global, null).value === true &&
+    (await globalValue('comments.requireApproval')) === false
+  ) {
+    await commentsRepository.releaseAllPending();
+  }
 
   return effectiveFor(actor);
 }

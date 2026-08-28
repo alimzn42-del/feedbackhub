@@ -4,6 +4,7 @@ import {
   AppError,
   BadRequestError,
   NotFoundError,
+  PayloadTooLargeError,
   ProviderUnavailableError,
   RateLimitedError,
   UnauthenticatedError,
@@ -43,6 +44,32 @@ function isJsonParseFailure(error: unknown): boolean {
 }
 
 /**
+ * body-parser's refusal when the body exceeds the configured limit.
+ *
+ * Recognised by `type`, which is the field body-parser documents and sets on
+ * every error it raises, rather than by the class — the class is not exported
+ * and `instanceof` against a transitive dependency's internals is a test that
+ * breaks on a patch release.
+ *
+ * The size is read from the error rather than repeated from app.ts, so the
+ * sentence cannot drift away from the limit that produced it.
+ */
+function payloadTooLarge(error: unknown): PayloadTooLargeError | null {
+  if (typeof error !== 'object' || error === null) return null;
+
+  const candidate = error as { type?: string; limit?: number };
+  if (candidate.type !== 'entity.too.large') return null;
+
+  const limit = typeof candidate.limit === 'number' ? `${Math.round(candidate.limit / 1024)} KB` : null;
+
+  return new PayloadTooLargeError(
+    limit
+      ? `The request body is larger than this API accepts (${limit}).`
+      : 'The request body is larger than this API accepts.',
+  );
+}
+
+/**
  * The only place in the application that turns an error into a response body.
  * Handlers and services throw; nothing else formats.
  */
@@ -57,7 +84,7 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
   const requestId = req.requestId ?? 'unknown';
   const appError = isJsonParseFailure(error)
     ? new BadRequestError('The request body is not valid JSON.')
-    : error;
+    : (payloadTooLarge(error) ?? error);
 
   if (appError instanceof AppError) {
     const body: ErrorResponseBody = {

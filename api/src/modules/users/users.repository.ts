@@ -160,18 +160,102 @@ export async function insert(input: {
  * deleted_at — a person may legitimately be called "Deleted user", and a screen
  * has to be able to tell them apart from an account that is gone.
  */
-export async function anonymise(id: number): Promise<void> {
+/**
+ * What the guard is shown before anything is written. See below.
+ */
+export interface AnonymiseContext {
+  role: Role;
+  otherAdmins: number;
+}
+
+/**
+ * @param guard Runs inside the transaction, with the admin rows locked, and may
+ * throw to refuse. The rule and its message stay in the service; the locking
+ * and the SQL stay here.
+ *
+ * WHY THE GUARD IS A PARAMETER RATHER THAN A CHECK BEFOREHAND
+ *
+ * "You are the only admin, so you cannot leave" was a count, then a write, with
+ * nothing in between holding the answer still. Two admins pressing Delete at
+ * the same moment both read "one other admin remains", both proceed, and the
+ * board ends with none — the exact dead end the refusal exists to prevent, and
+ * one nothing in this application can recover from, because nothing here can
+ * appoint an admin.
+ *
+ * SELECT … FOR UPDATE over the admin rows makes the second transaction wait for
+ * the first to commit, so it counts what is true afterwards rather than what was
+ * true before. The count therefore has to happen inside this transaction, and
+ * the decision has to be able to run there too.
+ */
+export async function anonymise(
+  id: number,
+  guard?: (context: AnonymiseContext) => void,
+  subjectHash?: string | null,
+): Promise<void> {
   await withTransaction(async (connection) => {
+    if (guard) {
+      /**
+       * The admin set and the row being removed, locked by ONE statement in id
+       * order.
+       *
+       * Two statements — the target first, then the admins — deadlock: two
+       * admins leaving at the same instant each hold their own row and each
+       * wait for the other's. MySQL picks a victim and rolls it back, which
+       * arrives as a 500 for somebody who should have been told they are the
+       * last admin. One ordered statement gives every caller the same lock
+       * order, so they queue instead of colliding.
+       */
+      const [locked] = await connection.execute<UserRow[]>(
+        `${SELECT_USER}
+         WHERE (role = 'admin' OR id = :id) AND deleted_at IS NULL
+         ORDER BY id
+         FOR UPDATE`,
+        { id },
+      );
+
+      guard({
+        role: locked.find((row) => row.id === id)?.role ?? 'user',
+        otherAdmins: locked.filter((row) => row.role === 'admin' && row.id !== id).length,
+      });
+    }
+
     await connection.execute('DELETE FROM user_settings WHERE user_id = :id', { id });
 
     await connection.execute(
       `UPDATE users
-       SET external_id  = NULL,
-           email        = CONCAT('deleted-', id, '@removed.invalid'),
-           display_name = 'Deleted user',
-           deleted_at   = CURRENT_TIMESTAMP(3)
+       SET external_id          = NULL,
+           email                = CONCAT('deleted-', id, '@removed.invalid'),
+           display_name         = 'Deleted user',
+           deleted_at           = CURRENT_TIMESTAMP(3),
+           deleted_subject_hash = :subjectHash
        WHERE id = :id AND deleted_at IS NULL`,
-      { id },
+      { id, subjectHash: subjectHash ?? null },
     );
   });
+}
+
+/**
+ * Whether this provider subject left too recently to be given a new account.
+ *
+ * The window is the access-token lifetime, because that is exactly how long a
+ * token minted before the deletion can still be presented — see
+ * 013.do.deleted_subject_grace.sql for what happens without this.
+ *
+ * A person genuinely returning inside the window is refused and told to sign in
+ * again, which costs them one redirect. The alternative costs them a duplicate
+ * account they did not ask for and cannot merge.
+ */
+export async function departedRecently(
+  subjectHash: string,
+  withinSeconds: number,
+): Promise<boolean> {
+  const [rows] = await pool.execute<(RowDataPacket & { recent: number })[]>(
+    `SELECT EXISTS(
+       SELECT 1 FROM users
+       WHERE deleted_subject_hash = :subjectHash
+         AND deleted_at > NOW(3) - INTERVAL :withinSeconds SECOND
+     ) AS recent`,
+    { subjectHash, withinSeconds },
+  );
+  return Number(rows[0]?.recent ?? 0) === 1;
 }

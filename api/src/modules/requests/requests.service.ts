@@ -13,7 +13,7 @@ import * as categoriesRepository from '../categories/categories.repository.js';
 import { globalValue } from '../settings/settings.service.js';
 import * as statusesRepository from '../statuses/statuses.repository.js';
 import * as requestsRepository from './requests.repository.js';
-import type { ListFilters } from './requests.repository.js';
+import type { ListFilters, RecentUsage } from './requests.repository.js';
 import {
   DEFAULT_SORT,
   MAX_PINNED_RETURNED,
@@ -91,14 +91,18 @@ const RATE_LIMIT_WINDOW_HOURS = 24;
  * HTTP calls would refuse a submission that was about to fail validation
  * anyway, and would have to know which routes count as "a submission" from the
  * outside. This is the one place that knows a request was actually filed.
+ *
+ * ASKED TWICE, ON PURPOSE
+ *
+ * Once before the category is looked up, so that being over the limit is
+ * reported ahead of anything about the payload — a person filing too often
+ * should be told that, not sent to fix a field first. And once more inside the
+ * insert's own transaction, with the author's row locked, because the early
+ * check is a read that anything can invalidate: ten submissions at the same
+ * instant all pass it. The second is the one that is true; the first is the one
+ * that answers in the right order.
  */
-async function assertNotRateLimited(actor: Actor): Promise<void> {
-  const limit = await globalValue('submissions.perUserPerDay');
-  const { filed, oldestInWindow } = await requestsRepository.countRecentByAuthor(
-    actor.id,
-    RATE_LIMIT_WINDOW_HOURS,
-  );
-
+function assertUnderLimit(limit: number, { filed, oldestInWindow }: RecentUsage): void {
   if (filed < limit) return;
 
   // A slot comes back when the earliest submission still inside the window ages
@@ -126,7 +130,11 @@ export async function create(
   // refused for filing too often is not a fact about the payload, and finding
   // out only after the form has been validated would read as the board being
   // slow to say no.
-  await assertNotRateLimited(actor);
+  const limit = await globalValue('submissions.perUserPerDay');
+  assertUnderLimit(
+    limit,
+    await requestsRepository.countRecentByAuthor(actor.id, RATE_LIMIT_WINDOW_HOURS),
+  );
 
   const categoryId = await categoriesRepository.findActiveId(body.categoryId);
 
@@ -154,14 +162,20 @@ export async function create(
     );
   }
 
-  const id = await requestsRepository.insert({
-    title: body.title,
-    description: body.description,
-    categoryId,
-    statusId,
-    // Authorship comes from the identity seam, never from the payload.
-    authorId: actor.id,
-  });
+  const id = await requestsRepository.insertUnderAuthorLimit(
+    {
+      title: body.title,
+      description: body.description,
+      categoryId,
+      statusId,
+      // Authorship comes from the identity seam, never from the payload.
+      authorId: actor.id,
+    },
+    RATE_LIMIT_WINDOW_HOURS,
+    // The authoritative check: same rule, same sentence, counted with this
+    // author's row locked so that concurrent submissions see each other.
+    (usage) => assertUnderLimit(limit, usage),
+  );
 
   const created = await requestsRepository.findById(
     id,
@@ -322,7 +336,26 @@ export async function update(
 ): Promise<FeedbackRequestDetail> {
   authorize(requestPolicy.editContent(actor, await findSubject(id)));
 
-  const categoryId = await categoriesRepository.findActiveId(body.categoryId);
+  /**
+   * Keeping a category is not the same act as choosing one.
+   *
+   * The edit schema is the create schema, so every edit sends all three fields
+   * — including a categoryId the author may not be changing at all. Asking
+   * findActiveId about it meant that once a category was retired, the requests
+   * already filed under it could not be edited: fixing a typo in the title was
+   * refused on a field the form cannot even display, and the only way through
+   * was to move the request to a category its author did not pick.
+   *
+   * So the value already on the row is admitted, archived or not, and only a
+   * MOVE is held to the active list. Same asymmetry the board's slug resolution
+   * already has (B-18): a retirement changes what can be chosen next, never
+   * what was chosen before.
+   */
+  const current = await requestsRepository.findCategoryId(id);
+  const categoryId =
+    body.categoryId === current
+      ? current
+      : await categoriesRepository.findActiveId(body.categoryId);
 
   if (categoryId === null) {
     // Same answer as creation: a category that does not exist is a bad value in

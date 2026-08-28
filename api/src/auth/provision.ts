@@ -77,6 +77,10 @@ export async function assertMayRegister(email: string): Promise<void> {
  * registering could make you an admin has no authorization model at all.
  */
 export async function provision(input: ProvisionRequest): Promise<Actor> {
+  // A subject that deleted its account inside the token's lifetime is refused
+  // before it gets here, in the identity seam — resolveFromToken, where "this
+  // is a returning deletion, not a first arrival" is the seam's to judge. By
+  // the time provisioning runs, this is a genuine first arrival.
   await assertMayRegister(input.email);
 
   try {
@@ -102,6 +106,27 @@ export async function provision(input: ProvisionRequest): Promise<Actor> {
      * of those two things went wrong.
      */
     if (isDuplicateEntry(error, 'uq_users_email')) {
+      /**
+       * Before it is a collision, it may be a race with ourselves.
+       *
+       * A browser signing in for the first time fires the startup request and
+       * the discovery-driven refresh close together. Both miss on external_id,
+       * both provision, and the second one lands here — on a first arrival that
+       * is nothing of the kind. Telling somebody to ask an admin to link their
+       * accounts, in the first second of their first visit, is the worst
+       * available answer and it is the one this branch used to give.
+       *
+       * So: re-read by subject. If a row now exists for THIS subject, the other
+       * caller was us, a moment earlier, and the correct answer is that row.
+       * Only when the address belongs to a different subject is it the
+       * collision this branch was written for.
+       */
+      const raced = input.externalId
+        ? await usersRepository.findByExternalId(input.externalId)
+        : null;
+
+      if (raced) return raced;
+
       throw new ConflictError(
         'An account on this board already uses that email address under a different ' +
           'sign-in. Ask an admin to link them.',

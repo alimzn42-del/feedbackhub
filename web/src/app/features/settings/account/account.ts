@@ -1,8 +1,9 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { httpResource } from '@angular/common/http';
 import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { AppConfig } from '../../../core/config/app-config';
+import { Session } from '../../../core/auth/session';
 import { toApiError, type ApiError } from '../../../core/api/api-error';
 import type { SettingDescriptor, Wrapped } from '../../../core/api/api.types';
 import { ConfirmDialog } from '../../../shared/confirm-dialog/confirm-dialog';
@@ -32,7 +33,7 @@ export class Account {
   protected readonly t = inject(Translate).t;
 
   private readonly api = inject(SettingsApi);
-  private readonly router = inject(Router);
+  private readonly session = inject(Session);
   protected readonly config = inject(AppConfig);
 
   protected readonly limits = { DISPLAY_NAME_MAX };
@@ -153,11 +154,25 @@ export class Account {
 
     this.api.deleteAccount(id).subscribe({
       next: () => {
-        // Their identity no longer exists, so everything the application holds
-        // about it is stale. Reloading is the honest thing: the next request
-        // establishes whoever they are now.
-        this.config.reload();
-        void this.router.navigate(['/requests']);
+        /**
+         * The session ends here, at the provider, and NOTHING asks this API
+         * anything afterwards.
+         *
+         * This used to call config.reload(), which refetches the startup
+         * payload with the access token the person is still holding — a token
+         * that stays valid for up to five more minutes and that the server has
+         * no reason to refuse. On the server side their row has just had its
+         * external_id cleared and its address moved to a placeholder, so that
+         * request matches nobody, finds the address free, and is PROVISIONED A
+         * NEW ACCOUNT. Pressing Delete signed them straight back in as a
+         * stranger with their own name on it, and left the board holding two
+         * rows for one person.
+         *
+         * Signing out is not tidying up after the delete; it is the last step
+         * of it. There is no request to make in between, because there is
+         * nobody left to make it as.
+         */
+        this.session.signOut();
       },
       error: (error: unknown) => this.fail(error),
     });

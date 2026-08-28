@@ -5,6 +5,7 @@ import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Account } from './account';
 import { provideStubbedConfig } from '../../../core/config/app-config.testing';
+import { provideStubbedSession } from '../../../core/auth/session.testing';
 import type { SettingDescriptor } from '../../../core/api/api.types';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -44,11 +45,18 @@ function setting(overrides: Partial<SettingDescriptor> = {}): SettingDescriptor 
 
 describe('Account', () => {
   let http: HttpTestingController;
+  let signedOut: number;
 
   beforeEach(() => {
+    signedOut = 0;
+
     TestBed.configureTestingModule({
       providers: [
         provideStubbedConfig(),
+        // Recorded rather than performed: signing out is a redirect to
+        // Keycloak's end-session endpoint, and a test asserts that it was asked
+        // for. See the deletion tests below for why this screen asks at all.
+        provideStubbedSession({ onSignOut: () => (signedOut += 1) }),
         provideRouter([{ path: '**', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
@@ -217,6 +225,46 @@ describe('Account', () => {
     const sent = http.expectOne((r) => r.url === '/api/users/2' && r.method === 'DELETE');
     sent.flush(null, { status: 204, statusText: 'No Content' });
     await fixture.whenStable();
+  });
+
+  /**
+   * The last step of deleting an account is ending the session, and NOTHING is
+   * asked of the API in between.
+   *
+   * This screen used to call config.reload() after the 204, which refetches the
+   * startup payload with the access token the person is still holding — valid
+   * for up to five more minutes. On the server their row has just had its
+   * external_id cleared and its address moved to a placeholder, so that request
+   * matches nobody, finds the address free, and is provisioned a NEW ACCOUNT.
+   * Pressing Delete signed them straight back in as a stranger with their own
+   * name on it, and left the board holding two rows for one person.
+   *
+   * Two assertions, because the fix is two claims: the session ends, and there
+   * is no request after the 204 for the server to answer. The API refuses this
+   * as well now — a subject that left inside its token's lifetime is not
+   * provisioned — but a client that keeps calling with a dead identity is wrong
+   * on its own terms, and this is where that is said.
+   */
+  it('ends the session at the provider, and asks the API nothing afterwards', async () => {
+    const fixture = await render();
+
+    button(fixture, 'Delete my account')!.click();
+    fixture.detectChanges();
+
+    const dialog = fixture.nativeElement.querySelector('[role="dialog"]');
+    const confirm = [...dialog.querySelectorAll('button')].find((b: HTMLButtonElement) =>
+      b.textContent?.includes('Delete my account'),
+    ) as HTMLButtonElement;
+
+    confirm.click();
+
+    http
+      .expectOne((r) => r.url === '/api/users/2' && r.method === 'DELETE')
+      .flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+
+    expect(signedOut).toBe(1);
+    http.expectNone(() => true);
   });
 
   it('lets somebody back out of deleting, and sends nothing', async () => {

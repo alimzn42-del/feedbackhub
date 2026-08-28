@@ -52,10 +52,13 @@ const usersRepository = vi.hoisted(() => ({
   updateDisplayName: vi.fn(),
   countOtherAdmins: vi.fn(),
   anonymise: vi.fn(),
+  departedRecently: vi.fn(),
 }));
 const requestsRepository = vi.hoisted(() => ({
   insert: vi.fn(),
   countRecentByAuthor: vi.fn(),
+  insertUnderAuthorLimit: vi.fn(),
+  findCategoryId: vi.fn(),
   findById: vi.fn(),
   findListItemById: vi.fn(),
   findAuthorId: vi.fn(),
@@ -195,10 +198,24 @@ beforeEach(async () => {
     createdAt: '2026-08-21T05:00:00.000Z',
     updatedAt: '2026-08-21T05:00:00.000Z',
   });
-  votesRepository.cast.mockResolvedValue(true);
+  votesRepository.cast.mockResolvedValue('cast');
   votesRepository.withdraw.mockResolvedValue(true);
   votesRepository.readState.mockResolvedValue({ requestId: 7, voteCount: 1, hasVoted: true });
   requestsRepository.insert.mockResolvedValue(11);
+  // The limit is counted inside this write's own transaction now; the guard is
+  // run so that a refusal still travels through the real path.
+  requestsRepository.insertUnderAuthorLimit.mockImplementation(
+    async (
+      _input: unknown,
+      _windowHours: number,
+      guard: (usage: { filed: number; oldestInWindow: Date | null }) => void,
+    ) => {
+      guard(await requestsRepository.countRecentByAuthor());
+      return 11;
+    },
+  );
+  requestsRepository.findCategoryId.mockResolvedValue(2);
+  usersRepository.departedRecently.mockResolvedValue(false);
   requestsRepository.list.mockResolvedValue({ items: [], total: 0 });
   requestsRepository.findById.mockResolvedValue({
     id: 11,
@@ -241,7 +258,7 @@ describe('POST /api/requests', () => {
     expect(response.body.error.code).toBe('FORBIDDEN');
     expect(response.body.error.message).toBe('Only an admin can do that.');
     // The denial has to stop the work, not merely change the status code.
-    expect(requestsRepository.insert).not.toHaveBeenCalled();
+    expect(requestsRepository.insertUnderAuthorLimit).not.toHaveBeenCalled();
   });
 
   it('refuses with 403 and never a disguised 404', async () => {
@@ -279,12 +296,14 @@ describe('POST /api/requests', () => {
       .send({ ...VALID_BODY, authorId: 999 })
       .expect(422);
 
-    expect(requestsRepository.insert).not.toHaveBeenCalled();
+    expect(requestsRepository.insertUnderAuthorLimit).not.toHaveBeenCalled();
 
     await signedIn(request(app)).post('/api/requests').send(VALID_BODY).expect(201);
 
-    expect(requestsRepository.insert).toHaveBeenCalledWith(
+    expect(requestsRepository.insertUnderAuthorLimit).toHaveBeenCalledWith(
       expect.objectContaining({ authorId: REGULAR_USER.id }),
+      expect.any(Number),
+      expect.any(Function),
     );
   });
 
@@ -365,6 +384,29 @@ describe('every /api route establishes an identity first', () => {
       externalId: TEST_SUBJECT,
     });
     expect(requestsRepository.list).toHaveBeenCalled();
+  });
+
+  /**
+   * The request that comes right after somebody deletes their own account.
+   *
+   * This is the case that shipped without a test, and the absence is why it
+   * shipped: the account is anonymised, external_id cleared, so findByExternalId
+   * answers null — the same null a stranger gets. Without the deleted-subject
+   * check the seam reads that as a first arrival and provisions a fresh account,
+   * and the person who just left is signed straight back in as a new id with
+   * their own name on it.
+   *
+   * It must refuse, as 401 so the browser signs out, and it must NOT provision.
+   */
+  it('refuses a token whose account was just deleted, and provisions nothing', async () => {
+    usersRepository.findByExternalId.mockResolvedValue(null);
+    usersRepository.departedRecently.mockResolvedValue(true);
+
+    const response = await signedIn(request(app)).get('/api/requests');
+
+    expect(response.status).toBe(401);
+    expect(response.body.error.code).toBe('UNAUTHENTICATED');
+    expect(usersRepository.insert).not.toHaveBeenCalled();
   });
 
   /**
@@ -786,7 +828,7 @@ describe('POST /api/requests/:id/vote', () => {
   });
 
   it('reports a second vote as a conflict rather than a silent success', async () => {
-    votesRepository.cast.mockResolvedValue(false);
+    votesRepository.cast.mockResolvedValue('already-voted');
 
     const response = await signedIn(request(app)).post('/api/requests/7/vote');
 

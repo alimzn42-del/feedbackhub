@@ -1,5 +1,5 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { pool } from '../../db/pool.js';
+import { pool, withTransaction } from '../../db/pool.js';
 import { VISIBLE_COMMENT } from '../comments/comments.repository.js';
 import {
   EXCERPT_LENGTH,
@@ -529,6 +529,23 @@ export async function findAuthorId(id: number): Promise<number | null> {
  * pinned refreshes both, which is what makes the panel's "most recent first"
  * order mean something.
  */
+/**
+ * The category a request already carries, archived or not.
+ *
+ * Read on edit so that keeping the value you already have can be told apart
+ * from choosing it. Archiving a category takes it out of the choices offered
+ * for a new request; it must not take it out of the requests already filed
+ * under it, or their authors cannot correct a typo without also moving them
+ * somewhere they never chose.
+ */
+export async function findCategoryId(id: number): Promise<number | null> {
+  const [rows] = await pool.execute<(RowDataPacket & { category_id: number })[]>(
+    'SELECT category_id FROM feedback_requests WHERE id = :id LIMIT 1',
+    { id },
+  );
+  return rows[0]?.category_id ?? null;
+}
+
 export async function pin(id: number, actorId: number): Promise<void> {
   const [result] = await pool.execute<ResultSetHeader>(
     `
@@ -623,6 +640,70 @@ export async function insert(input: InsertRequestInput): Promise<number> {
     input,
   );
   return result.insertId;
+}
+
+export interface RecentUsage {
+  filed: number;
+  oldestInWindow: Date | null;
+}
+
+/**
+ * Files a request, having counted this author's recent submissions with their
+ * own row locked.
+ *
+ * @param guard Runs inside the transaction and may throw to refuse. The limit's
+ * value, and the sentence that reports it, stay in the service.
+ *
+ * WHY THE LOCK IS ON THE AUTHOR AND NOT ON THE COUNT
+ *
+ * "You have filed as many as this board allows" was a count, then an insert,
+ * with nothing in between. Ten submissions from one person at the same instant
+ * all read zero and all ten land — a limit of one enforced as a limit of ten.
+ *
+ * There is nothing to lock in `feedback_requests`: the rows being counted are
+ * the ones not written yet. So the author's own row in `users` is used as the
+ * mutex. It serialises exactly the callers who must be serialised — one person
+ * filing — and leaves everybody else's submissions fully concurrent, which a
+ * table-level lock or a global one would not.
+ *
+ * A person's requests are counted after their row is locked, so the second
+ * submission counts the first.
+ */
+export async function insertUnderAuthorLimit(
+  input: InsertRequestInput,
+  windowHours: number,
+  guard: (usage: RecentUsage) => void,
+): Promise<number> {
+  return withTransaction(async (connection) => {
+    await connection.execute('SELECT id FROM users WHERE id = :authorId FOR UPDATE', {
+      authorId: input.authorId,
+    });
+
+    const [rows] = await connection.execute<
+      (RowDataPacket & { filed: number; oldest: Date | null })[]
+    >(
+      `SELECT COUNT(*) AS filed, MIN(created_at) AS oldest
+       FROM feedback_requests
+       WHERE author_id = :authorId
+         AND created_at > NOW(3) - INTERVAL :windowHours HOUR`,
+      { authorId: input.authorId, windowHours },
+    );
+
+    guard({
+      filed: Number(rows[0]?.filed ?? 0),
+      oldestInWindow: rows[0]?.oldest ?? null,
+    });
+
+    const [result] = await connection.execute<ResultSetHeader>(
+      `
+      INSERT INTO feedback_requests (title, description, category_id, status_id, author_id)
+      VALUES (:title, :description, :categoryId, :statusId, :authorId)
+      `,
+      input,
+    );
+
+    return result.insertId;
+  });
 }
 
 /**

@@ -24,6 +24,7 @@ const usersRepository = vi.hoisted(() => ({
   updateDisplayName: vi.fn(),
   countOtherAdmins: vi.fn(),
   anonymise: vi.fn(),
+  departedRecently: vi.fn(),
 }));
 
 const settingsRepository = vi.hoisted(() => ({
@@ -37,7 +38,9 @@ const settingsRepository = vi.hoisted(() => ({
 
 const requestsRepository = vi.hoisted(() => ({
   insert: vi.fn(),
+  insertUnderAuthorLimit: vi.fn(),
   countRecentByAuthor: vi.fn(),
+  findCategoryId: vi.fn(),
   findById: vi.fn(),
 }));
 
@@ -78,11 +81,52 @@ const ADMIN: Actor = { ...REGULAR_USER, id: 1, displayName: 'Robin Alvarez', rol
 
 const app = createApp();
 
+/**
+ * Stands in for the locked read the real repository does.
+ *
+ * The last-admin refusal is decided inside anonymise's own transaction now, in
+ * a guard the repository calls with what it found while holding the admin rows
+ * — because counting outside and writing inside was a window two departing
+ * admins could both fit through, leaving the board with none.
+ *
+ * A mock that ignored the guard would leave that rule untested here. So this
+ * mock plays the part: it calls the guard with the state the test declares, and
+ * refuses in exactly the way the database would.
+ */
+function anonymisationSees(role: 'admin' | 'user', otherAdmins: number) {
+  usersRepository.anonymise.mockImplementation(
+    async (_id: number, guard?: (context: { role: string; otherAdmins: number }) => void) => {
+      guard?.({ role, otherAdmins });
+    },
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   usersRepository.findByExternalId.mockResolvedValue(REGULAR_USER);
   usersRepository.findById.mockResolvedValue(REGULAR_USER);
   usersRepository.countOtherAdmins.mockResolvedValue(3);
+  usersRepository.departedRecently.mockResolvedValue(false);
+  anonymisationSees('user', 3);
+
+  /**
+   * The same arrangement as anonymise: the limit is now counted inside the
+   * insert's transaction, with the author's row locked, so the mocked write has
+   * to run the guard or the refusal would be untested here.
+   *
+   * It is shown whatever countRecentByAuthor is set to, which is what the
+   * locked count would have found.
+   */
+  requestsRepository.insertUnderAuthorLimit.mockImplementation(
+    async (
+      _input: unknown,
+      _windowHours: number,
+      guard: (usage: { filed: number; oldestInWindow: Date | null }) => void,
+    ) => {
+      guard(await requestsRepository.countRecentByAuthor());
+      return 11;
+    },
+  );
   settingsRepository.readGlobal.mockResolvedValue(new Map());
   settingsRepository.readForUser.mockResolvedValue(new Map());
   requestsRepository.countRecentByAuthor.mockResolvedValue({ filed: 0, oldestInWindow: null });
@@ -94,7 +138,14 @@ describe('deleting an account', () => {
   it('anonymises rather than deleting, and says nothing back', async () => {
     await signedIn(request(app)).delete(`/api/users/${REGULAR_USER.id}`).expect(204);
 
-    expect(usersRepository.anonymise).toHaveBeenCalledWith(REGULAR_USER.id);
+    // The third argument is the departing subject's fingerprint, kept so that
+    // the token they are still holding cannot be provisioned a fresh account.
+    // This fixture has no external_id, so there is nothing to remember.
+    expect(usersRepository.anonymise).toHaveBeenCalledWith(
+      REGULAR_USER.id,
+      expect.any(Function),
+      null,
+    );
   });
 
   it('403s deleting somebody else, and anonymises nobody', async () => {
@@ -126,22 +177,21 @@ describe('deleting an account', () => {
   it('refuses the last admin, with 409, and anonymises nobody', async () => {
     usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     usersRepository.findById.mockResolvedValue(ADMIN);
-    usersRepository.countOtherAdmins.mockResolvedValue(0);
+    anonymisationSees('admin', 0);
 
     const response = await signedIn(request(app)).delete(`/api/users/${ADMIN.id}`);
 
     expect(response.status).toBe(409);
-    expect(usersRepository.anonymise).not.toHaveBeenCalled();
   });
 
   it('lets an admin go while another one remains', async () => {
     usersRepository.findByExternalId.mockResolvedValue(ADMIN);
     usersRepository.findById.mockResolvedValue(ADMIN);
-    usersRepository.countOtherAdmins.mockResolvedValue(1);
+    anonymisationSees('admin', 1);
 
     await signedIn(request(app)).delete(`/api/users/${ADMIN.id}`).expect(204);
 
-    expect(usersRepository.anonymise).toHaveBeenCalledWith(ADMIN.id);
+    expect(usersRepository.anonymise).toHaveBeenCalledWith(ADMIN.id, expect.any(Function), null);
   });
 });
 
@@ -188,7 +238,6 @@ describe('the submission limit', () => {
 
   it('lets a submission through while the caller is under the limit', async () => {
     requestsRepository.countRecentByAuthor.mockResolvedValue({ filed: 3, oldestInWindow: null });
-    requestsRepository.insert.mockResolvedValue(11);
 
     const response = await signedIn(request(app)).post('/api/requests').send(VALID_BODY);
 
@@ -196,7 +245,7 @@ describe('the submission limit', () => {
     // reached. Reading the request back afterwards is the create path's own
     // business and is covered where that path is tested.
     expect(response.status).not.toBe(429);
-    expect(requestsRepository.insert).toHaveBeenCalled();
+    expect(requestsRepository.insertUnderAuthorLimit).toHaveBeenCalled();
   });
 
   /**

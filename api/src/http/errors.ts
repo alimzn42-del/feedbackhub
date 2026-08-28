@@ -15,6 +15,7 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'CONFLICT'
+  | 'PAYLOAD_TOO_LARGE'
   | 'RATE_LIMITED'
   | 'PROVIDER_UNAVAILABLE'
   | 'SERVER_MISCONFIGURED'
@@ -92,6 +93,8 @@ export type UnauthenticatedReason =
   | 'token.not-yet-valid'
   /** No `sub`, or nothing usable to identify a person with. */
   | 'token.unusable'
+  /** The subject had an account here and deleted it; the token outlives the row. */
+  | 'token.account-deleted'
   /** The key set could not be reached, so nothing can be verified right now. */
   | 'provider.unreachable';
 
@@ -131,6 +134,25 @@ export class NotFoundError extends AppError {
 export class ConflictError extends AppError {
   constructor(message: string) {
     super(409, 'CONFLICT', message);
+  }
+}
+
+/**
+ * The body was larger than the parser accepts.
+ *
+ * A 413 and not a 400: the body may be perfectly well-formed JSON, and the
+ * caller's fix is to send less rather than to send it differently. The limit is
+ * named in the message because a client that hit it can act on the number and
+ * cannot guess it.
+ *
+ * It exists because body-parser's own PayloadTooLargeError is neither a
+ * SyntaxError nor an AppError, so before this it fell to the error handler's
+ * unknown branch and was answered as a 500 — the server reporting its own fault
+ * for a request it had correctly refused.
+ */
+export class PayloadTooLargeError extends AppError {
+  constructor(message = 'The request body is larger than this API accepts.') {
+    super(413, 'PAYLOAD_TOO_LARGE', message);
   }
 }
 

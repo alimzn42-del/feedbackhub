@@ -32,9 +32,16 @@ export async function cast(actor: Actor, requestId: number): Promise<VoteState> 
 
   authorize(votePolicy.cast(actor, subject));
 
-  const inserted = await votesRepository.cast(requestId, actor.id);
+  const outcome = await votesRepository.cast(requestId, actor.id);
 
-  if (!inserted) {
+  if (outcome === 'request-missing') {
+    // The request was there when its author was read, a moment ago, and is not
+    // there now. The same answer as if it had been gone all along — what a
+    // caller must not be told is that they have already voted on it.
+    throw new NotFoundError('That request does not exist.');
+  }
+
+  if (outcome === 'already-voted') {
     // One user, one request, at most once — so a second cast is a conflict with
     // the state, not a silent success. The UI toggles rather than casting
     // twice, so reaching this means two tabs, a retry, or a stale page.

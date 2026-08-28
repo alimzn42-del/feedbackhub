@@ -223,6 +223,19 @@ export async function create(
     approved: (await globalValue('comments.requireApproval')) ? 0 : 1,
   });
 
+  if (id === null) {
+    // The parent was live when it was checked a moment ago and is not now. The
+    // same answer as if it had been removed before the reply was written —
+    // which, from the reader's point of view, it was.
+    throw new ValidationError('The submitted values are not valid.', [
+      {
+        field: 'parentId',
+        code: 'GONE',
+        message: 'That comment has been removed, so it cannot be replied to.',
+      },
+    ]);
+  }
+
   const created = await commentsRepository.findById(id);
 
   if (!created) {
@@ -296,19 +309,15 @@ export async function remove(actor: Actor, id: number): Promise<DeleteOutcome> {
     }),
   );
 
-  const replyCount = await commentsRepository.countReplies(id);
-  const actingAsAuthor = comment.authorId === actor.id;
-
-  if (actingAsAuthor && replyCount === 0) {
-    await commentsRepository.hardDelete(id);
-    return { kind: 'hard', repliesHidden: 0 };
-  }
-
-  await commentsRepository.softDelete(id, actor.id);
-
-  if (replyCount > 0) {
-    await commentsRepository.softDeleteReplies(id, actor.id);
-  }
-
-  return { kind: 'soft', repliesHidden: replyCount };
+  /**
+   * Who is asking is decided here; whether anything is attached is decided
+   * under a lock, in the repository.
+   *
+   * The count and the delete used to be two statements, and a reply arriving
+   * between them was accepted and then destroyed by the parent's cascade. The
+   * rule is unchanged — an author with nothing attached gets the row removed,
+   * everybody else gets a tombstone — but "nothing attached" is now read and
+   * acted on without letting go.
+   */
+  return commentsRepository.removeWithReplies(id, actor.id, comment.authorId === actor.id);
 }

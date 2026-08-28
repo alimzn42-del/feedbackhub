@@ -1952,6 +1952,112 @@ The practical habits, both now in use:
 - Read the process's own log first, never the orchestrator's summary. The
   healthcheck reports a symptom; `docker logs` had the answer both times.
 
+## 2026-08-28 — Layer 1: a harness with a real database, and the probes run
+
+`notes/test-plan.md` is written in six layers, and its own exit criteria say the
+thing that matters: **L0 green is the floor and says nothing about L1–L5.** The
+473 tests replace every repository, so no SQL in this repository had ever run
+under test, no token had ever been fetched through `createRemoteJWKSet`, and
+nothing had ever run two requests at once.
+
+This entry is the harness, and the fourteen `⚠ probe` rows run against it.
+
+### The harness
+
+`api/vitest.l1.config.ts`, `api/test/l1/`. A second vitest project — deliberately
+not part of `npm test`, because the default suite has to stay runnable with
+nothing started.
+
+- **Its own database.** `feedbackhub_l1`, created by the global setup, migrated
+  0 → 12 through the same postgrator wiring `scripts/migrate.mjs` uses, then
+  seeded. Nothing here can touch the development board.
+- **Migrated every run, not dumped.** D-01 asks whether the migrations can build
+  the schema from nothing; the only way to keep asking is to make every run do
+  it.
+- **The application's own database user.** The harness holds a second, root
+  connection for reads and for the set-ups no route can produce. A test that
+  passed because it ran as root would be testing a grant the deployment does not
+  make.
+- **A real JWKS fetch.** The plan says "the JWKS stub stays". This keeps that
+  promise one level more strictly: the global setup generates a key pair and
+  serves it over HTTP on 127.0.0.1, and `OIDC_INTERNAL_URL` points at it. So
+  `createRemoteJWKSet` — the caching, the cooldown, the refetch on an unknown
+  `kid` — runs for real, and the last `vi.mock` on the authentication path is
+  gone. `iss` is still compared to `OIDC_ISSUER_URL` and only that.
+- **Fresh and Demo** are the plan's two preconditions, as functions. Demo runs
+  the real `scripts/demo-data.mjs` in a child process rather than a copy of its
+  intent.
+
+Two things cost time and are worth writing down.
+
+**`test.env` does not reach `globalSetup`.** The workers get it; the main process
+does not, and the global setup runs there. It migrated one database while the
+tests ran against another, which presents as "no tables". The config now assigns
+the same object to `process.env` as well, so there is one declaration of which
+database this is.
+
+**supertest does not send anything until somebody subscribes.** Two of the
+concurrency probes hold a request "in flight" while a second one runs. Assigning
+the `Test` object to a variable does not start it — superagent defers until
+`.then()`. Both probes deadlocked on a gate that could never open, and did so as
+a 30-second timeout with no other symptom, which then leaked the un-restored spy
+into the next test and made *that* look like a hang too. `.then((r) => r)` is
+the fix and the comment above it is the point.
+
+### The probes, and what they did
+
+Every row the plan marks `⚠ probe` was written as a test asserting what **should**
+be true, run, and left red. Fourteen predictions; **fourteen confirmed, none
+wrong.** The eight rows §16 predicted would *hold* all held.
+
+| row | predicted | observed |
+|---|---|---|
+| P-08 | `ER_DUP_ENTRY` from `reconcile` reaches the handler as a 500 | **500**, `Duplicate entry 'sam@feedbackhub.local' for key 'users.uq_users_email'`, thrown from `updateEmail` at `current-user.ts:65` |
+| P-14 | an anonymised subject's still-valid token provisions a **new** account | confirmed. `DELETE /api/users/3` → 204; the same token on the next request → **200**, and `users` now holds id 3 (anonymised) and **id 4** (fresh, named from the token) |
+| C-25 | `isPending` / `canApprove` true on a comment everybody can read | confirmed |
+| C-26 | the second gate-up re-hides a released comment | confirmed — visible to sam with the gate down, gone again when it went back up |
+| C-27 | `?pending=true` lists requests whose comments are not waiting | confirmed, one row returned |
+| H-02 | 300 KB body → 500, not 413 | confirmed. `PayloadTooLargeError`, `type: 'entity.too.large'`, straight to the unknown-error branch |
+| R-10 | the author cannot keep a category that was retired under them | confirmed, 422 on `categoryId` — a field they did not touch and the form cannot show |
+| Z-09 | a newcomer's first two parallel requests → 409 "under a different sign-in" | confirmed, `[200, 409]`. **It needed no widened window at all** — two ordinary parallel requests reproduce it, which is what the browser does on a first sign-in |
+| Z-12 | vote on a just-deleted request → 409 "You have already voted" | confirmed |
+| Z-01 | both last admins leave; the board reaches **zero admins** | confirmed, `[204, 204]`, `COUNT(*) WHERE role='admin' AND deleted_at IS NULL` = **0** |
+| Z-02 | the daily limit is over-by-N | confirmed, `limit = 1`, ten concurrent posts, **ten rows** |
+| Z-03 | a reply is accepted and then cascaded away | confirmed — 201, then the row is gone after the parent's hard delete |
+| Z-04 | a live reply is left hanging from a tombstone | confirmed, `hidden_with_parent = 0` under a soft-deleted parent |
+| Z-05, V-05, V-06, V-07, X-12/Z-07, S-15, S-16/Z-10, Z-08 | hold | all hold |
+
+Two of these deserve to be read together. **Z-01 and P-14 are the same shape**:
+a decision taken from a read that nothing holds still, and in both cases the
+refusal that exists to prevent the bad state is the thing that does not fire.
+Z-01 empties a board of admins with nothing in the application able to appoint
+one — the exact dead end its own 409 message describes.
+
+**Z-09 is the one that changes how I would rank these.** It was filed under
+concurrency, and it turns out not to need any: a newcomer signing in for the
+first time, with a browser that fires bootstrap and a refresh together, gets an
+error telling them to ask an admin to link their accounts. No stub, no timing,
+no widened window.
+
+### Two places the plan is wrong about the code
+
+Written down because the plan will be read as the specification and it is not
+one:
+
+- **V-01 says casting a vote is 200.** It is **201** — `votes.controller.ts`
+  creates a resource and says so. The tests assert 201.
+- **C-07 says deleting a comment is 204.** It is **200** with
+  `{ data: { kind, repliesHidden } }`. The tests assert that.
+
+Neither is a defect. Both are rows written from memory of the API rather than
+from it, which is the same failure mode as the realm files, in a test plan.
+
+### Order of work from here
+
+The plan's rule, and this repository's: **failing tests first, fixes second.**
+The probes are committed red. Fixing them is the next entry, and the E-14 / P-14
+pair goes first because it is user-visible on a fresh board in under ten seconds.
+
 ## 2026-08-28 — Registration: the brief's first verb, nine slices late
 
 **Asked:** the brief's first journey is "registers *or* signs in through the

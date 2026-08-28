@@ -23,6 +23,8 @@
     "outDir": "dist",
     "sourceMap": true
   },
-  "include": ["src/**/*.ts", "vitest.config.ts"],
+  // test/ holds the L1 suite, which is typechecked here and compiled nowhere:
+  // tsconfig.build.json includes src only, so none of it can reach dist/.
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts", "vitest.l1.config.ts"],
   "exclude": []
 }

@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError } from '../../http/errors.js';
 import { authorize } from '../../policy/index.js';
 import { settingPolicy } from '../../policy/settings.policy.js';
 import type { UpdateProfileBody } from '../settings/settings.schema.js';
+import { hashSubject } from '../../auth/subject.js';
 import * as usersRepository from './users.repository.js';
 
 /**
@@ -64,13 +65,38 @@ export async function deleteAccount(actor: Actor, targetUserId: number): Promise
     throw new NotFoundError('That account does not exist.');
   }
 
-  if (target.role === 'admin' && (await usersRepository.countOtherAdmins(targetUserId)) === 0) {
-    throw new ConflictError(
-      'You are the only admin, so deleting your account would leave this board with nobody ' +
-        'who can manage it. Nothing in the application can appoint another admin yet, so this ' +
-        'is refused rather than offered with a way around it.',
-    );
-  }
-
-  await usersRepository.anonymise(targetUserId);
+  /**
+   * The last-admin refusal, decided inside the write's own transaction.
+   *
+   * It used to be a count out here followed by a write in there, which is a
+   * window: two admins leaving at the same instant both read "one other admin
+   * remains" and the board ends with zero. The guard runs with the admin rows
+   * locked, so the second caller counts the world the first one left behind.
+   *
+   * The rule and the sentence stay here. Only the locking moved.
+   */
+  await usersRepository.anonymise(
+    targetUserId,
+    ({ role, otherAdmins }) => {
+      if (role === 'admin' && otherAdmins === 0) {
+        throw new ConflictError(
+          'You are the only admin, so deleting your account would leave this board with nobody ' +
+            'who can manage it. Nothing in the application can appoint another admin yet, so this ' +
+            'is refused rather than offered with a way around it.',
+        );
+      }
+    },
+    /**
+     * The one thing about the departing identity that is kept, and it is kept
+     * so that it can be REFUSED.
+     *
+     * The token they are holding stays valid for several more minutes after
+     * this, and provisioning would otherwise hand it a fresh account. See
+     * src/auth/subject.ts and 013.do.deleted_subject_grace.sql.
+     *
+     * Only ever their own subject: this endpoint deletes nobody else's account,
+     * so the acting identity and the deleted one are the same person.
+     */
+    target.externalId ? hashSubject(target.externalId) : null,
+  );
 }
