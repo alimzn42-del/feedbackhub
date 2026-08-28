@@ -56,8 +56,10 @@ server {
     # Angular fingerprints these filenames, so a year is safe: a changed file
     # is a different URL. index.html is deliberately NOT in here.
     location ~* \.(?:js|css|woff2?|png|jpe?g|gif|svg|ico|webp)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
+        # One header, not two. `expires` emits its own Cache-Control, so pairing
+        # it with add_header sends the directive twice — which browsers tolerate
+        # and nobody should have to reason about.
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
         try_files $uri =404;
     }
 

@@ -140,17 +140,27 @@ like the code.
 
 ## Verification status
 
-**These manifests have been rendered and reviewed. They have not been applied
-to a running cluster.** There is no cluster on the machine they were written
-on — Docker Desktop's Kubernetes has never been installed there, and installing
-a control plane was not a change to make unasked.
+**Applied to a real cluster, and signed into.** kind v0.30.0, Kubernetes
+v1.34.0, ingress-nginx.
 
-That distinction matters here more than usual, because this repository's own
-notes are emphatic about it: a rendered manifest is a parsed YAML file, and
-YAML parsing says nothing about whether the API server accepts the fields. The
-one real failure in this project was an invented field in a Keycloak realm that
-every test passed straight over — see `notes/ai-log.md`. The same class of
-mistake is available in every file in this directory.
+| | |
+|---|---|
+| `kubectl apply -k . --dry-run=server` | every object accepted by the API server |
+| Full apply | 16 objects created; MySQL, Keycloak, 2× API, 2× web all Running |
+| Migration Job | `Complete`, `succeeded: 1`, schema at 12 |
+| The API's init container | logged `ENOTFOUND` → `ER_NO_SUCH_TABLE` → `schema at 12; this image expects 12`, then let the pod start |
+| The boot guard in-cluster | API booted under `NODE_ENV=production` against the cluster issuer |
+| Ingress | `/` and `/auth/callback` both 200 through the controller; the SPA fallback holds |
+| The API through the web tier | `/api/auth/config` 200, `/api/requests` 401 — and no Ingress of its own |
+| Keycloak on its own host | discovery issuer exactly matches what the API compares `iss` to |
+| A real sign-in | authorization code + PKCE end to end: 9 checks, the seeded admin **matched** onto row 1, no role in the payload |
 
-`kubectl apply -k . --dry-run=server` against any cluster is what closes it, and
-it should be run before these are trusted.
+One warning, from the API server rather than from the manifests:
+`spec.SessionAffinity is ignored for headless services` on the MySQL Service.
+It is emitted against a field Kubernetes defaults in itself, and is cosmetic.
+
+**What applying it caught that rendering did not:** the realm's `redirectUris`
+named only `http://localhost:4200`, so sign-in at the cluster hostname was
+refused with `Invalid parameter: redirect_uri`. A rendered manifest cannot
+show that — the manifests were all correct; the thing they mounted was not.
+See `notes/ai-log.md`.

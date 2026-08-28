@@ -1,5 +1,5 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpBackend, HttpClient } from '@angular/common/http';
 import { DOCUMENT } from '@angular/common';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE_URL } from '../api/api-base-url';
@@ -81,7 +81,32 @@ const REFRESH_MARGIN_SECONDS = 60;
 
 @Injectable({ providedIn: 'root' })
 export class Session {
-  private readonly http = inject(HttpClient);
+  /* ── Why this HttpClient is built by hand ────────────────────────────────
+   *
+   * `new HttpClient(inject(HttpBackend))` is an HttpClient with NO
+   * interceptors, and both halves of that matter.
+   *
+   * THE CORRECTNESS HALF. The interceptor injects Session, and Session issues
+   * its first request from its own constructor — so the injected HttpClient
+   * would call an interceptor that asks the injector for the very service it
+   * is in the middle of constructing. Angular calls that a circular dependency
+   * and throws, the `catch` in resolve() below treats it as the server being
+   * unreachable, and the application reports "could not reach the server" for
+   * a request it never made. Every FIRST page load failed this way; pressing
+   * "try again" worked, because by then the constructor had returned.
+   *
+   * That is what a browser showed, and neither of the two specs covering these
+   * files could see it: one provided this service without the interceptor, the
+   * other provided the interceptor with a stubbed service. They meet in
+   * session.integration.spec.ts now.
+   *
+   * THE INTENT HALF, which is why this is the right fix rather than a way
+   * around the first one. None of the requests this service makes should ever
+   * be intercepted. The discovery document and the token endpoint belong to
+   * the identity provider, not to this API, and attaching an access token to
+   * the request that obtains an access token is not a thing to leave possible.
+   * ──────────────────────────────────────────────────────────────────────── */
+  private readonly http = new HttpClient(inject(HttpBackend));
   private readonly document = inject(DOCUMENT);
   private readonly apiBase = inject(API_BASE_URL);
 
@@ -131,6 +156,12 @@ export class Session {
    * depends on — intermittently, which is the worst way for it to fail.
    */
   private resolved: Promise<void>;
+
+  /**
+   * The one redemption of the one authorization code this page arrived with.
+   * See completeSignIn.
+   */
+  private redemption: Promise<string> | null = null;
 
   constructor() {
     this.completing.set(this.currentPath().startsWith('/auth/callback'));
@@ -227,7 +258,29 @@ export class Session {
    * registered with the provider and must not vary.
    */
   async signIn(returnTo?: string): Promise<void> {
-    if (!this.endpoints) return;
+    /**
+     * Never a button that silently does nothing.
+     *
+     * There is exactly one reason to be here without endpoints — startup did
+     * not finish — and the useful response is to finish it and carry on, not
+     * to return. This used to be a bare `return`, and the result was a sign-in
+     * button that could be clicked all day with no navigation, no error and
+     * nothing in the console: the single least diagnosable failure this
+     * application was capable of producing.
+     */
+    if (!this.endpoints) {
+      await this.resolve();
+
+      if (!this.endpoints) {
+        this.failure.set('Sign-in is not available: the identity provider could not be reached.');
+        return;
+      }
+    }
+
+    // A new attempt, so the previous one's outcome no longer stands. Without
+    // this, a second sign-in after a failed one would return the first
+    // redemption's answer instead of performing its own.
+    this.redemption = null;
 
     const verifier = randomToken();
     const state = randomToken(16);
@@ -257,11 +310,33 @@ export class Session {
    * Returns where to send the person next, so the callback route navigates and
    * this does not have to know about the router.
    *
-   * The `state` check is not ceremony. It is what ties this response to the
-   * request this tab actually started, and without it a code from somewhere
-   * else could be walked into this browser.
+   * ─────────────────────────────────────────────────────────────────────────
+   * REDEEMING IS IDEMPOTENT, AND THAT IS NOT DEFENSIVENESS — IT IS REQUIRED.
+   *
+   * The callback component asks for this in its constructor, and the shell
+   * mounts and unmounts the outlet it lives in as the session resolves: the
+   * moment redemption succeeds, `completing` goes false, that branch of the
+   * template is torn down, and a moment later another branch renders an outlet
+   * again. The router activates the current route into it — which, until the
+   * navigation below has actually happened, is still the callback route. So
+   * the component is constructed a second time and asks a second time.
+   *
+   * An authorization code is single-use. The second attempt found the flow
+   * already consumed, took the failure branch, and set "that sign-in could not
+   * be completed" over a session that had just succeeded — a sign-in that
+   * worked, followed immediately by a screen saying it had not.
+   *
+   * Caching the promise makes the second caller receive the first answer.
+   * Nothing about the security of the exchange changes: the state check and
+   * the verifier are still used exactly once, by the first call.
+   * ─────────────────────────────────────────────────────────────────────────
    */
-  async completeSignIn(code: string | null, state: string | null): Promise<string> {
+  completeSignIn(code: string | null, state: string | null): Promise<string> {
+    this.redemption ??= this.redeem(code, state);
+    return this.redemption;
+  }
+
+  private async redeem(code: string | null, state: string | null): Promise<string> {
     // The endpoints come from startup, which is running concurrently with this
     // on a page load that landed here.
     await this.resolved;
@@ -270,6 +345,18 @@ export class Session {
     this.remove(FLOW_KEY);
 
     try {
+      /**
+       * Startup never finished, so there was nothing to redeem the code with.
+       *
+       * Saying "that sign-in could not be completed" here would replace an
+       * accurate diagnosis — the provider could not be reached — with a
+       * misleading one, and point whoever reads it at the sign-in flow instead
+       * of at the thing that is actually down. The earlier failure stands.
+       */
+      if (this.state() === 'unavailable' || !this.endpoints) {
+        return '/requests';
+      }
+
       if (!code || !flow || !state || state !== flow.state) {
         this.failure.set('That sign-in could not be completed. Try again.');
         this.state.set('signed-out');

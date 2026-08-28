@@ -28,7 +28,7 @@ Ten slices, schema version 12.
 | **Authentication** | Keycloak, imported from a realm file in this repository; authorization code with PKCE; tokens verified locally; provisioning and the registration policy on first arrival |
 | **Deployment** | container images for both applications, a compose file that brings the whole system up, and Kubernetes manifests behind one kustomization |
 
-**Tests: 466** — 246 API (vitest + supertest), 220 web (Angular + vitest, jsdom).
+**Tests: 473** — 247 API (vitest + supertest), 226 web (Angular + vitest, jsdom).
 **No test needs a running Keycloak, and none needs a database.**
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
@@ -601,17 +601,15 @@ order, narrow viewports or the dark scheme. `notes/` still has no visual QA
 record, and this slice added a sign-in panel, a callback screen and a sign-out
 control to a list that was already long.
 
-**And the Kubernetes manifests have never been applied to a cluster.** They
-render — `kubectl kustomize .` produces sixteen objects, the realm ConfigMap
-included — and they have been read carefully. That is not the same as an API
-server accepting the fields, and this repository's own notes are emphatic about
-the difference: the one real failure in this project was an invented field in a
-Keycloak realm that every test passed straight over.
+**The Kubernetes manifests are no longer in this list.** They have been applied
+to a real cluster — kind v0.30.0, Kubernetes v1.34.0 — accepted object by object
+under `--dry-run=server`, deployed, and signed into through the ingress with the
+real authorization-code flow. `k8s/README.md` carries the record.
 
-There is no cluster on this machine. Docker Desktop's Kubernetes has never been
-installed here, and installing a control plane was not a change to make unasked.
-`kubectl apply -k . --dry-run=server` against any cluster is what closes it, and
-it should be run before those manifests are trusted.
+That is worth noting because applying them caught something rendering never
+could: the realm named only `http://localhost:4200` as a redirect URI, so
+sign-in at the cluster hostname was refused outright. Every manifest was
+correct; the thing they mounted was not.
 
 Specifically unseen by a human:
 

@@ -478,7 +478,19 @@ describe('every /api route establishes an identity first', () => {
    * sign in, so this one route sits in front of the identity middleware. It is
    * the only one that does, and it is asserted here so that it stays that way.
    */
-  it('answers where to sign in without a token, and nothing else', async () => {
+  /**
+   * The payload is exactly what a public OIDC client legitimately publishes,
+   * and `toEqual` rather than `toMatchObject` is the point: this fails if a
+   * field is ever ADDED.
+   *
+   * Nothing about the verification path belongs here. Not the audience — which
+   * is what this API insists a token was minted for, and is a fact about the
+   * server rather than an instruction to the browser. Not the key set, not the
+   * clock tolerance, not the identity mode's internals. An unauthenticated
+   * caller learns where to go and who to say they are, and nothing about how
+   * they will be checked when they come back.
+   */
+  it('publishes only what a public client is entitled to know', async () => {
     const config = await request(app).get('/api/auth/config').expect(200);
 
     expect(config.body.data).toEqual({
@@ -487,8 +499,45 @@ describe('every /api route establishes an identity first', () => {
       clientId: 'feedbackhub-web',
     });
 
+    // Named individually, because "no extra fields" is the assertion above and
+    // this is the reason for it.
+    const serialised = JSON.stringify(config.body);
+    expect(serialised).not.toContain('feedbackhub-api'); // the audience
+    expect(serialised).not.toContain('certs');
+    expect(serialised).not.toContain('CLOCK');
+  });
+
+  /**
+   * ONE unauthenticated route under /api, and this fails if a second appears.
+   *
+   * The behavioural half — bootstrap and requests answering 401 — cannot catch
+   * a NEW route being mounted in front of the identity middleware, because a
+   * test only knows about the paths it names. So this asserts the structure
+   * instead: exactly one router is mounted before attachCurrentUser, and it is
+   * the auth one.
+   *
+   * Adding `app.use('/api/anything', router)` above that line makes the count
+   * two and fails here, which is the whole point of the test.
+   */
+  it('mounts exactly one router in front of the identity middleware', async () => {
+    // Express's own layer stack. Route handlers registered with app.get are
+    // named 'handle'; mounted routers are named 'router'.
+    const stack = (app as unknown as { router: { stack: { name: string }[] } }).router.stack;
+    const identityAt = stack.findIndex((layer) => layer.name === 'attachCurrentUser');
+
+    expect(identityAt).toBeGreaterThan(-1);
+
+    const routersBefore = stack.slice(0, identityAt).filter((layer) => layer.name === 'router');
+
+    expect(routersBefore).toHaveLength(1);
+
+    // And that one is reachable without a token, while everything mounted
+    // after the middleware is not.
+    await request(app).get('/api/auth/config').expect(200);
     await request(app).get('/api/bootstrap').expect(401);
     await request(app).get('/api/requests').expect(401);
+    await request(app).get('/api/settings').expect(401);
+    await request(app).get('/api/categories').expect(401);
   });
 });
 

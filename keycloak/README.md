@@ -35,6 +35,24 @@ You should not need it.
 
 ---
 
+## Why two origins are listed
+
+The client's `redirectUris` and `webOrigins` name both
+`http://localhost:4200` (compose) and `http://feedbackhub.local` (the kind
+cluster), because those are the two ways this repository can be run and a
+redirect URI Keycloak has not been told about is refused outright.
+
+**It is a list of values, not a second realm**, and adding a third environment
+is one entry in each.
+
+It would be neater for these to come from the environment, and that was tried:
+Keycloak's realm import does **not** substitute `${env.WEB_ORIGIN}`. It
+validates the literal string as a URI, rejects it, and refuses to start — the
+same all-or-nothing failure as any other bad field in this file. So the values
+are written out.
+
+A real deployment imports a realm naming its own origin and nothing else.
+
 ## Why the user ids are written down
 
 Each user in this file has a literal `id`. That id becomes the `sub` claim of

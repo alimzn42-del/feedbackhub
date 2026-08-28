@@ -1776,3 +1776,88 @@ deliverable. Dockerfiles for both applications, the compose file completed, and
 Kubernetes manifests. Written knowing what the realm bug taught: every one of
 those files is a schema enforced by something the test suite does not run, so
 each was built and applied rather than written and believed.
+
+---
+
+## 2026-08-28 — The deployment slice, and three things only a cluster found
+
+The artefacts existed from the previous session. This entry is about what
+happened when they were held against a brief that asked specific questions, and
+then applied to a real cluster.
+
+### A correct-looking mechanism whose correctness held only for the first deploy
+
+The API's init container waits for the schema before the process starts,
+because a Job is not an ordering primitive — nothing makes a Deployment wait for
+one. That much was right.
+
+What it waited for was wrong. It polled for the **existence of the
+`schema_migrations` table**, which is a perfectly sensible thing to check and
+is correct exactly once: on a first install. On every deploy after that, the
+table is already there. So a release that adds migration 13 would satisfy the
+check at version 12 and start serving queries against columns that do not exist
+yet.
+
+It reviewed well. It ran correctly the only time it had ever been run. The bug
+was reachable solely on the *second* deployment of a system that had never had
+a first — which is the sort of defect that ships, sits quietly, and surfaces
+months later as data errors during a release nobody connects to it.
+
+Caught by re-reading it while answering a question about migrations, not by any
+test and not by running it. The fix is to compare against the **version**, and
+to derive the expected version from the highest migration file in the image, so
+there is no constant to keep in step with the directory. A pod stuck in `Init`
+is loud; a pod serving a half-migrated schema is not.
+
+Both branches were then run inside the real image against a real MySQL before
+being written into the manifest — the satisfied case (`schema at 12; this image
+expects 12`, exit 0) and the waiting case (retrying, never exiting).
+
+### Keycloak does not substitute environment variables in a realm import
+
+The realm hardcoded `http://localhost:4200` as the client's redirect URI, which
+is fine until the same realm is imported into a cluster where the browser is at
+`http://feedbackhub.local`. Sign-in there failed with
+`Invalid parameter: redirect_uri`.
+
+The attractive fix was `"redirectUris": ["${env.WEB_ORIGIN}/auth/callback"]` —
+one file, values from the environment, exactly what the brief asks for
+everywhere else. It does not work. Keycloak validates the literal string as a
+URI, rejects it, and refuses to start:
+
+```
+ERROR: Failed to start server in (development) mode
+ERROR: Invalid client feedbackhub-web: A redirect URI is not a valid URI
+```
+
+The same all-or-nothing shape as the `postLogoutRedirectUris` failure earlier in
+this project: one bad field, no realm at all, and a container that will not
+come up. Worth noticing that the *fix* for an environment-configuration problem
+was itself an unverified assumption about someone else's schema, and failed the
+same way the original bug did.
+
+So both origins are listed, as values, with the reasoning in
+`keycloak/README.md`. A list of two is not a second realm.
+
+### The deployment was reported as failing while it was working
+
+`scripts/deploy-k8s.sh` waited five minutes for the migration Job and then
+reported a timeout. The Job was fine — MySQL's image was still being pulled
+*inside the kind node*, which took thirteen minutes on a cold cluster. Nothing
+was broken except the number in the script.
+
+Two changes: wait on the backing services first, so the message on screen names
+the thing that is actually slow, and raise the timeouts to something a cold
+cluster can meet. A deploy script that cries wolf teaches people to ignore it.
+
+### What applying it actually proved
+
+`kubectl apply -k . --dry-run=server` accepted every object, which is the check
+that had been missing when these manifests were "rendered and reviewed". Then
+the full apply, and a real sign-in through the ingress — authorization code with
+PKCE, the seeded admin matched onto row 1 rather than provisioned, no role in
+the payload.
+
+The manifests were, as it turned out, correct. The thing they mounted was not.
+That is worth stating precisely, because "the manifests were fine" and "the
+deployment worked" are different claims, and only running it separates them.

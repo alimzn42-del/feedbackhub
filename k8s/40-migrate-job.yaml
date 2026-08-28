@@ -65,12 +65,12 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
-              drop: ["ALL"]
+              drop: ['ALL']
       containers:
         - name: migrate
           image: feedbackhub-api:local
           imagePullPolicy: IfNotPresent
-          command: ["node", "scripts/migrate.mjs", "up"]
+          command: ['node', 'scripts/migrate.mjs', 'up']
           envFrom:
             - configMapRef:
                 name: feedbackhub-config
@@ -90,4 +90,4 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
-              drop: ["ALL"]
+              drop: ['ALL']

@@ -54,23 +54,79 @@ and the three people are all imported from
 [`keycloak/realm-feedbackhub-development.json`](keycloak/realm-feedbackhub-development.json)
 when the container starts.
 
-### Or run the whole thing in containers
+## Deployment
+
+Three ways to run this, in increasing order of how much of the deployment story
+they exercise. All of them are local; none of them is a production
+configuration, and what would change for one is named at the end.
+
+### Everything in containers
 
 Nothing on the host but Docker — no Node, no terminals left open:
 
 ```bash
 cp .env.example .env
-docker compose up -d --build          # database, Keycloak, API, web
-
+docker compose up -d --build                            # all four services
 docker compose run --rm migrate node scripts/seed.mjs   # once
 ```
 
-Then <http://localhost:4200>, same credentials. The migration runs as its own
-one-shot service and the API waits for it to succeed, so a fresh `up` gives a
-working board rather than an API talking to an empty schema.
+Then <http://localhost:4200> and sign in as `admin@feedbackhub.local` /
+`feedbackhub-dev`. Keycloak's admin console is at <http://localhost:8080/admin>
+with the account in `.env`; you should not need it.
 
-For Kubernetes, see [k8s/README.md](k8s/README.md) — `kubectl apply -k .` from
-this directory.
+**What comes up, and which parts are review scaffolding:**
+
+| Service | | |
+|---|---|---|
+| `mysql` | the database | **published on 3307 for local review only** — nothing outside the compose network needs it, and a deployment would not expose it |
+| `keycloak` | the identity provider | **local review only as configured**: `start-dev`, HTTP with no certificate, its database inside the container, and the development realm with three published passwords |
+| `migrate` | applies the schema, then exits | part of the deployment. The API waits for it to succeed |
+| `api` | the API | part of the deployment. **Deliberately has no published port** — the web tier proxies it, the same as in Kubernetes |
+| `web` | the Angular bundle behind nginx | part of the deployment. The only thing published |
+
+Every value comes from the environment; `.env.example` documents all of them
+and no credential is a literal in `docker-compose.yml`.
+
+### Kubernetes, on a local cluster
+
+A local distribution is the point — what is being shown is the manifests, not a
+cloud account.
+
+```bash
+kind create cluster --name feedbackhub --config k8s/kind-cluster.yaml
+kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
+kubectl wait -n ingress-nginx --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller --timeout=300s
+
+./scripts/deploy-k8s.sh        # builds, loads, creates the Secret, applies, seeds
+```
+
+Add to your hosts file:
+
+```
+127.0.0.1  feedbackhub.local
+127.0.0.1  auth.feedbackhub.local
+```
+
+Then <http://feedbackhub.local>, same credentials. Keycloak is on its own host,
+<http://auth.feedbackhub.local> — it has to be, because the address a person
+signs in at becomes the `iss` of every token they carry.
+
+The first run pulls MySQL and Keycloak inside the node and can take **fifteen
+minutes**. `k8s/README.md` covers the shape and the reasoning.
+
+### What changes for a real environment
+
+Values, not structure. The manifests themselves do not move.
+
+| | Local | Real |
+|---|---|---|
+| Secrets | `scripts/deploy-k8s.sh` creates them | External Secrets, a SealedSecret, or SOPS — see `k8s/11-secret.example.yaml` |
+| Realm | `-development`, three published passwords, fixed user ids | a realm with no `credentials` block; people come from the directory |
+| Keycloak | `start-dev`, in-container database | `start --optimized`, external database, TLS |
+| Ingress | plain HTTP, `.local` hostnames | TLS via cert-manager, real hostnames |
+| Images | `:local`, built and side-loaded | a registry, pinned by digest |
+| Database | a 5Gi PVC in the cluster | a managed instance, backed up |
 
 ### Tests
 

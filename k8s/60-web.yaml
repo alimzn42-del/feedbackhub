@@ -79,7 +79,7 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
-              drop: ["ALL"]
+              drop: ['ALL']
           # The bundle is baked into the image and never written to. These are
           # the only paths nginx needs to write, and they are memory rather
           # than disk: the config it renders at startup, its pid file, and the

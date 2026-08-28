@@ -367,11 +367,49 @@ collides with the unique constraint on `email` — the one account that can reac
 the admin screens unable to get in, on a board that cannot promote a replacement.
 
 **`GET /api/auth/config` is the only route under `/api` without a token, and it
-is not a second `/api/bootstrap`.** Bootstrap answers "who am I and how is this
-board configured for me", every word of which presupposes an identity. This
-answers "where do I go to become somebody", which by definition cannot. It also
-keeps the browser from carrying its own copy of the realm and client id, where
-it could be pointed at a realm the API does not trust.
+is not a second `/api/bootstrap`.**
+
+Bootstrap answers *"who am I, and how is this board configured for me"* — every
+word of which presupposes an identity, which is why it is authenticated. This
+answers *"where do I go to become somebody"*, which by definition cannot be.
+**One is the question you ask before you are able to ask the other.** They are
+not two ways of asking one thing, and folding them into a single route would
+either make the sign-in configuration require a token that does not exist yet,
+or make the startup payload readable by strangers.
+
+Two tests hold it. One asserts the payload is exactly `{mode, issuer, clientId}`
+with `toEqual`, so it fails if a field is ever *added* — nothing about the
+verification path belongs in it, not the audience, not the key set, not the
+clock tolerance. An unauthenticated caller learns where to go and who to say
+they are, and nothing about how they will be checked when they come back.
+
+The other asserts the *structure*: exactly one router is mounted in front of
+the identity middleware. A behavioural test can only 401 the paths it happens
+to name and would never notice a new unauthenticated route being added, so this
+counts the layers instead. Mounting a second one makes the count two and fails.
+
+**The frontend's runtime configuration comes from that endpoint rather than
+from a file baked into the image.** The three values that vary per environment
+are not one problem:
+
+- *The API URL does not vary.* `API_BASE_URL` is the relative path `/api`; the
+  browser always talks to its own origin and the web tier's nginx proxies to
+  wherever the API is. The one environment-specific value is that upstream,
+  substituted into the nginx config at container start. No API URL is ever
+  compiled into the bundle, and CORS never arises anywhere in this application.
+- *The issuer and client id* are fetched at runtime from `/api/auth/config`.
+
+A static `config.json` templated into the web image was the obvious
+alternative and is worse for one reason: the API already holds the issuer and
+audience *because it verifies against them*, so a file for the browser is a
+second copy of the same fact. When those two drift, the browser gets a token
+from realm A and presents it to an API trusting realm B, and the symptom is a
+401 that reads like a token bug. With the endpoint they cannot disagree. It
+also costs nothing — a config file is equally an HTTP fetch before bootstrap —
+and it composes with the development seam, which a static file cannot: the
+endpoint answers `mode: 'development-seam'` and the browser skips the sign-in
+flow entirely, because that is a property of the API build rather than of the
+deployment.
 
 **A settings screen resolves at the level it WRITES, not at the level the
 person experiences.** The administrative document is resolved with the caller's
@@ -1082,16 +1120,52 @@ One request path everywhere, rather than an ingress rule and an nginx `location`
 that can drift apart — and CORS never enters into this application at all.
 `WEB_ORIGIN` is a fallback for `ng serve` without the proxy and nothing else.
 
-**Migrations are a job, and the API waits for the schema rather than for the
-job.** An API that migrates on boot cannot run two replicas without two
-processes racing to alter the same tables, and it buries a schema failure inside
-a deploy, where it reads as "the application will not start" rather than
-"migration 13 failed".
+**Migrations are a job, and the API waits for the schema VERSION rather than for
+the job.** An API that migrates on boot cannot run two replicas without two
+processes racing to alter the same tables — `schema_migrations` is bookkeeping,
+not a lock, and both can read version 12 and both try to apply 13. It also
+buries a schema failure inside a deploy, where it reads as "the application will
+not start" rather than "migration 13 failed".
 
 A Job is not an ordering primitive either — nothing makes a Deployment wait for
-one — so the API's init container blocks until `schema_migrations` exists, which
-is the fact it actually depends on rather than a sleep. Seeding is in neither:
-it is baseline content and a decision, not a consequence of starting the system.
+one — so the API's init container blocks until the database is at the version
+the image was built against.
+
+**The version, not the table.** The first draft waited for `schema_migrations`
+to exist, which is correct exactly once: on a first install. On every later
+deploy the table is already there, so the API would start against the old schema
+and serve queries for columns that do not exist yet — a silent, data-shaped
+failure, which is the worst class to ship. The expected version is derived from
+the highest migration file *in the image*, so there is no number to keep in step
+with the migrations directory, and a pod stuck in `Init` is a loud and
+diagnosable failure instead.
+
+Seeding is in neither: it is baseline content and a decision, not a consequence
+of starting the system.
+
+**Kubernetes Secrets are referenced by name and their values are never
+committed — while the development realm's passwords are.** That is a boundary
+rather than an inconsistency, and it is worth stating because it does not read
+as one at a glance.
+
+The realm file is **local-review tooling**. It is named `-development`, it
+documents itself as such in `keycloak/README.md`, and its three passwords exist
+so that `docker compose up` is followed by a working sign-in rather than a
+question. Nothing deploys it.
+
+The Kubernetes Secret is **part of the deployment story being assessed**, and a
+manifest is read as a statement of approach. A reviewer opening one and finding
+real-looking values in `stringData` registers that before they read any comment
+explaining why it was fine — and "secrets are referenced by name, never
+committed" is the single clearest signal that file can send. The convenience of
+one `kubectl apply` does not outweigh what the committed file says about how
+credentials are handled.
+
+So: `k8s/11-secret.example.yaml` shows the shape and is never applied,
+`scripts/deploy-k8s.sh` creates the real Secret and then applies, and the
+Deployments are byte-identical whether the values come from that script, from
+External Secrets, from a SealedSecret or from SOPS. What changes between local
+and a real cluster is values, not structure.
 
 **`runAsNonRoot` in the pod is not a duplicate of `USER node` in the
 Dockerfile.** The Dockerfile is a statement of intent by whoever wrote it; the

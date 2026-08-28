@@ -1,0 +1,32 @@
+# A local cluster for reviewing the manifests. LOCAL REVIEW ONLY — this file
+# describes a laptop, not an environment.
+#
+#     kind create cluster --name feedbackhub --config k8s/kind-cluster.yaml
+#
+# The two things it does beyond a default kind cluster, both so the Ingress in
+# 70-ingress.yaml is actually reachable from a browser:
+#
+#   - labels the control-plane node `ingress-ready`, which is the selector
+#     ingress-nginx's kind deployment uses
+#   - maps host ports 80 and 443 into the node, so http://feedbackhub.local
+#     resolves through to the controller
+#
+# Nothing in k8s/ depends on this file. A real cluster brings its own nodes and
+# its own ingress controller, and the manifests are unchanged.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP

@@ -141,6 +141,53 @@ describe('Session', () => {
     expect(session.failure()).toBeTruthy();
   });
 
+  /**
+   * The least diagnosable failure this application was capable of producing: a
+   * sign-in button that navigates nowhere, logs nothing and reports nothing,
+   * because startup had not finished and `signIn` returned early.
+   */
+  it('recovers rather than doing nothing when startup did not finish', async () => {
+    const session = start();
+
+    await settle();
+    http.expectOne('/api/auth/config').flush('', { status: 503, statusText: 'Unavailable' });
+    await settle();
+    expect(session.isUnavailable()).toBe(true);
+
+    // The click. It retries startup rather than returning.
+    const leaving = session.signIn('/requests');
+
+    await settle();
+    http
+      .expectOne('/api/auth/config')
+      .flush({ data: { mode: 'keycloak', issuer: ISSUER, clientId: 'feedbackhub-web' } });
+    await settle();
+    http.expectOne(`${ISSUER}/.well-known/openid-configuration`).flush({
+      authorization_endpoint: AUTHORIZE,
+      token_endpoint: TOKEN,
+      end_session_endpoint: END_SESSION,
+    });
+    await leaving;
+
+    expect(browser.assigned[0]).toContain(AUTHORIZE);
+  });
+
+  it('says so, rather than nothing, when the retry also fails', async () => {
+    const session = start();
+
+    await settle();
+    http.expectOne('/api/auth/config').flush('', { status: 503, statusText: 'Unavailable' });
+    await settle();
+
+    const leaving = session.signIn('/requests');
+    await settle();
+    http.expectOne('/api/auth/config').flush('', { status: 503, statusText: 'Unavailable' });
+    await leaving;
+
+    expect(browser.assigned).toEqual([]);
+    expect(session.failure()).toBeTruthy();
+  });
+
   describe('leaving for the provider', () => {
     it('sends a code challenge and never the verifier', async () => {
       const session = start();
@@ -223,6 +270,76 @@ describe('Session', () => {
       await signInAndReturn(session);
 
       expect(session.isCompletingSignIn()).toBe(false);
+    });
+
+    /**
+     * Asked twice, redeemed once.
+     *
+     * This is not a hypothetical. The shell mounts and unmounts the outlet the
+     * callback component lives in as the session resolves — succeeding makes
+     * `completing` false, which tears that branch down, and a moment later
+     * another branch renders an outlet into which the router re-activates the
+     * still-current callback route. The component is constructed again and asks
+     * again.
+     *
+     * An authorization code is single-use, so the second attempt used to find
+     * the flow already consumed, take the failure branch, and write "that
+     * sign-in could not be completed" over a session that had just succeeded.
+     * A sign-in that worked, followed immediately by a screen saying it had
+     * not — which is exactly what a browser showed.
+     */
+    it('redeems the code once, however many times it is asked', async () => {
+      const session = start('/auth/callback');
+      await answerDiscovery();
+      await session.signIn('/requests/42');
+      const flow = JSON.parse(browser.store.get('feedbackhub.auth.flow')!);
+
+      const first = session.completeSignIn('an-authorization-code', flow.state);
+      // The second construction, before the first has finished.
+      const second = session.completeSignIn('an-authorization-code', flow.state);
+
+      await settle();
+      // One exchange, not two. expectOne fails outright if there were two.
+      http.expectOne(TOKEN).flush({
+        access_token: 'an-access-token',
+        refresh_token: 'a-refresh-token',
+        expires_in: 300,
+      });
+
+      expect(await first).toBe('/requests/42');
+      expect(await second).toBe('/requests/42');
+      expect(session.isSignedIn()).toBe(true);
+      expect(session.failure()).toBeNull();
+
+      // And again after it has settled, which is the case that actually
+      // happened: the second component is constructed after the first
+      // succeeded, not alongside it.
+      expect(await session.completeSignIn('an-authorization-code', flow.state)).toBe(
+        '/requests/42',
+      );
+      expect(session.isSignedIn()).toBe(true);
+      expect(session.failure()).toBeNull();
+      http.verify();
+    });
+
+    /** A fresh attempt after a failed one is a fresh attempt, not the old answer. */
+    it('starts over when somebody presses sign in again', async () => {
+      const session = start('/auth/callback');
+      await answerDiscovery();
+      await session.signIn('/requests');
+
+      await session.completeSignIn('a-code', 'the-wrong-state');
+      expect(session.isSignedIn()).toBe(false);
+
+      await session.signIn('/requests/7');
+      const flow = JSON.parse(browser.store.get('feedbackhub.auth.flow')!);
+      const landing = session.completeSignIn('a-second-code', flow.state);
+
+      await settle();
+      http.expectOne(TOKEN).flush({ access_token: 'fresh', expires_in: 300 });
+
+      expect(await landing).toBe('/requests/7');
+      expect(session.isSignedIn()).toBe(true);
     });
 
     /**

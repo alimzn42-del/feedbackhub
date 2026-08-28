@@ -57,7 +57,7 @@ spec:
       containers:
         - name: keycloak
           image: quay.io/keycloak/keycloak:26.4.2
-          args: ["start-dev", "--import-realm"]
+          args: ['start-dev', '--import-realm']
           ports:
             - name: http
               containerPort: 8080
@@ -85,15 +85,15 @@ spec:
                   name: feedbackhub-config
                   key: AUTH_HOST
             - name: KC_HOSTNAME_STRICT
-              value: "false"
+              value: 'false'
             # TLS terminates at the ingress, so this speaks HTTP and trusts the
             # forwarded headers to know what the browser actually used.
             - name: KC_HTTP_ENABLED
-              value: "true"
+              value: 'true'
             - name: KC_PROXY_HEADERS
               value: xforwarded
             - name: KC_HEALTH_ENABLED
-              value: "true"
+              value: 'true'
           volumeMounts:
             - name: realm
               mountPath: /opt/keycloak/data/import
@@ -128,7 +128,7 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
-              drop: ["ALL"]
+              drop: ['ALL']
       volumes:
         - name: realm
           configMap:

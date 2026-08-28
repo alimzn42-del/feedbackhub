@@ -30,11 +30,14 @@
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": false,
-      "redirectUris": ["http://localhost:4200/auth/callback"],
-      "webOrigins": ["http://localhost:4200"],
+      "redirectUris": [
+        "http://localhost:4200/auth/callback",
+        "http://feedbackhub.local/auth/callback"
+      ],
+      "webOrigins": ["http://localhost:4200", "http://feedbackhub.local"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:4200"
+        "post.logout.redirect.uris": "http://localhost:4200##http://feedbackhub.local"
       },
       "defaultClientScopes": ["acr", "basic", "email", "profile", "roles", "web-origins"],
       "optionalClientScopes": [],

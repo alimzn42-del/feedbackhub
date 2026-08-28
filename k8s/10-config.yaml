@@ -23,7 +23,7 @@ data:
 
   # ── Database ─────────────────────────────────────────────────────────────
   DB_HOST: feedbackhub-mysql
-  DB_PORT: "3306"
+  DB_PORT: '3306'
   DB_NAME: feedbackhub
   DB_USER: feedbackhub
 
