@@ -1,6 +1,7 @@
 # AI collaboration log
 
-Raw working notes. Appended to as work happens, not tidied afterwards. Records
+Raw working notes. Appended to as work happens; two later passes rewrote
+earlier entries (`d52fbee`, `93ee4e1`), both visible in git. Records
 what was asked, what came back, and what changed between the first output and
 what was kept — the wrong, outdated and rejected parts, and also the places
 where the output was better than the instruction, because a log that only

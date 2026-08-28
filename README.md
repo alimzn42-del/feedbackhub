@@ -28,7 +28,9 @@ a database.
 ### The commit history
 
 The history is part of the deliverable and has not been squashed: every commit
-is one piece of work with its reasoning in the message. Every commit also
+is one piece of work, and the message usually carries its reasoning — not
+always: `7467f9e` fixed the two browser-only authentication defects and its
+message mentions neither. Every commit also
 carries a trailer naming the assistant, and no commit carries none. Three
 spellings so far:
 

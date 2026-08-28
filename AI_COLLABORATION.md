@@ -6,21 +6,30 @@ Every commit carries an AI trailer — the convention is documented in the
 [README](README.md#the-commit-history) — and that is an accurate statement
 rather than a courtesy.
 
+I directed rather than wrote because the question this document exists to
+answer — what an assistant produces under direction, and where it fails — could
+not be answered once hand-written lines were mixed in with generated ones. What
+I kept for myself was scope, the decisions, the refusals, and reviewing the
+reasoning behind each piece of output rather than only the output.
+
 This document is my considered account of how that worked, what it was good at,
 and — at greater length, because it is the more useful half — where it failed
 and what those failures had in common.
 
 The raw record is [`notes/ai-log.md`](notes/ai-log.md): two thousand lines
-appended as work happened and never tidied afterwards, including the wrong turns
-and the rejected output. The prompts I sent are committed verbatim as
+appended as work happened, including the wrong turns and the rejected output.
+It was not left untouched: two later passes rewrote earlier entries, and both
+are visible in git. `d52fbee` deleted 54 lines and rewrote the slice-one entry;
+`93ee4e1` replaced a seven-line note written at the time with a much longer
+retrospective. The prompts I sent are committed verbatim as
 `notes/claude-code-*.md`. This file is the summary. Where they disagree, the log
-is what actually happened.
+is what actually happened, read with that caveat.
 
 - Tool: **Claude Code** (Opus 5, latterly Fable 5)
 - Scope: ten slices, from an empty directory to a deployed system, then a test
   plan aimed at what that system's own suite could not see
-- Result: 511 tests — 481 needing nothing running, 30 against a real MySQL —
-  applied to a real Kubernetes cluster and signed into
+- Result: 512 tests — 482 needing nothing running (247 API, 235 web), 30 against
+  a real MySQL — applied to a real Kubernetes cluster and signed into
 
 ---
 
@@ -320,7 +329,8 @@ the log shows it was followed.
 
 I found both by opening the application myself. Neither was reachable by any
 test that existed, and the second made every first page load fail — the single
-most visible defect in the project, invisible to 460 passing tests.
+most visible defect in the project, invisible to every test that existed at
+the time — 473 by `7467f9e`, the commit that fixed them.
 
 ### One was found by re-reading
 
@@ -384,10 +394,11 @@ the handoff and in `k8s/README.md` rather than omitted.
 
 ## Honest limits
 
-- **The screens have never been audited by a human** for layout, keyboard focus
-  order, narrow viewports, or the dark scheme as an explicit choice. Every
-  handoff since slice five has said so. Both browser-only defects came from this
-  area, which suggests the debt is where the remaining defects are.
+- **The screens went unaudited by a human until the very end.** Every handoff
+  from slice five on said so, and both browser-only defects came from that
+  area. I have since gone through them myself: layout, keyboard focus order,
+  and the dark scheme as an explicit choice. Still unchecked: mobile viewports,
+  and whether the longer French wording fits its controls.
 - **The French interface is complete and unexamined.** Three tests prove the
   catalogue has no gaps; nothing has checked whether the longer wording fits the
   controls.
@@ -408,10 +419,10 @@ the handoff and in `k8s/README.md` rather than omitted.
 
 | | |
 |---|---|
-| [`notes/ai-log.md`](notes/ai-log.md) | the raw log, appended as work happened, not tidied |
+| [`notes/ai-log.md`](notes/ai-log.md) | the raw log, appended as work happened; two entries rewritten later, see above |
 | `notes/claude-code-*.md` | the prompts I sent, verbatim — briefs, reviews, and answers |
 | [`DECISIONS.md`](DECISIONS.md) | what was decided and why |
 | [`SCOPE.md`](SCOPE.md) | what is in, what is ruled out, and why |
 | [`notes/handoff.md`](notes/handoff.md) | the state of play, including what is unverified |
 | [`notes/test-plan.md`](notes/test-plan.md) | the layered test plan, and the probes it predicted |
-| `git log` | every commit, each with its reasoning in the message |
+| `git log` | every commit, usually with its reasoning in the message — not always: `7467f9e` fixed the two browser-only auth defects and its message mentions neither |

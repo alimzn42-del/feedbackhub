@@ -39,7 +39,7 @@ permission model.
 | Comment approval | the feature flag: comments held until an admin approves them, judged in the thread |
 | Account | display name, preferences, and deleting your own account |
 | Language | English and French, applied without a reload |
-| Authentication | Keycloak: email/password and one social provider, with the realm imported from this repository. Registering and signing in both happen on Keycloak's pages; this application has no form for either |
+| Authentication | Keycloak: email/password, with the realm imported from this repository. The one social provider is scripted but not delivered — see [below](#where-this-leaves-the-work). Registering and signing in both happen on Keycloak's pages; this application has no form for either |
 | Deployment artefacts | container images for both applications, a complete compose file, and Kubernetes manifests |
 
 ### What "an admin moderates" means here, exactly
@@ -188,13 +188,19 @@ retiring one would strand them.
 
 ## Where this leaves the work
 
-Everything in the "in scope" table is built. What is left is not a feature — it
-is the standing debt named at the end of every handoff:
+Everything in the "in scope" table is built, with one exception:
 
-**Nobody has audited the screens in a browser.** Layout, keyboard focus order,
-narrow viewports, the dark scheme as an explicit choice, and whether the longer
-French wording fits the controls it now sits in. `notes/` still has no visual QA
-record.
+**The social provider is scripted, not delivered.** The realm file imports no
+identity provider. `keycloak/add-google-provider.mjs` adds Google to a running
+realm, refuses to run without `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and
+nothing in this repository — no `.env`, no commit, no log entry — records it
+ever having been run. Sign-in is email and password only.
 
-That is the next thing worth doing, and it has been the next thing worth doing
-for five handoffs.
+The rest is the standing debt named at the end of every handoff, now partly
+paid:
+
+**The screens have been gone through by a human** — layout, keyboard focus
+order, and the dark scheme as an explicit choice — after five handoffs had named
+that as the next thing worth doing. Still unchecked: mobile viewports, and
+whether the longer French wording fits the controls it sits in. `notes/` still
+has no visual QA record.
