@@ -3,6 +3,78 @@
 Why the code looks the way it does. Reversed decisions stay in the record with
 the reason they were reversed.
 
+## Decomposition
+
+**One process, in modules — a modular monolith, argued for rather than defaulted
+into.** The API is one deployable: one Express process, one connection pool, and
+`src/modules/*` where each module is routes → controller → service → repository
+over the tables it owns, with five cross-cutting modules (`config`, `db`, `http`,
+`policy`, `auth`) that no feature module duplicates. The web bundle is a second
+artefact and a second container, but it is a static file server; there is one
+thing here that runs code on a request. The alternative — a decomposition into
+services along those module lines — was considered for this system and argued
+against, for this system, on four grounds.
+
+**Every interesting read joins across every would-be service boundary.** The
+board is one SQL statement over requests, users, categories, statuses, votes and
+comments — the vote count and the comment count are derived at read, by
+decision, and the comment count applies the same visibility rule the thread
+does. Split into services, that page becomes either six calls assembled in a
+gateway, or services reading each other's tables, which is a distributed
+monolith: the coupling of one process with the failure modes of several.
+
+**The invariants are transactional and cross the module lines.** Whether a
+comment is removed or hidden is decided with its reply count read under a lock;
+the last-admin floor is decided with the admin rows locked; the submission
+limit is counted with the author's row locked. Each is a `SELECT … FOR UPDATE`
+and a write in one transaction, which works because there is one database.
+Across services each becomes a saga or a distributed lock — machinery this
+board would carry to protect invariants a transaction protects for free.
+
+**Authorization is fifteen rules over two roles, in one module.** Every handler
+asks `src/policy/`; nothing else contains a rule. Services would each need the
+actor and the rules — either a copy per service, which drifts, or one
+authorization service behind a network call, which puts an outage in front of
+every request. The identity seam is already the one network dependency the
+request path tolerates, and it tolerates it by caching the key set.
+
+**Nothing here has a load profile of its own.** The stated ceiling is thousands
+of requests, not millions (below). The hottest write is a vote, which is one
+`INSERT` under a primary key; the hottest read is the board, which is one
+indexed query and a measured filesort. No component is hot enough, slow enough,
+or differently shaped enough to justify its own lifecycle, and a reviewer has to
+bring the whole thing up on a laptop with one command — every additional
+process is a failure mode they have to diagnose.
+
+**What the seams actually are.** The decomposition exists; it is enforced by
+review rather than by a network. SQL appears only in `*.repository.ts`, and a
+module reaches another module's data through that module's repository, never
+its tables. Permission rules appear only in `src/policy/`. One error envelope is
+produced by one middleware. Identity is one function behind one middleware — the
+seam that let Keycloak replace the development stand-in without a policy,
+service or handler changing. Settings resolve through one registry, and modules
+consume values without knowing which layer supplied them. One shared fragment is
+deliberate and named: the comment-visibility SQL (`VISIBLE_COMMENT`) is exported
+by the comments repository and used by the requests repository, so the count on
+a card and the thread beneath it cannot disagree. A service split would have to
+break exactly that guarantee first, which is itself an argument about where the
+seams are.
+
+**What would split first, and what would force it.** First out would be
+notification delivery — email is out of scope today and the preferences that
+exist are consumed by nothing, but it is the one candidate with no synchronous
+read the board depends on, an inherently asynchronous shape, and a failure
+domain that is somebody else's server. It would leave as an outbox table and a
+worker process, not as a service with an API. Second would be search, only if
+the board outgrew `LIKE` over thousands of rows, which the measured plan says it
+is nowhere near. What would force either is people, not load: more than one
+team needing to deploy on its own cadence, or a workload whose shape —
+queue-driven, index-driven — stops fitting a request/response process. Until
+then the module boundaries are the decomposition, and a network is a far more
+expensive way to enforce the same lines. There is likewise no backend-for-
+frontend: the same-origin proxy does the one thing a BFF would, and SCOPE.md
+rules the rest out.
+
 ## Data
 
 **Settings live in two key/value tables, not one table and not a document.**
@@ -953,7 +1025,30 @@ appear.
 expects deletion to erase their comments and finds them still there was misled by
 an interface too brief to be honest.
 
-**Angular 22, standalone components, signals, typed reactive forms.**
+**Angular 22, standalone components, signals, typed reactive forms, no
+zone.js.** Angular is required by the brief; the version and the idiom are not,
+and both are choices. Angular 22 was the latest stable release when the project
+started, and the brief asks for latest stable; the cost of that choice was a
+Node version the development machine did not have, which is the next decision.
+Standalone components are the only style the current CLI scaffolds, and they
+make a screen's dependencies visible in its own file rather than in a module
+declaration three directories away. Signals hold the state, because the state of
+this application is small and synchronous — a resolved startup payload, a
+session, the rows of one page — and a signal with a `computed` over it is the
+whole of what that needs; a store library would be a second place for the same
+values to live. Reads that decide what a screen shows use `httpResource`, so a
+component's data is a signal like everything else it renders from, with the
+loading, error and empty states derived rather than tracked by hand; writes use
+`HttpClient` observables, because a write is a one-shot request and an
+observable is the honest shape for that. The forms that file and edit a request
+are the main write surface, and typed reactive forms make a change to a field's
+type a compile error in the form that binds it rather than a runtime surprise in
+the payload. There is no `zone.js`: change detection is driven by the signals,
+which removes the class of "why did this re-render" questions that monkey-
+patched timers used to answer, and it is the default the framework now steers
+new applications toward. The same reasoning ruled out a component library — the
+screens need a dozen controls, and a library's theme, bundle and upgrade cadence
+would cost more than writing them.
 
 **Node is pinned in the repository.** Angular 22 requires Node 24.15.0 or newer
 and the development machine had 24.12.0. Rather than deviating from "latest
