@@ -157,7 +157,10 @@ Short answers to questions that have come back more than once.
 **Deleting an account clears `external_id`, and a returning person gets a new
 account rather than recovering the old one.** That is the intended meaning of a
 deletion request, not an oversight, and it is not a question the identity
-provider needs to be consulted about. See
+provider needs to be consulted about. For the lifetime of the token they were
+holding — 300 seconds, the realm's access-token lifespan — the departed subject
+is refused outright, so the same session cannot walk back in; after that,
+signing in again starts the new account. See
 [DECISIONS.md](DECISIONS.md#deleting-an-account-is-an-update-not-a-delete).
 
 **The registration policy is applied by this application, not by Keycloak.**

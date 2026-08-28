@@ -185,6 +185,23 @@ refused with `Invalid parameter: redirect_uri`. A rendered manifest cannot
 show that — the manifests were all correct; the thing they mounted was not.
 See `notes/ai-log.md`.
 
+### Known issue: port 80 on this machine belongs to IIS, not to the cluster
+
+`k8s/kind-cluster.yaml` maps container port 80 to host port 80, but on the
+machine these manifests were verified on, `docker port feedbackhub-control-plane`
+shows only `443/tcp -> 0.0.0.0:443`: the port-80 mapping is not in effect —
+either refused at cluster creation because the port was taken, or the cluster
+predates that line. Microsoft IIS is listening on 127.0.0.1:80, so
+`http://feedbackhub.local/` answers **200 from IIS's default page, not from the
+board**, and `http://auth.feedbackhub.local/…` answers an IIS 404 that is easy
+to misread as a broken ingress rule. The rules are fine: everything above was
+run over https on 443, where ingress-nginx serves its self-signed certificate
+and both hosts route correctly.
+
+To use plain http, stop IIS (`iisreset /stop`, or the World Wide Web Publishing
+Service) and recreate the kind cluster so the mapping takes. Not a defect in the
+manifests; a fact about this host that anybody testing here needs to know first.
+
 ### Still untested
 
 **A redeploy that adds a migration while replicas are running.** Both branches

@@ -123,6 +123,41 @@ exists even though the fields are already cleared, because the identity seam has
 to refuse a departed account and a screen has to tell a real person called
 "Deleted user" from an account that is gone.
 
+**A departed subject is refused for 300 seconds, and is then a stranger.**
+Clearing `external_id` means the seam cannot tell a first arrival from a subject
+that just left — and the access token that subject was holding stays valid for
+up to the realm's `accessTokenLifespan`. Without a memory of the departure, the
+very next request on that token was provisioned a fresh account, and the person
+who pressed Delete was signed back in as user N+1 with their own name on it
+(probe P-14). So the anonymised row keeps `deleted_subject_hash`, a SHA-256 of
+the subject (migration 013), and `resolveFromToken` refuses that subject with
+`401 token.account-deleted` while `deleted_at` is inside
+`DEPARTURE_GRACE_SECONDS`.
+
+The length is **300 seconds, because that is the realm's access-token lifespan,
+and for no other reason.** Shorter leaves the tail of the token's life open,
+which is the failure being closed. Longer refuses somebody who genuinely came
+back, for nothing: once every token minted before the deletion has expired,
+there is no replay left to refuse. The refresh token does not enter into it —
+the client ends the Keycloak session when it deletes the account, and a refresh
+grant against an ended session fails at the provider. The number is a constant
+in `src/auth/subject.ts`, deliberately next to the sentence that ties it to the
+realm; a realm minting longer tokens has to move it, and leaving it behind
+reopens exactly the tail it exists to cover.
+
+**After the window lapses, the same person signing in again gets a new
+account.** That is a decision and not a side effect of the hash going stale.
+The provider's account is untouched by a board deletion — this application
+cannot reach Keycloak's users and does not try — so the person can sign in with
+the same credentials; the seam sees a subject with no row and no recent
+departure, and provisions a fresh one: new id, new empty preferences, nothing
+of the old row, which by then says nothing about anybody. Nothing is recovered
+because there is nothing left to recover. This is the precise meaning of
+SCOPE's "a returning person gets a new account", and it is why the account
+screen and the README no longer say "you can never sign in again" — that was
+false. What is true is that *this* account ends, and a later sign-in starts
+another.
+
 **MySQL 8.** Chosen over Postgres for familiarity and faster diagnosis inside a
 timebox, and over MongoDB because the data is strongly relational — the
 "unbounded comments per user" worry is what a foreign key is for, not a reason

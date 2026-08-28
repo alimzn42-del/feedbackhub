@@ -106,7 +106,7 @@ describe('the bearer token interceptor', () => {
         error: {
           code: 'UNAUTHENTICATED',
           message:
-            'This account has been deleted. You have been signed out; create a new account to use the board again.',
+            'This account has been deleted and you have been signed out. Signing in again in a few minutes starts a new, empty account.',
           requestId: 'req-deleted',
         },
       },

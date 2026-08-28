@@ -144,8 +144,8 @@ async function resolveFromToken(req: Request): Promise<Actor> {
    */
   if (await departedRecently(hashSubject(identity.subject), DEPARTURE_GRACE_SECONDS)) {
     throw new UnauthenticatedError(
-      'This account has been deleted. You have been signed out; create a new account to use ' +
-        'the board again.',
+      'This account has been deleted and you have been signed out. Signing in again in a few ' +
+        'minutes starts a new, empty account.',
       'token.account-deleted',
     );
   }

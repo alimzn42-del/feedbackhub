@@ -294,11 +294,12 @@ const english = {
   'account.deleteContent': 'Your requests and comments stay, shown as written by a deleted user.',
   'account.deleteVotes': 'Votes you cast stay counted.',
   'account.deletePrefs': 'Your preferences on this screen are deleted.',
-  'account.deleteSignIn': 'You cannot sign in again with this account.',
+  'account.deleteSignIn':
+    'This account ends now. Signing in again later starts a new, empty account — nothing from this one comes back.',
   'account.deleteButton': 'Delete my account',
   'account.deleteTitle': 'Delete your account?',
   'account.deleteBody':
-    'Your name and email are erased and you cannot sign in again. Your requests and comments stay on the board, shown as written by a deleted user, and your votes stay counted. This cannot be undone.',
+    'Your name and email are erased and this account ends; signing in again later starts a new, empty account. Your requests and comments stay on the board, shown as written by a deleted user, and your votes stay counted. This cannot be undone.',
 
   /* ── Where a setting's value came from ─────────────────────────────────── */
   'setting.sourceGlobal': 'Set for everybody',
@@ -637,11 +638,12 @@ const french: Record<MessageKey, string> = {
     'Vos demandes et vos commentaires restent, signés par un utilisateur supprimé.',
   'account.deleteVotes': 'Les votes que vous avez émis restent comptés.',
   'account.deletePrefs': 'Vos préférences sur cet écran sont supprimées.',
-  'account.deleteSignIn': 'Vous ne pourrez plus vous connecter avec ce compte.',
+  'account.deleteSignIn':
+    'Ce compte prend fin maintenant. Une connexion ultérieure crée un nouveau compte, vide — rien de celui-ci ne revient.',
   'account.deleteButton': 'Supprimer mon compte',
   'account.deleteTitle': 'Supprimer votre compte ?',
   'account.deleteBody':
-    'Votre nom et votre adresse e-mail sont effacés et vous ne pourrez plus vous connecter. Vos demandes et vos commentaires restent sur le tableau, signés par un utilisateur supprimé, et vos votes restent comptés. Cette action est irréversible.',
+    'Votre nom et votre adresse e-mail sont effacés et ce compte prend fin ; une connexion ultérieure crée un nouveau compte, vide. Vos demandes et vos commentaires restent sur le tableau, signés par un utilisateur supprimé, et vos votes restent comptés. Cette action est irréversible.',
 
   'setting.sourceGlobal': 'Défini pour tout le monde',
   'setting.sourceGlobalUnset': 'Non défini — valeur d’origine de l’application',

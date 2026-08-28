@@ -498,8 +498,13 @@ it is not a deploy.
 ### Deleting an account
 
 Anonymisation. The person's name, email and `external_id` are cleared, the
-account is marked deleted and can never sign in again, and their preferences are
-removed. **Their contributions stay** — requests and comments render as written
+account is marked deleted, and their preferences are removed. The token they
+were holding is refused for the rest of its lifetime (`401`, five minutes at
+most), and the browser ends the Keycloak session. **Signing in again later
+starts a new, empty account** — the Keycloak account itself is untouched, and
+nothing from the deleted one comes back. That is the intended meaning of
+deletion here, not a loophole; the reasoning and the length of the window are
+in [DECISIONS.md](DECISIONS.md). **Their contributions stay** — requests and comments render as written
 by a deleted user, and votes they cast stay counted. The interface says all of
 this before it asks, and again in the confirmation.
 
