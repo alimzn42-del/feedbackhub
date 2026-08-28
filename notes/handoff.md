@@ -28,7 +28,7 @@ Ten slices, schema version 12.
 | **Authentication** | Keycloak, imported from a realm file in this repository; authorization code with PKCE; tokens verified locally; provisioning and the registration policy on first arrival |
 | **Deployment** | container images for both applications, a compose file that brings the whole system up, and Kubernetes manifests behind one kustomization |
 
-**Tests: 473** — 247 API (vitest + supertest), 226 web (Angular + vitest, jsdom).
+**Tests: 481** — 247 API (vitest + supertest), 234 web (Angular + vitest, jsdom).
 **No test needs a running Keycloak, and none needs a database.**
 
 Eight tables: `users`, `categories`, `statuses`, `feedback_requests`, `votes`,
@@ -197,12 +197,23 @@ is a deadlock, not a flash. It is sound because arriving there is always a fresh
 page load — Keycloak redirects the browser, and nothing in the application links
 to it.
 
-### There is no sign-in form, and there must never be one
+### There is no sign-in form, and there must never be one — and no registration form either
 
 The person is redirected to Keycloak. A field in this application that collected
 a password would mean this application had handled one, which is the entire
 thing that delegating authentication exists to avoid. There is a test asserting
 the sign-in panel contains no `input[type="password"]` and no `<form>`.
+
+Registering is the same rule. The panel's "Create an account" starts the
+identical authorization request against Keycloak's
+`/protocol/openid-connect/registrations` — the one URL the browser derives
+rather than discovers, because it is Keycloak's and not OpenID Connect's — and
+the person comes back through the same callback. The realm verifies the
+address first (`verifyEmail` is on, and the API refuses an unverified one), so
+on a laptop the link is read out of Mailpit at <http://localhost:8025>. Whether
+the board then admits them is still `provision.ts`'s decision and nobody
+else's. A refusal renders as its own screen — the reason, a retry, and a
+sign-out, because the refused person is still signed in at the provider.
 
 ### A setting is defined in exactly one file
 
@@ -567,6 +578,46 @@ exchange with the PKCE verifier — not by asking Keycloak for a token directly.
 35 checks, all passing. The API's own suite ran throughout with no Keycloak at
 all.
 
+### And a real registration, on 2026-08-28
+
+Until this date `registrationAllowed` was false, so every "newcomer" above was
+a person typed into the realm file. The registration policy had never met an
+actual registration. It has now: the realm was re-imported from the changed
+file, and the flow below was driven the way a browser drives it — a real GET of
+Keycloak's registration page, a real form POST, the verification email read
+out of Mailpit's API and its link followed, the callback's code exchanged with
+the PKCE verifier, and every API call made through the web tier on port 4200.
+
+| | |
+|---|---|
+| The realm imports with registration on | `registrationAllowed`, `registrationEmailAsUsername`, `verifyEmail` and an `smtpServer` block all accepted; the seeded admin still lands on row 1 |
+| The registration page exists | `/protocol/openid-connect/registrations` with the same PKCE parameters renders `kc-register-form` |
+| It asks for no username | email, first name, last name, password — the email is the username, as for the three seeded people |
+| Registration does not sign straight in | the flow stops at "verify your email"; no code is issued yet |
+| The mail arrives | "Verify email" from `no-reply@feedbackhub.local`, in Mailpit, three times out of three |
+| The link finishes the flow | it lands on `/auth/callback` with a `code` and the original `state` |
+| The token is a real one | exchanged with the verifier; `email_verified` true; `aud` contains `feedbackhub-api` |
+| An open board admits the registrant | `200` from `/api/bootstrap`, named from the token ("Olive Outsider"), `canManageSettings` false |
+| A restricted board refuses one | policy `domains` = `feedbackhub.local`; a registrant at `example.org` gets `403 FORBIDDEN` in the standard envelope |
+| Refused by naming the rule | "This board is not open for registration. Ask an admin to add your email domain." — and `feedbackhub.local` appears nowhere in it |
+| Refused everywhere | `/api/requests` is `403` too |
+| A retry is the same refusal | second `/api/bootstrap` on the same token: `403`, not a second account |
+| One inside the domain is admitted | a registrant at `feedbackhub.local` under the same policy: `200` |
+| The admin relents | `example.org` added to the list; the refused person's retry on the **same token** is `200` — which is what makes the screen's "Try again" honest |
+| Each new account deleted itself afterwards | `204` ×3, so the board is as it was |
+| The policy was put back | `open`, the default |
+
+42 checks, none failed. The script is not in the repository, for the same
+reason as before: it belongs to the verification, not to the application.
+
+What the run found before it passed: with `verifyEmail: false` — the realm as it
+was — a self-registered account authenticates and is then refused as
+*unverified*, by `current-user.ts`, before `provision.ts` is reached; and the
+browser rendered that 401 as a silent return to the sign-in panel, from which
+signing in again came straight back to the same refusal through Keycloak's
+open session. Both are fixed: the realm verifies (which is why Mailpit exists),
+and a 401's sentence now reaches the panel.
+
 ### And again, through the containers
 
 Everything above was then re-run against `docker compose up -d --build` — the
@@ -632,7 +683,11 @@ Specifically unseen by a human:
 - **The sign-in screen and the redirect round trip.** Every part of it is
   asserted in a test and none of it has been watched happen. The API side of the
   same flow is verified above, but "the browser ends up back on the request they
-  followed a link to" has only been proven at the unit level.
+  followed a link to" has only been proven at the unit level. The same goes for
+  the **"Create an account"** control, the **refused-account screen** with its
+  sign-out, and the reason line on the sign-in panel: the provider side of
+  registration is verified end to end above, the screens are unit-tested, and
+  nobody has clicked through them.
 - **Silent refresh and an expiring session.** The timer is tested by asserting
   what it schedules, not by waiting five minutes.
 - **`data-theme="dark"` as an explicit choice.** The dark scheme has only ever

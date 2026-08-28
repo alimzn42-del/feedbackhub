@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { HttpErrorResponse, type HttpInterceptorFn } from '@angular/common/http';
 import { catchError, throwError } from 'rxjs';
 import { API_BASE_URL } from '../api/api-base-url';
+import { toApiError } from '../api/api-error';
 import { Session } from './session';
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -46,7 +47,9 @@ export const bearerToken: HttpInterceptorFn = (request, next) => {
        * from anywhere else is not evidence about this session.
        */
       if (isOurApi && !isAuthConfig && token && error instanceof HttpErrorResponse) {
-        if (error.status === 401) session.expire();
+        // The API's own sentence travels with it, so the sign-in panel can say
+        // WHY — an unverified address is not an expired session.
+        if (error.status === 401) session.expire(toApiError(error).message);
       }
 
       return throwError(() => error);

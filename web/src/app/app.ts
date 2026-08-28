@@ -65,4 +65,9 @@ export class App {
   protected signIn(): void {
     void this.session.signIn();
   }
+
+  /** The other way in: Keycloak's registration page, reached by the same flow. */
+  protected register(): void {
+    void this.session.register();
+  }
 }

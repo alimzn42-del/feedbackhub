@@ -39,7 +39,7 @@ permission model.
 | Comment approval | the feature flag: comments held until an admin approves them, judged in the thread |
 | Account | display name, preferences, and deleting your own account |
 | Language | English and French, applied without a reload |
-| Authentication | Keycloak: email/password and one social provider, with the realm imported from this repository |
+| Authentication | Keycloak: email/password and one social provider, with the realm imported from this repository. Registering and signing in both happen on Keycloak's pages; this application has no form for either |
 | Deployment artefacts | container images for both applications, a complete compose file, and Kubernetes manifests |
 
 ### What "an admin moderates" means here, exactly

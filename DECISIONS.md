@@ -502,6 +502,47 @@ would name a rule the application cannot apply and would in practice mean
 "closed" while claiming to mean something else. It arrives with invitations or
 not at all.
 
+**Registering is Keycloak's page, reached by the same flow as signing in.** The
+brief's first journey is "registers *or* signs in through the identity
+provider", and for nine slices only the second verb existed: the realm had
+`registrationAllowed: false`, so the policy above had never been exercised by an
+actual new registration. It is on now, and the sign-in panel's "Create an
+account" starts the authorization-code flow — same PKCE challenge, same state,
+same redirect URI — against `/protocol/openid-connect/registrations` instead of
+`/auth`. That endpoint is the one URL the browser assumes rather than
+discovers: it is Keycloak's, not OpenID Connect's, so it is not in the discovery
+document, and it is derived from the discovered authorization endpoint by
+replacing the last path segment. There is no registration form here for the
+same reason there is no sign-in form: a page that collected a password would
+mean this application had handled one.
+
+**The realm verifies email addresses, and a laptop needs somewhere to send the
+mail.** Turning registration on exposed a rule already written above: an
+unverified address is never provisioned. A self-registered account on a realm
+that does not verify addresses *is* the case that rule exists for — somebody
+typing another person's address at a provider that does not check it — so with
+`verifyEmail: false` every new registration authenticated perfectly and was
+then refused as unverified, before the registration policy was ever consulted.
+Loosening the API rule was refused: under an open policy it is still what stops
+a stranger squatting on a colleague's address so that the colleague collides on
+arrival. The realm verifies instead, which needs an SMTP server, which a laptop
+does not have — so the compose stack and the cluster each carry **Mailpit**, a
+sink that accepts every message and shows it on a web page. Registering ends by
+opening <http://localhost:8025> and clicking the link. It is local-review
+scaffolding on the same footing as the published development passwords, and a
+real deployment names its own relay in the realm's `smtpServer`.
+
+**A refused registrant gets a screen that says so, and a way out.** A 403 on
+`/api/bootstrap` used to render as "FeedbackHub could not start" with a retry
+button and nothing else — and the person was still signed in at Keycloak, so
+the retry returned the same refusal and there was no way to become somebody
+else. The screen now names what happened, shows the API's reason, and offers
+sign-out beside the retry. The retry stays because it is real: an admin who
+adds the domain admits them on the same token, which was verified end to end.
+Separately, a 401 from the API now carries its sentence onto the sign-in panel,
+because not every 401 is an expiry — "your address has not been verified" is a
+different instruction from "sign in again".
+
 **The last admin cannot delete their own account.** A 409, not a 403: they are
 allowed to, and the state of the world is what stands in the way. Nothing in this
 application promotes anybody, so a board that reaches zero admins can never have

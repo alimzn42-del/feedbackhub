@@ -50,6 +50,12 @@ Sign in at <http://feedbackhub.local> as `admin@feedbackhub.local` /
 `feedbackhub.local` → the web tier. `auth.feedbackhub.local` → Keycloak. That
 is the whole ingress.
 
+**Mailpit has no ingress either.** The realm verifies addresses at
+registration and sends the link to `mailpit:1025`; reading it in the cluster is
+`kubectl -n feedbackhub port-forward svc/mailpit 8025:8025` and then
+<http://localhost:8025>. A host for it would be one more ingress rule for a
+piece of review scaffolding, and a real deployment has no Mailpit at all.
+
 **The API has no ingress.** The browser reaches it same-origin through the web
 tier's nginx, which is the same arrangement as the Angular CLI's dev proxy and
 as docker-compose. One request path in every environment rather than an ingress
@@ -121,6 +127,12 @@ like the code.
 - **The realm is the development one**, with three published passwords and
   fixed user ids. A real deployment imports a realm with no `credentials` block
   at all.
+- **Mailpit is the realm's SMTP server.** It accepts every message and delivers
+  none, which is what makes registration's email verification workable on a
+  review cluster. The Service is named `mailpit` rather than
+  `feedbackhub-mailpit` because the realm file names the host and the realm
+  file is shared with compose. A real deployment drops `k8s/31-mailpit.yaml`
+  from the kustomization and names its relay in the realm's `smtpServer`.
 - **`k8s/11-secret.yaml` holds development values in plain `stringData`.** It
   is written that way deliberately rather than base64-encoded, because base64
   is not encryption and writing it as though it were teaches people to read a
@@ -154,6 +166,16 @@ v1.34.0, ingress-nginx.
 | The API through the web tier | `/api/auth/config` 200, `/api/requests` 401 — and no Ingress of its own |
 | Keycloak on its own host | discovery issuer exactly matches what the API compares `iss` to |
 | A real sign-in | authorization code + PKCE end to end: 9 checks, the seeded admin **matched** onto row 1, no role in the payload |
+| Mailpit (2026-08-28) | `kubectl apply -k . --dry-run=server` accepted the Service, the Deployment and the re-generated realm ConfigMap; then applied for real — see the note below |
+
+**The cluster's Keycloak has not been restarted since the realm gained
+registration.** `kubectl apply -k .` updated the ConfigMap and created Mailpit,
+but Keycloak imports the realm at pod start, so the running pod still serves
+the realm without registration until it is rolled
+(`kubectl -n feedbackhub rollout restart deploy/feedbackhub-keycloak`) or the
+deploy script is run again. The registration path itself was verified end to
+end through the compose stack, not the cluster — the record is in
+`notes/handoff.md`.
 
 One warning, from the API server rather than from the manifests:
 `spec.SessionAffinity is ignored for headless services` on the MySQL Service.

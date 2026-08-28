@@ -97,6 +97,41 @@ has a second admin only because `npm run demo` seeds one.
 
 ---
 
+## Registration, and where the email goes
+
+`registrationAllowed` is on, so Keycloak's own registration page exists and
+the sign-in panel's "Create an account" leads to it — the same
+authorization-code flow with the same PKCE parameters, against
+`/protocol/openid-connect/registrations` instead of `/auth`. The brief's first
+journey is "registers **or** signs in", and until this was switched on only the
+second verb existed. `registrationEmailAsUsername` is on with it, so the form
+asks for an email, a name and a password and not for a username of its own,
+which is how the three people above are set up.
+
+**`verifyEmail` is on, and it has to be.** The API refuses to provision an
+address nobody has checked, on purpose: a realm that does not verify is exactly
+the "provider that does not check" that a domain-restricted board has to be
+defended against. With verification off, every new registration authenticated
+and was then refused as unverified before the registration policy was ever
+consulted.
+
+Verifying needs somewhere to send the mail, so `smtpServer` points at
+`mailpit:1025` — a container in the compose stack (and a Service of the same
+name in the cluster, because this file names the host and this file is shared)
+that accepts every message and delivers none of them. **Registering ends by
+opening <http://localhost:8025> and clicking the link.** Nothing leaves the
+laptop. A real deployment names its own relay here and has no Mailpit.
+
+What this realm decides is only whether the person exists and whether the
+address is theirs. Whether the board gives them an account is the registration
+policy's decision, made by the API on their first request — see
+`api/src/auth/provision.ts`. Under `domains`, a stranger registers
+successfully, verifies successfully, and is refused with the rule and not the
+list. That path has been run end to end; the record is in `notes/handoff.md`.
+
+`resetPasswordAllowed` is still off. Nothing needed it, and it is one boolean
+away now that the realm can send mail.
+
 ## Google
 
 The realm file contains no identity providers. That is deliberate: a reviewer

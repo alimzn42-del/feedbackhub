@@ -34,6 +34,8 @@ resources:
   # ./scripts/deploy-k8s.sh creates it and then applies this.
   - k8s/20-mysql.yaml
   - k8s/30-keycloak.yaml
+  # Local review only: the mail sink the realm sends verification email to.
+  - k8s/31-mailpit.yaml
   - k8s/40-migrate-job.yaml
   - k8s/50-api.yaml
   - k8s/60-web.yaml

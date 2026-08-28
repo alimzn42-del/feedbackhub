@@ -88,6 +88,29 @@ services:
       timeout: 5s
       retries: 30
       start_period: 30s
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  # ── Where the realm's email goes ─────────────────────────────────────────
+  #
+  # The realm verifies email addresses, because the API refuses to provision an
+  # address nobody has checked — that is how a stranger would get into a
+  # domain-restricted board, by registering somebody else's address. Verifying
+  # needs somewhere to send the mail, and a laptop has nowhere. Mailpit is that
+  # somewhere: it accepts everything on SMTP, delivers nothing, and shows what
+  # arrived at http://localhost:8025. Registering an account ends with opening
+  # that page and clicking the link.
+  #
+  # Local review only, like the realm that points at it. A real deployment
+  # names the organisation's relay in the realm's `smtpServer` instead. The SMTP
+  # port is deliberately not published: only Keycloak sends to it.
+  mailpit:
+    image: axllent/mailpit:v1.28.0
+    container_name: feedbackhub-mailpit
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_PORT:-8025}:8025"
 
   # ── The schema, applied once ─────────────────────────────────────────────
   #

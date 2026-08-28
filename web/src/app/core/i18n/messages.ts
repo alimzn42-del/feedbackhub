@@ -44,8 +44,14 @@ const english = {
   'auth.checking': 'Checking who you are…',
   'auth.completing': 'Signing you in…',
   'auth.signInTitle': 'Sign in to FeedbackHub',
-  'auth.signInHint': 'You will be taken to the sign-in page and brought back here.',
+  'auth.signInHint':
+    'Signing in happens on a separate page, and you are brought back here afterwards.',
   'auth.signIn': 'Sign in',
+  'auth.registerLead': 'First time here?',
+  'auth.register': 'Create an account',
+  'auth.registerHint':
+    'You choose a password on the same page and confirm your email address. Whether this board admits a new account is decided when you come back — if it does not, it says why.',
+  'auth.refusedTitle': 'This board has not given you an account',
   'auth.signOut': 'Sign out',
   'auth.unavailable': 'Sign-in is unavailable',
 
@@ -386,8 +392,13 @@ const french: Record<MessageKey, string> = {
   'auth.checking': 'Vérification de votre identité…',
   'auth.completing': 'Connexion en cours…',
   'auth.signInTitle': 'Connectez-vous à FeedbackHub',
-  'auth.signInHint': 'Vous serez dirigé vers la page de connexion, puis ramené ici.',
+  'auth.signInHint': 'La connexion se fait sur une page distincte, puis vous êtes ramené ici.',
   'auth.signIn': 'Se connecter',
+  'auth.registerLead': 'Première visite ?',
+  'auth.register': 'Créer un compte',
+  'auth.registerHint':
+    'Vous choisissez un mot de passe sur cette même page et confirmez votre adresse e-mail. L’admission d’un nouveau compte sur ce tableau est décidée à votre retour — en cas de refus, la raison est indiquée.',
+  'auth.refusedTitle': 'Ce tableau ne vous a pas attribué de compte',
   'auth.signOut': 'Se déconnecter',
   'auth.unavailable': 'La connexion est indisponible',
 

@@ -223,6 +223,33 @@ describe('Session', () => {
       const flow = JSON.parse(browser.store.get('feedbackhub.auth.flow')!);
       expect(flow.returnTo).toBe('/requests/42?tab=comments');
     });
+
+    /**
+     * Registering is the same flow pointed at Keycloak's registration page:
+     * the same PKCE challenge, the same state, the same redirect URI, so the
+     * person comes back through the same callback with a code. The page is
+     * the one thing not in the discovery document, so it is derived from the
+     * authorization endpoint that is — and nothing about the flow changes.
+     */
+    it('leaves for the registration page with the same parameters as a sign-in', async () => {
+      const session = start();
+      await answerDiscovery();
+
+      await session.register('/requests/42');
+
+      const url = new URL(browser.assigned[0]!);
+      expect(url.origin + url.pathname).toBe(`${ISSUER}/protocol/openid-connect/registrations`);
+      expect(url.searchParams.get('response_type')).toBe('code');
+      expect(url.searchParams.get('client_id')).toBe('feedbackhub-web');
+      expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:4200/auth/callback');
+      expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+      expect(url.searchParams.get('code_challenge')).toBeTruthy();
+
+      const flow = JSON.parse(browser.store.get('feedbackhub.auth.flow')!);
+      expect(url.toString()).not.toContain(flow.verifier);
+      expect(url.searchParams.get('state')).toBe(flow.state);
+      expect(flow.returnTo).toBe('/requests/42');
+    });
   });
 
   describe('coming back', () => {
@@ -427,6 +454,36 @@ describe('Session', () => {
       // Nothing to show anybody: this is what leaving overnight looks like.
       expect(session.failure()).toBeNull();
       expect(browser.store.has('feedbackhub.auth.refresh')).toBe(false);
+    });
+  });
+
+  describe('being refused after signing in', () => {
+    /**
+     * Not every 401 is an expiry. A person whose address the provider has not
+     * verified is refused with a sentence that says so, and it has to reach the
+     * sign-in panel — otherwise they are back on a page that says nothing,
+     * from which signing in again returns them, through the provider's open
+     * session, to the same refusal.
+     */
+    it('keeps the reason the API gave, so the sign-in panel can say why', async () => {
+      const session = start();
+      await answerDiscovery();
+
+      session.expire('Your email address has not been verified with your identity provider.');
+
+      expect(session.isSignedOut()).toBe(true);
+      expect(session.failure()).toContain('has not been verified');
+      expect(session.accessToken()).toBeNull();
+    });
+
+    it('says nothing when the session simply ended', async () => {
+      const session = start();
+      await answerDiscovery();
+
+      session.expire();
+
+      expect(session.isSignedOut()).toBe(true);
+      expect(session.failure()).toBeNull();
     });
   });
 

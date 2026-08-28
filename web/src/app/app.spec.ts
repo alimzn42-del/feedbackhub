@@ -354,6 +354,114 @@ describe('the shell, before there is anybody', () => {
   });
 
   /**
+   * The brief's first journey is "registers OR signs in", and both have to be
+   * findable from this one panel. Registering is Keycloak's page, reached by
+   * the same flow — still no form here.
+   */
+  it('offers a way to create an account, on the provider and not here', () => {
+    let registered = false;
+    const fixture = render(
+      provideStubbedSession({
+        state: 'signed-out',
+        token: null,
+        onRegister: () => (registered = true),
+      }),
+    );
+
+    expect(fixture.nativeElement.querySelector('form')).toBeNull();
+    expect(fixture.nativeElement.querySelector('input')).toBeNull();
+
+    const buttons = [...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[];
+    const create = buttons.find((button) => button.textContent?.includes('Create an account'));
+    expect(create).toBeTruthy();
+    expect(fixture.nativeElement.textContent).toContain('First time here?');
+
+    create!.click();
+    expect(registered).toBe(true);
+  });
+
+  /**
+   * A 401 that is not an expiry. The API refuses an unverified address with a
+   * sentence, and the panel shows it — otherwise the person is back on a page
+   * that says nothing, and signing in again returns them to the same refusal.
+   */
+  it('shows why the API refused, when the reason came with the sign-out', () => {
+    const fixture = render(
+      provideStubbedSession({
+        state: 'signed-out',
+        token: null,
+        failure: 'Your email address has not been verified with your identity provider.',
+      }),
+    );
+
+    const problem = fixture.nativeElement.querySelector('.startup__problem');
+    expect(problem?.getAttribute('role')).toBe('alert');
+    expect(problem?.textContent).toContain('has not been verified');
+    // And still both ways in, underneath it.
+    expect(fixture.nativeElement.textContent).toContain('Sign in');
+    expect(fixture.nativeElement.textContent).toContain('Create an account');
+  });
+
+  /**
+   * Authenticated, and refused an account by the registration policy. That is
+   * not the application failing to start, and it needs a way OUT: the person
+   * is still signed in at the provider, and without one the only path off
+   * the page was a retry that returned the same refusal.
+   */
+  it('tells somebody the board refused them, with the reason and a way out', async () => {
+    let signedOut = false;
+    const fixture = render(provideStubbedSession({ onSignOut: () => (signedOut = true) }));
+
+    http.expectOne('/api/bootstrap').flush(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message:
+            'This board is not open for registration. Ask an admin to add your email domain.',
+          requestId: 'req-403',
+        },
+      },
+      { status: 403, statusText: 'Forbidden' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('This board has not given you an account');
+    expect(alert?.textContent).not.toContain('could not start');
+    expect(alert?.textContent).toContain('not open for registration');
+    expect(alert?.textContent).toContain('req-403');
+    expect(fixture.nativeElement.querySelector('nav')).toBeNull();
+
+    const buttons = [...alert.querySelectorAll('button')] as HTMLButtonElement[];
+    expect(buttons.some((button) => button.textContent?.includes('Try again'))).toBe(true);
+
+    const out = buttons.find((button) => button.textContent?.includes('Sign out'));
+    expect(out).toBeTruthy();
+    out!.click();
+    expect(signedOut).toBe(true);
+  });
+
+  /** Under the seam there is no provider session to end, so no button that claims to. */
+  it('offers no way out of a startup failure when there is no session to end', async () => {
+    const fixture = render(provideStubbedSession({ usesProvider: false, token: null }));
+
+    http
+      .expectOne('/api/bootstrap')
+      .flush(
+        { error: { code: 'INTERNAL', message: 'Something went wrong.', requestId: 'x' } },
+        { status: 500, statusText: 'Server Error' },
+      );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('FeedbackHub could not start');
+    const buttons = [...alert.querySelectorAll('button')] as HTMLButtonElement[];
+    expect(buttons.some((button) => button.textContent?.includes('Sign out'))).toBe(false);
+  });
+
+  /**
    * Not the same statement as "you are signed out": nobody has been asked yet.
    * Offering a sign-in button here would send somebody to a page that is not
    * answering.

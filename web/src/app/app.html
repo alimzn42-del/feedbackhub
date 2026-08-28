@@ -104,6 +104,20 @@
         <p class="startup__problem" role="alert">{{ problem }}</p>
       }
       <button type="button" class="button" (click)="signIn()">{{ t('auth.signIn') }}</button>
+
+      <!--
+        The other way in. Registering happens on Keycloak's own page, reached
+        by the same flow with the same parameters — this application never
+        sees the form. Whether the board then admits the new account is the
+        registration policy's decision, taken by the API when they come back.
+      -->
+      <div class="startup__register">
+        <p class="startup__register-lead">{{ t('auth.registerLead') }}</p>
+        <button type="button" class="button button--secondary" (click)="register()">
+          {{ t('auth.register') }}
+        </button>
+        <p class="startup__register-hint">{{ t('auth.registerHint') }}</p>
+      </div>
     </div>
   } @else if (config.isStarting()) {
     <!-- Guarded by "have I anything to show": this replaces the page only
@@ -118,14 +132,36 @@
       anything went wrong.
     -->
     <div class="startup startup--error" role="alert">
-      <h1 class="startup__title">{{ t('app.startFailed') }}</h1>
+      <!--
+        A 403 here is not the application failing to start. It is the board
+        refusing this person an account: they authenticated, the provider is
+        satisfied, and the registration policy said no. The title says that,
+        and the sentence underneath is the API's own reason.
+      -->
+      <h1 class="startup__title">
+        {{ failure.status === 403 ? t('auth.refusedTitle') : t('app.startFailed') }}
+      </h1>
       <p>{{ failure.message }}</p>
       @if (failure.requestId) {
         <p class="startup__reference">{{ t('app.reference', { id: failure.requestId }) }}</p>
       }
-      <button type="button" class="button" (click)="config.retry()">
-        {{ t('common.tryAgain') }}
-      </button>
+      <div class="startup__actions">
+        <button type="button" class="button" (click)="config.retry()">
+          {{ t('common.tryAgain') }}
+        </button>
+        <!--
+          The way out, which this screen used to lack. Somebody refused an
+          account is still signed in at the provider, and without this the
+          only path off the page was a retry that returned the same refusal —
+          they could not become somebody else. Absent under the development
+          seam, where there is no provider session to end.
+        -->
+        @if (session.usesProvider()) {
+          <button type="button" class="button button--secondary" (click)="session.signOut()">
+            {{ t('auth.signOut') }}
+          </button>
+        }
+      </div>
     </div>
   } @else {
     <router-outlet />

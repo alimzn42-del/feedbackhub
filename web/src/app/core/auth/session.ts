@@ -43,9 +43,15 @@ import { challengeFor, randomToken } from './pkce';
  * because it cannot be mounted, not because somebody remembered to list it.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/** Where the browser is sent, discovered rather than assumed. */
+/** Where the browser is sent, discovered rather than assumed — with one exception, below. */
 interface Endpoints {
   authorization: string;
+  /**
+   * Keycloak's registration page, which takes the same parameters as the
+   * authorization endpoint and ends the same way. Not in the discovery
+   * document: see `discover`.
+   */
+  registration: string;
   token: string;
   endSession: string;
 }
@@ -78,6 +84,21 @@ const ID_TOKEN_KEY = 'feedbackhub.auth.id';
 
 /** Refresh this long before expiry, so a request never races the clock. */
 const REFRESH_MARGIN_SECONDS = 60;
+
+/**
+ * The one URL this file assumes rather than discovers.
+ *
+ * Keycloak's registration page lives beside its authorization endpoint —
+ * `.../protocol/openid-connect/registrations` next to `.../auth` — takes the
+ * same parameters, and finishes by redirecting to the same callback with a
+ * code. It is not in the discovery document, because it is Keycloak's and not
+ * OpenID Connect's. Deriving it from the discovered authorization endpoint
+ * rather than from the issuer keeps whatever base path the provider actually
+ * answered with, and keeps the assumption to the last path segment.
+ */
+function registrationEndpointBeside(authorizationEndpoint: string): string {
+  return authorizationEndpoint.replace(/\/auth\/?$/, '/registrations');
+}
 
 @Injectable({ providedIn: 'root' })
 export class Session {
@@ -237,6 +258,7 @@ export class Session {
 
     return {
       authorization: document.authorization_endpoint,
+      registration: registrationEndpointBeside(document.authorization_endpoint),
       token: document.token_endpoint,
       endSession: document.end_session_endpoint,
     };
@@ -258,6 +280,27 @@ export class Session {
    * registered with the provider and must not vary.
    */
   async signIn(returnTo?: string): Promise<void> {
+    await this.leaveFor('authorization', returnTo);
+  }
+
+  /**
+   * Leaves for Keycloak's registration page instead of its sign-in page.
+   *
+   * It is the same flow with the same parameters — the same PKCE challenge,
+   * the same state, the same redirect URI — because registering IS signing
+   * in: the person creates an account with the provider, and the provider
+   * sends them back here with a code exactly as it would after a sign-in. This
+   * application never sees the form. Whether the board then admits them is a
+   * separate decision, taken by the API on the first request they make.
+   */
+  async register(returnTo?: string): Promise<void> {
+    await this.leaveFor('registration', returnTo);
+  }
+
+  private async leaveFor(
+    page: 'authorization' | 'registration',
+    returnTo: string | undefined,
+  ): Promise<void> {
     /**
      * Never a button that silently does nothing.
      *
@@ -301,7 +344,7 @@ export class Session {
       state,
     });
 
-    this.document.defaultView?.location.assign(`${this.endpoints.authorization}?${parameters}`);
+    this.document.defaultView?.location.assign(`${this.endpoints[page]}?${parameters}`);
   }
 
   /**
@@ -469,9 +512,18 @@ export class Session {
    * Called by the interceptor when the API refuses a token it was given, and by
    * the refresh timer when renewal fails. The shell then shows the way back in
    * rather than a screen full of failed requests.
+   *
+   * `reason` is the API's own sentence, when it gave one, and it is shown on
+   * the sign-in panel. Not every 401 is an expiry: a person whose address the
+   * provider has not verified is refused with a sentence that says so, and
+   * dropping it here left them on a sign-in panel that said nothing at all —
+   * from which signing in again returned them, through the provider's open
+   * session, to the same refusal. The sentence is what tells them which page
+   * to go and look at.
    */
-  expire(): void {
+  expire(reason?: string): void {
     this.forget();
+    this.failure.set(reason ?? null);
     this.state.set('signed-out');
   }
 

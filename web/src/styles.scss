@@ -366,6 +366,34 @@ ul {
   color: var(--danger);
 }
 
+/* The second way in, set apart from the first by a rule rather than by
+   weight alone: a newcomer should find it without a returning person
+   mistaking it for the button they want. */
+.startup__register {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+.startup--signin .startup__register-lead {
+  margin: 0 0 var(--space-3);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.startup--signin .startup__register-hint {
+  margin: var(--space-3) 0 0;
+  font-size: 0.875rem;
+}
+
+/* Two actions on a startup error — a retry, and the way out — side by side
+   where there is room, stacked where there is not. */
+.startup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
 /* ── Settings screens ──────────────────────────────────────────────────────
    Shared by the personal and the administrative screen: both are a list of
    labelled controls with an explanation and a note about where the current

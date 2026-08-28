@@ -22,6 +22,7 @@ export interface SessionStub {
   usesProvider: boolean;
   /** Recorded rather than performed: a test asserts these, never a redirect. */
   onSignIn?: (returnTo?: string) => void;
+  onRegister?: (returnTo?: string) => void;
   onSignOut?: () => void;
 }
 
@@ -36,6 +37,7 @@ const DEFAULTS: SessionStub = {
 export function provideStubbedSession(overrides: Partial<SessionStub> = {}): Provider {
   const stub = { ...DEFAULTS, ...overrides };
   const state = signal<SessionState>(stub.state);
+  const failure = signal<string | null>(stub.failure);
 
   return {
     provide: Session,
@@ -47,16 +49,23 @@ export function provideStubbedSession(overrides: Partial<SessionStub> = {}): Pro
       isCompletingSignIn: signal(stub.completingSignIn),
       usesProvider: signal(stub.usesProvider),
       accessToken: signal(stub.token),
-      failure: signal(stub.failure),
+      failure,
 
       signIn: (returnTo?: string) => {
         stub.onSignIn?.(returnTo);
         return Promise.resolve();
       },
+      register: (returnTo?: string) => {
+        stub.onRegister?.(returnTo);
+        return Promise.resolve();
+      },
       completeSignIn: () => Promise.resolve('/requests'),
       abandonSignIn: () => undefined,
       signOut: () => stub.onSignOut?.(),
-      expire: () => state.set('signed-out'),
+      expire: (reason?: string) => {
+        failure.set(reason ?? null);
+        state.set('signed-out');
+      },
       retry: () => undefined,
 
       /** Lets a test move the session while the component is mounted. */

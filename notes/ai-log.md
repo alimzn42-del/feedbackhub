@@ -1951,3 +1951,84 @@ The practical habits, both now in use:
   all, because nothing else will.
 - Read the process's own log first, never the orchestrator's summary. The
   healthcheck reports a symptom; `docker logs` had the answer both times.
+
+## 2026-08-28 — Registration: the brief's first verb, nine slices late
+
+**Asked:** the brief's first journey is "registers *or* signs in through the
+identity provider", and only the second verb existed — `registrationAllowed`
+was false. The fix as specified: turn it on, add a "Create an account" control
+that starts the same PKCE flow against `/protocol/openid-connect/registrations`,
+build no form, verify the domain-restricted refusal end to end with an actual
+registration, and re-read the sign-in panel's copy now that it has two paths.
+
+### What the verification found before it passed
+
+The specified fix was done first and the end-to-end run was written against it:
+a real GET of Keycloak's registration page, a real form POST, the callback's
+code exchanged with the verifier, `/api/bootstrap` through nginx. It could not
+reach the registration policy at all.
+
+The realm had `verifyEmail: false`, so a self-registered account carries
+`email_verified: false` — and `current-user.ts` refuses to provision an
+unverified address, on purpose, before `provision.ts` is ever called. That rule
+is written down in DECISIONS.md as the defence against exactly this: somebody
+registering another person's address at a provider that does not check it. A
+realm that does not verify *is* that provider. So every registrant
+authenticated perfectly and was then refused as unverified with a 401 — and the
+browser turned that 401 into a silent sign-out, back to a panel that said
+nothing, from which "Sign in" returned them through Keycloak's open SSO session
+to the same 401. Nine slices of "the registration policy is applied at
+provisioning" had been true of people typed into the realm file and never of a
+registration.
+
+Two ways out were weighed. Loosening the API rule under an `open` policy was
+refused: it is still what stops a stranger squatting on a colleague's address so
+the colleague collides on arrival with "ask an admin to link them". The other is
+for the realm to verify, which needs SMTP, which a laptop does not have — so the
+compose stack and the cluster each gained **Mailpit**, a sink that accepts
+everything and shows it on a web page. That is the one thing done here beyond
+the fix as specified, and it is the reason the specified verification could be
+performed at all. `registrationEmailAsUsername` went on with it so the form
+matches how the three seeded people are set up, and the same file drives both
+environments, which is why the cluster's Service is called `mailpit` and not
+`feedbackhub-mailpit`.
+
+### What the browser was doing to a refused person
+
+A 403 from `/api/bootstrap` rendered as "FeedbackHub could not start" with a
+retry button — a wrong title, and no way out. The person was still signed in
+at Keycloak; the retry returned the same refusal; they could not become anybody
+else. The screen now says the board has not given them an account, shows the
+API's reason, and offers sign-out beside the retry. The retry is kept because
+it is real: the run proved that an admin adding the domain admits the refused
+person on the same token. A 401's sentence now travels to the sign-in panel
+too, because "your address has not been verified" is a different instruction
+from "sign in again".
+
+### The run
+
+42 checks through the compose stack, none failed — the table is in
+`notes/handoff.md`. Open board admits; restricted board refuses with the rule
+and without the list, on every route, on retry; an address inside the domain
+is admitted under the same policy; the admin relents and the same token is
+admitted; each account deleted itself; the policy was restored. Eight new web
+tests (234 now) cover the control, the refused screen, the reason line, and
+the registration URL carrying the same PKCE parameters as a sign-in.
+
+### Things worth knowing
+
+- The registrations endpoint is not in the discovery document. It is Keycloak's
+  and not OpenID Connect's, so it is the one URL the browser derives — from the
+  discovered authorization endpoint, by replacing the last segment — rather
+  than discovers. It is commented as the assumption it is.
+- The cluster's Keycloak was **not** restarted. `kubectl apply -k .` updated
+  the ConfigMap and created Mailpit; the running pod serves the old realm until
+  it is rolled. Written into `k8s/README.md` so nobody reads a green apply as
+  a verified cluster.
+- Keycloak's verification link continues the *same* authentication session
+  when followed with the same cookies, and lands on the callback with the
+  original `state`. In a different browser it would not; a reviewer who opens
+  Mailpit in the same browser gets the seamless version.
+- A Node below 24.15 will not run the Angular CLI at all now. The pin in
+  `.node-version` is 24.19.0 and fnm honours it; a shell without fnm's
+  environment does not.

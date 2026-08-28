@@ -1,0 +1,104 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Mailpit: where the development realm's email goes.
+#
+# The realm verifies email addresses at registration, because the API refuses
+# to provision an address nobody has checked. Verifying needs an SMTP server,
+# and this is one that accepts everything and delivers nothing — the message
+# is read on its web page instead. That is exactly right for a review cluster
+# and exactly wrong anywhere real, which is the same line every other piece of
+# local-review scaffolding here is drawn on.
+#
+# WHY THE SERVICE IS CALLED `mailpit` AND NOT `feedbackhub-mailpit`
+#
+# The realm file names its SMTP host, and the realm file is shared with the
+# compose stack — kustomize generates the ConfigMap from the one copy in
+# keycloak/. Compose reaches this by its service name, `mailpit`, and the
+# realm import does not substitute environment variables (see keycloak/README.md),
+# so the cluster has to answer to the same name. One name in one file beats
+# two realms that disagree about where mail goes.
+#
+# A production deployment has no Mailpit. It points the realm's `smtpServer`
+# at the organisation's relay and drops this file from the kustomization.
+# ═══════════════════════════════════════════════════════════════════════════
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+  labels:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/part-of: feedbackhub
+spec:
+  selector:
+    app.kubernetes.io/name: mailpit
+  ports:
+    - name: smtp
+      port: 1025
+      targetPort: smtp
+    - name: http
+      port: 8025
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feedbackhub-mailpit
+  labels:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/part-of: feedbackhub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mailpit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mailpit
+        app.kubernetes.io/part-of: feedbackhub
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.28.0
+          ports:
+            - name: smtp
+              containerPort: 1025
+            - name: http
+              containerPort: 8025
+          env:
+            # Messages live in memory and die with the pod. Nothing here is
+            # worth keeping: every message is a verification link somebody
+            # clicked, or did not.
+            - name: MP_MAX_MESSAGES
+              value: '500'
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ['ALL']
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
