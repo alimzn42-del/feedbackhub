@@ -35,15 +35,12 @@ You should not need it.
 
 ---
 
-## Why two origins are listed
+## Why two origins are listed, and why that is not an inconsistency
 
 The client's `redirectUris` and `webOrigins` name both
 `http://localhost:4200` (compose) and `http://feedbackhub.local` (the kind
 cluster), because those are the two ways this repository can be run and a
 redirect URI Keycloak has not been told about is refused outright.
-
-**It is a list of values, not a second realm**, and adding a third environment
-is one entry in each.
 
 It would be neater for these to come from the environment, and that was tried:
 Keycloak's realm import does **not** substitute `${env.WEB_ORIGIN}`. It
@@ -51,7 +48,24 @@ validates the literal string as a URI, rejects it, and refuses to start — the
 same all-or-nothing failure as any other bad field in this file. So the values
 are written out.
 
-A real deployment imports a realm naming its own origin and nothing else.
+**That makes this file environment-specific, which sits oddly next to a web
+image that knows nothing about its environment at all — and the reason it is a
+boundary rather than a contradiction is worth stating plainly.**
+
+**This realm is local-review tooling, and a real deployment does not import it.**
+Not a templated copy of it, not a variant with different origins — it is not
+part of the deployment at all. In a real environment the client is created
+through Keycloak's admin API, or from an import templated at deploy time by
+whatever already holds that environment's hostnames. The realm there has no
+`credentials` block, no fixed user ids, and one origin: its own.
+
+So the two things being compared are not peers. The web image is a deployable
+artefact and must not carry environment knowledge, which is why it asks the API
+for the issuer and client id at runtime rather than having them baked in. This
+file is a fixture that exists so `docker compose up` and `kubectl apply -k .`
+are each followed by a working sign-in instead of a setup procedure. A fixture
+listing the two environments it is a fixture for is doing its job; adding a
+third is one entry in each list.
 
 ## Why the user ids are written down
 

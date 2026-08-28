@@ -1861,3 +1861,93 @@ the payload.
 The manifests were, as it turned out, correct. The thing they mounted was not.
 That is worth stating precisely, because "the manifests were fine" and "the
 deployment worked" are different claims, and only running it separates them.
+
+---
+
+## 2026-08-28 — The same mistake twice: schema claims about someone else's system
+
+Two failures in this project, a week apart, look like separate incidents. They
+are one pattern, and writing them up together is the only way that becomes
+visible.
+
+### The two
+
+**One — an invented field.** The Keycloak client in the realm file was given
+`postLogoutRedirectUris`, holding the URL to return to after sign-out. It sits
+between `redirectUris` and `webOrigins`, both of which are real and spelled
+exactly like that. It matches the OpenID Connect vocabulary, where
+`post_logout_redirect_uri` genuinely exists. It is the name the field *would*
+have if Keycloak had one. Keycloak does not: post-logout URIs are an entry in
+the client's `attributes` map.
+
+**Two — an invented capability.** The realm hardcoded `http://localhost:4200`
+as the redirect URI, which broke sign-in the moment the same realm was imported
+into a cluster where the browser is at `http://feedbackhub.local`. The fix
+written was `"redirectUris": ["${env.WEB_ORIGIN}/auth/callback"]` — one file,
+values from the environment, exactly the discipline applied everywhere else in
+this repository. Keycloak's realm import does not do property substitution. It
+validated the literal string as a URI, found it was not one, and refused.
+
+The second is the more instructive, because it was a *fix* for an
+environment-configuration problem, written immediately after the first
+incident's lesson had been written down — and it failed in precisely the same
+way as the thing it was fixing.
+
+### Why they are one shape
+
+Both are **a claim about another system's schema, made from plausibility rather
+than from its documentation.** Neither was a typo. Neither was a deprecated
+field or a version difference. Both were confident inventions that read
+correctly to anyone who knows the domain but not that specific product.
+
+And both failed identically, in a way that punishes the guess three times over:
+
+1. **The importer rejects the entire file, not the offending field.** One bad
+   key and there is no realm at all — no client, no users, no mappers. A
+   validator that dropped the unknown field and carried on would be worse, so
+   this is correct behaviour; it is also what turns a one-line mistake into
+   total failure.
+2. **The container then restart-loops**, because a Keycloak that cannot import
+   its realm will not start.
+3. **The diagnostic names none of it.** What the orchestrator surfaces is a
+   healthcheck failing:
+
+   ```
+   keycloak: unhealthy
+   /bin/sh: line 1: /dev/tcp/127.0.0.1/9000: Connection refused
+   ```
+
+   True, and useless. It contains no occurrence of "realm", "import" or
+   "client". Read alone it points at the healthcheck — wrong port, wrong path,
+   the `/dev/tcp` trick unsupported in that image — and time can be spent fixing
+   a healthcheck that was already correct. The sentence naming the field is
+   thirty lines up in `docker logs`, and nowhere else.
+
+And through all of it, every test passed. They were not wrong to: the defect is
+in a JSON document no test loads, consumed by a program no test runs, validated
+by a schema written in Java.
+
+### The correction
+
+**A claim about another system's schema gets checked against that system's
+documentation before it reaches a file.** Not after the container fails to come
+up, and not by reasoning from what the field ought to be called.
+
+The trigger is specific and easy to recognise: *writing a key into a
+configuration file that some other program will parse.* A realm import, a
+compose file, a Kubernetes manifest, an nginx directive. In application code a
+wrong name is a compile error or a failing test within seconds. In these files
+it is silent until a container will not start, and the message that explains it
+is not the message you are shown.
+
+The second-order version, which is what the repeat proved: **the fix for a
+configuration problem is itself configuration, and gets the same treatment.**
+Applying the lesson to the bug while exempting the patch is how the same
+mistake arrives twice in a fortnight.
+
+The practical habits, both now in use:
+
+- Run it. Not once the suite is green — as the step that finds this class at
+  all, because nothing else will.
+- Read the process's own log first, never the orchestrator's summary. The
+  healthcheck reports a symptom; `docker logs` had the answer both times.

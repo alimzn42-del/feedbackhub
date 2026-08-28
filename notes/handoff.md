@@ -611,6 +611,22 @@ could: the realm named only `http://localhost:4200` as a redirect URI, so
 sign-in at the cluster hostname was refused outright. Every manifest was
 correct; the thing they mounted was not.
 
+**A redeploy that adds a migration, with replicas already running, has not been
+tested.** This is the case the init container exists for, and it is the one case
+it has never actually met.
+
+What has been tested is both of its branches, in isolation, inside the real
+image against a real MySQL: the satisfied case (`schema at 12; this image
+expects 12`, exit 0) and the waiting case (retrying, never exiting). That covers
+the logic. It does not cover the sequence — two replicas serving at version 12,
+a new image expecting 13, the Job applying it, and the rollout ordering itself
+correctly around all of that.
+
+Closing it means: deploy, add migration 13, rebuild, redeploy, and watch that
+the new pods stay in `Init` until the Job completes while the old pods keep
+serving. Worth doing before these manifests are trusted with a schema change
+that matters.
+
 Specifically unseen by a human:
 
 - **The sign-in screen and the redirect round trip.** Every part of it is

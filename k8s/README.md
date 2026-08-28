@@ -164,3 +164,12 @@ named only `http://localhost:4200`, so sign-in at the cluster hostname was
 refused with `Invalid parameter: redirect_uri`. A rendered manifest cannot
 show that — the manifests were all correct; the thing they mounted was not.
 See `notes/ai-log.md`.
+
+### Still untested
+
+**A redeploy that adds a migration while replicas are running.** Both branches
+of the init container have been run inside the real image against a real MySQL,
+so the logic is covered; the *sequence* is not. Nobody has yet deployed at
+version 12, added migration 13, and watched new pods hold in `Init` while the
+old ones keep serving. That is the case this init container exists for and the
+one case it has not met.

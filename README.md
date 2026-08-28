@@ -5,13 +5,25 @@ feedback, everyone browses and upvotes, and admins triage. The point is to stop
 the same suggestion arriving five times by email, and to make visible what is
 actually being worked on.
 
-**Status: slice 9.** A feedback request can be created, listed, voted on,
-pinned, discussed, filtered, searched, sorted, edited, deleted and moved
+**Status: slice 10, complete.** A feedback request can be created, listed, voted
+on, pinned, discussed, filtered, searched, sorted, edited, deleted and moved
 between statuses; the categories and statuses are managed from an admin screen;
 comments can be held for approval; the installation and each person have
-settings, in English or French — and **people now sign in**, against Keycloak,
-with a realm this repository imports. See
-[Scope](#what-is-and-is-not-built) below for what is still deliberately absent.
+settings, in English or French; people sign in against Keycloak with a realm
+this repository imports; and the whole system deploys from container images,
+either through Compose or onto Kubernetes.
+
+**473 tests** — 247 API, 226 web. None needs a running Keycloak and none needs
+a database.
+
+### The four documents
+
+| | |
+|---|---|
+| [SCOPE.md](SCOPE.md) | what is in, what is **ruled out**, and why. Read this before proposing a feature |
+| [DECISIONS.md](DECISIONS.md) | why the code looks the way it does |
+| [AI_COLLABORATION.md](AI_COLLABORATION.md) | every line here was AI-generated. This is how, and where it went wrong |
+| [notes/handoff.md](notes/handoff.md) | the state of play, including what is **not** verified |
 
 ## Requirements
 
@@ -295,7 +307,10 @@ web/                     Angular, standalone components, typed reactive forms
   Dockerfile             multi-stage; context is the repository root
 keycloak/                the imported realm, and the optional Google script
 k8s/                     Kubernetes manifests; the kustomization is at the root
-notes/ai-log.md          raw working log of the AI collaboration
+scripts/deploy-k8s.sh    creates the Secret, then applies the manifests
+notes/ai-log.md          raw working log, appended as work happened
+notes/handoff.md         the state of play, including what is unverified
+AI_COLLABORATION.md      how this was built with an AI, and where it failed
 SCOPE.md                 what is in, what is ruled out, and why
 DECISIONS.md             what was decided and why
 docker-compose.yml       the whole system: database, identity, API, web
